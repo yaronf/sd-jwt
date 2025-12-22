@@ -96,16 +96,16 @@ verifyJWT publicKeyJWK jwtText = do
 
 -- | Parse a JWK from JSON Text.
 --
--- This is a placeholder implementation. In a full implementation, this would
--- parse the JWK JSON and convert it to the appropriate Jose.Jwk.Jwk type.
--- For now, this returns an error indicating that JWK parsing is not yet implemented.
+-- Parses a JSON Web Key (JWK) from its JSON representation.
+-- Supports all key types that jose-jwt supports: RSA, EC, Ed25519, Ed448, and symmetric keys.
+--
+-- The JWK JSON format follows RFC 7517. Examples:
+-- - RSA public key: {"kty":"RSA","n":"...","e":"..."}
+-- - EC public key: {"kty":"EC","crv":"P-256","x":"...","y":"..."}
+-- - RSA private key: {"kty":"RSA","n":"...","e":"...","d":"...","p":"...","q":"..."}
 parseJWKFromText :: T.Text -> Either SDJWTError Jwk
-parseJWKFromText _jwkText = do
-  -- TODO: Parse JWK JSON and convert to Jose.Jwk.Jwk
-  -- This requires parsing the JSON structure and extracting key material
-  -- For RSA keys, we'd need to parse n, e, d, etc.
-  -- For EC keys, we'd need to parse x, y, d, crv, etc.
-  
-  -- Placeholder: Return error for now
-  Left $ InvalidSignature "JWK parsing from Text not yet implemented. Please provide a proper Jose.Jwk.Jwk."
+parseJWKFromText jwkText =
+  case Aeson.eitherDecodeStrict (TE.encodeUtf8 jwkText) of
+    Left err -> Left $ InvalidSignature $ "Failed to parse JWK JSON: " <> T.pack err
+    Right jwk -> Right jwk
 

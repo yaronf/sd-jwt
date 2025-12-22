@@ -401,11 +401,12 @@ data SDJWTError
    - ✅ Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
    - ✅ Decoy digest support (addDecoyDigest)
    - ✅ RFC example tests (Section 5.1 disclosures - basic digest verification)
+   - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
    - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation)
    - ❌ Tests for nested structures (Section 6)
-   - ❌ Actual JWT signing (infrastructure exists in SDJWT.JWT, needs JWK parsing)
+   - ❌ Actual JWT signing (infrastructure exists in SDJWT.JWT, JWK parsing ready)
    - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
-   - **TODO**: Implement JWK parsing from Text/JSON (required for JWT signing)
+   - **TODO**: Integrate JWT signing in createSDJWT (now that JWK parsing works)
    - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
 
 6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE

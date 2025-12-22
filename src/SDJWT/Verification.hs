@@ -49,8 +49,9 @@ verifySDJWT mbIssuerKey presentation = do
   
   -- Verify issuer signature if key provided
   case mbIssuerKey of
-    Just issuerKey -> do
-      -- TODO: Verify JWT signature using verifyJWT when JWK parsing is implemented
+    Just _issuerKey -> do
+      -- TODO: Verify JWT signature using verifyJWT
+      -- Example: verifyResult <- verifyJWT issuerKey (presentationJWT presentation)
       -- For now, skip signature verification
       return ()
     Nothing -> return ()
