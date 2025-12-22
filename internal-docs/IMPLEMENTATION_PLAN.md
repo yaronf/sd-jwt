@@ -122,6 +122,8 @@ data ProcessedSDJWTPayload = ProcessedSDJWTPayload
 - Secure random salt generation
 - Text/ByteString conversions
 
+**Testing**: Unit tests for base64url encoding/decoding, salt generation ✅
+
 ### 1.3 Hash/Digest Functions (`Digest.hs`)
 
 ```haskell
@@ -139,7 +141,11 @@ parseHashAlgorithm :: Text -> Maybe HashAlgorithm
 defaultHashAlgorithm :: HashAlgorithm
 ```
 
+**Testing**: Unit tests for digest computation, hash algorithm parsing, RFC example tests (Section 5.1) ✅
+
 ## Phase 2: Disclosure Handling
+
+**Testing**: Unit tests for disclosure creation/parsing, RFC example tests (Section 5.1 disclosures) ✅
 
 ### 2.1 Disclosure Creation (`Disclosure.hs`)
 
@@ -174,6 +180,8 @@ disclosureValue :: Disclosure -> Value
 
 ## Phase 3: SD-JWT Issuance
 
+**Testing**: Unit tests for SD-JWT creation, RFC example tests (complete issuance flow from Section 5.1), nested structure tests (Section 6)
+
 ### 3.1 Payload Construction (`Issuance.hs`)
 
 ```haskell
@@ -203,6 +211,8 @@ createSDJWT :: JWK -> HashAlgorithm -> Map Text Value -> Either SDJWTError SDJWT
 
 ## Phase 4: SD-JWT Presentation
 
+**Testing**: Unit tests for disclosure selection, integration tests for presentation creation, edge cases (no disclosures, all disclosures)
+
 ### 4.1 Presentation Creation (`Presentation.hs`)
 
 ```haskell
@@ -228,6 +238,8 @@ serializePresentation :: SDJWTPresentation -> Text
 - Validate disclosure dependencies
 
 ## Phase 5: SD-JWT Verification
+
+**Testing**: Unit tests for verification logic, RFC example tests (Section 5.2 presentations), error handling tests (invalid digests, missing disclosures)
 
 ### 5.1 Verification (`Verification.hs`)
 
@@ -267,6 +279,8 @@ processPayload :: HashAlgorithm -> SDJWTPayload -> [EncodedDisclosure] -> Either
 
 ## Phase 6: Key Binding Support
 
+**Testing**: Unit tests for KB-JWT creation/verification, integration tests for SD-JWT+KB flow, RFC example tests (Section 7)
+
 ### 6.1 Key Binding (`KeyBinding.hs`)
 
 ```haskell
@@ -282,6 +296,8 @@ verifyKeyBindingJWT :: JWK -> JWT -> SDJWTPresentation -> Either SDJWTError ()
 ```
 
 ## Phase 7: Serialization
+
+**Testing**: Unit tests for serialization/deserialization, format validation tests, edge cases (empty disclosures, no KB-JWT) ✅
 
 ### 7.1 Serialization (`Serialization.hs`)
 
@@ -323,27 +339,75 @@ data SDJWTError
   deriving (Eq, Show)
 ```
 
-## Phase 9: Testing
+## Phase 9: Testing Strategy
 
-### 9.1 Test Cases
+### 9.1 Incremental Testing Approach
 
-1. **Unit Tests**
-   - Disclosure creation/parsing
-   - Digest computation
-   - Salt generation
-   - Serialization/deserialization
+**Testing Philosophy**: Write tests incrementally alongside implementation, not at the end.
 
-2. **Integration Tests**
-   - Complete issuance flow
-   - Presentation with selected disclosures
-   - Verification with various scenarios
-   - Key binding flow
+**Rationale**:
+- Cryptographic code requires early verification - bugs compound and are hard to debug later
+- RFC 9901 provides concrete examples (Section 5) that can be tested immediately
+- Tests serve as documentation and usage examples
+- Early feedback catches issues before they propagate
+- Easier debugging when tests are written close to implementation
 
-3. **RFC Compliance Tests**
-   - Examples from RFC 9901 Section 5
-   - Nested structure examples (Section 6)
-   - Recursive disclosure examples
-   - Edge cases (empty disclosures, no disclosures, etc.)
+### 9.2 Test Implementation Schedule
+
+**Tests are written during each phase:**
+
+1. **Phase 1 (Core Types & Utils)** ✅ COMPLETED
+   - Unit tests for base64url encoding/decoding
+   - Unit tests for salt generation
+   - Unit tests for hash algorithm parsing/conversion
+
+2. **Phase 2 (Disclosure)** ✅ COMPLETED
+   - Unit tests for disclosure creation/parsing
+   - RFC example tests (Section 5.1 disclosures)
+   - Edge cases (empty values, special characters)
+
+3. **Phase 3 (Digest)** ✅ COMPLETED
+   - Unit tests for digest computation
+   - RFC example tests (verify known digests from Section 5.1)
+   - Tests for all three hash algorithms (SHA-256, SHA-384, SHA-512)
+
+4. **Phase 4 (Serialization)** ✅ COMPLETED
+   - Unit tests for serialization/deserialization
+   - Format validation tests
+   - Edge cases (empty disclosures, no KB-JWT)
+
+5. **Phase 5 (Issuance)** - TODO
+   - Unit tests for SD-JWT creation
+   - RFC example tests (complete issuance flow from Section 5.1)
+   - Tests for nested structures (Section 6)
+
+6. **Phase 6 (Presentation)** - TODO
+   - Unit tests for disclosure selection
+   - Integration tests for presentation creation
+   - Edge cases (no disclosures selected, all disclosures)
+
+7. **Phase 7 (Verification)** - TODO
+   - Unit tests for verification logic
+   - RFC example tests (verify Section 5.2 presentations)
+   - Error handling tests (invalid digests, missing disclosures, etc.)
+
+8. **Phase 8 (Key Binding)** - TODO
+   - Unit tests for KB-JWT creation/verification
+   - Integration tests for SD-JWT+KB flow
+   - RFC example tests (Section 7)
+
+### 9.3 Test Framework
+
+- **hspec** - Primary testing framework (already added)
+- **QuickCheck** - Property-based testing for edge cases
+- **RFC Examples** - Direct tests against examples from RFC 9901 Section 5
+
+### 9.4 Test Coverage Goals
+
+- **Unit Tests**: Cover all public functions with happy paths and error cases
+- **RFC Compliance**: Test against all examples in RFC 9901 Sections 5, 6, and 7
+- **Edge Cases**: Empty inputs, malformed data, boundary conditions
+- **Integration Tests**: End-to-end flows (issuance → presentation → verification)
 
 ## Dependencies
 
@@ -371,16 +435,37 @@ dependencies:
 
 ## Implementation Order
 
-1. **Week 1**: Core types, utilities, and disclosure handling
-2. **Week 2**: Digest computation and hash algorithms
-3. **Week 3**: SD-JWT issuance (basic cases)
-4. **Week 4**: SD-JWT issuance (nested and recursive)
-5. **Week 5**: Presentation and disclosure selection
-6. **Week 6**: Verification (basic)
-7. **Week 7**: Key Binding support
-8. **Week 8**: Serialization and edge cases
-9. **Week 9**: Testing and RFC compliance
-10. **Week 10**: Documentation and polish
+**Note**: Tests are written incrementally alongside implementation, not at the end.
+
+1. **Week 1**: Core types, utilities, and disclosure handling ✅
+   - **Tests**: Unit tests for base64url, salt generation, hash algorithms, disclosure creation/parsing
+
+2. **Week 2**: Digest computation and hash algorithms ✅
+   - **Tests**: Unit tests for digest computation, RFC example tests (Section 5.1)
+
+3. **Week 3**: Serialization and basic infrastructure ✅
+   - **Tests**: Unit tests for serialization/deserialization, format validation
+
+4. **Week 4**: SD-JWT issuance (basic cases)
+   - **Tests**: Unit tests for issuance, RFC example tests (complete Section 5.1 issuance)
+
+5. **Week 5**: SD-JWT issuance (nested and recursive)
+   - **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
+
+6. **Week 6**: Presentation and disclosure selection
+   - **Tests**: Unit tests for disclosure selection, integration tests for presentation creation
+
+7. **Week 7**: Verification (basic)
+   - **Tests**: Unit tests for verification logic, RFC example tests (Section 5.2 presentations)
+
+8. **Week 8**: Key Binding support
+   - **Tests**: Unit tests for KB-JWT creation/verification, RFC example tests (Section 7)
+
+9. **Week 9**: Edge cases and polish
+   - **Tests**: Additional edge case tests, property-based tests with QuickCheck
+
+10. **Week 10**: Documentation and final RFC compliance verification
+   - **Tests**: Final RFC compliance check against all examples
 
 ## Security Considerations
 
