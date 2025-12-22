@@ -22,8 +22,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.ByteString.Lazy as BSL
-import Control.Monad (foldM)
-import Data.Maybe (fromMaybe)
 import Data.List (sortBy)
 import Data.Ord (comparing)
 import Data.Either (partitionEithers)

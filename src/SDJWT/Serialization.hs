@@ -91,10 +91,10 @@ parseTildeSeparated input =
           -- Last part could be empty (SD-JWT) or KB-JWT (SD-JWT+KB)
           (disclosureParts, lastPart) = case reverse rest of
             [] -> ([], Nothing)
-            last : revDisclosures ->
-              if T.null last
+            lastItem : revDisclosures ->
+              if T.null lastItem
                 then (reverse revDisclosures, Nothing)
-                else (reverse revDisclosures, Just last)
+                else (reverse revDisclosures, Just lastItem)
           disclosures = map EncodedDisclosure disclosureParts
         in
           Right (jwt, disclosures, lastPart)

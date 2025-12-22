@@ -8,6 +8,7 @@ import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.Serialization
 import SDJWT.Issuance
+import SDJWT.Presentation
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
@@ -121,6 +122,59 @@ main = hspec $ do
             unDigest digest `shouldSatisfy` (not . T.null)
             unEncodedDisclosure disclosure `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Failed to mark claim: " ++ show err
+
+  describe "SDJWT.Presentation" $ do
+    describe "createPresentation" $ do
+      it "creates presentation with selected disclosures" $ do
+        let jwt = "test.jwt"
+        let sdjwt = SDJWT jwt []
+        let selected = []
+        let presentation = createPresentation sdjwt selected
+        presentationJWT presentation `shouldBe` jwt
+        selectedDisclosures presentation `shouldBe` selected
+        keyBindingJWT presentation `shouldBe` Nothing
+    
+    describe "selectDisclosures" $ do
+      it "selects disclosures from SD-JWT" $ do
+        let disclosure1 = EncodedDisclosure "disclosure1"
+        let disclosure2 = EncodedDisclosure "disclosure2"
+        let sdjwt = SDJWT "test.jwt" [disclosure1, disclosure2]
+        case selectDisclosures sdjwt [disclosure1] of
+          Right presentation -> do
+            presentationJWT presentation `shouldBe` "test.jwt"
+            selectedDisclosures presentation `shouldBe` [disclosure1]
+          Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
+      
+      it "rejects disclosures not in original SD-JWT" $ do
+        let disclosure1 = EncodedDisclosure "disclosure1"
+        let disclosure2 = EncodedDisclosure "disclosure2"
+        let sdjwt = SDJWT "test.jwt" [disclosure1]
+        case selectDisclosures sdjwt [disclosure2] of
+          Right _ -> expectationFailure "Should have rejected invalid disclosure"
+          Left _ -> return ()  -- Expected error
+    
+    describe "selectDisclosuresByNames" $ do
+      it "selects disclosures by claim names" $ do
+        -- Create an SD-JWT with disclosures
+        let claims = Map.fromList
+              [ ("given_name", Aeson.String "John")
+              , ("family_name", Aeson.String "Doe")
+              , ("sub", Aeson.String "user_42")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name", "family_name"] claims
+        case result of
+          Right (payload, disclosures) -> do
+            -- Create a mock SDJWT (without actual signing)
+            let jwt = "test.jwt"
+            let sdjwt = SDJWT jwt disclosures
+            
+            -- Select only given_name
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                presentationJWT presentation `shouldBe` jwt
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Failed to select by names: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

@@ -19,6 +19,7 @@ module SDJWT
   , module SDJWT.Disclosure
   , module SDJWT.Serialization
   , module SDJWT.Issuance
+  , module SDJWT.Presentation
   ) where
 
 import SDJWT.Types
@@ -27,3 +28,4 @@ import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.Serialization
 import SDJWT.Issuance
+import SDJWT.Presentation
