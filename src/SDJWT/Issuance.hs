@@ -40,8 +40,7 @@ createSDJWTFromClaims
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError (SDJWTPayload, [EncodedDisclosure]))
-createSDJWTFromClaims hashAlg selectiveClaims claims =
-  buildSDJWTPayload hashAlg selectiveClaims claims
+createSDJWTFromClaims = buildSDJWTPayload
 
 -- | Mark a claim as selectively disclosable.
 --
@@ -83,15 +82,14 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
         (\name _ -> name `elem` selectiveClaimNames) claims
   
   -- Create disclosures and digests for selective claims
-  disclosureResults <- mapM (\(name, value) ->
-    markSelectivelyDisclosable hashAlg name value) (Map.toList selectiveClaims)
+  disclosureResults <- mapM (uncurry (markSelectivelyDisclosable hashAlg)) (Map.toList selectiveClaims)
   
   -- Check for errors
   let (errors, successes) = partitionEithers disclosureResults
   case errors of
     (err:_) -> return (Left err)
     [] -> do
-      let (digests, disclosures) = unzip successes
+      let (digests, sdDisclosures) = unzip successes
       
       -- Build the JSON payload
       -- Start with regular claims
@@ -111,7 +109,7 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
             , payloadValue = Aeson.Object payloadWithSD
             }
       
-      return (Right (payload, disclosures))
+      return (Right (payload, sdDisclosures))
 
 -- | Create a complete SD-JWT (signed).
 --
@@ -127,7 +125,7 @@ createSDJWT hashAlg selectiveClaimNames claims = do
   result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
   case result of
     Left err -> return (Left err)
-    Right (payload, disclosures) -> do
+    Right (payload, sdDisclosures) -> do
   
       -- TODO: Sign the JWT using jose-jwt
       -- For now, encode the payload as a JWT (without signing)
@@ -141,7 +139,7 @@ createSDJWT hashAlg selectiveClaimNames claims = do
       
       return $ Right $ SDJWT
         { issuerSignedJWT = unsignedJWT
-        , disclosures = disclosures
+        , disclosures = sdDisclosures
         }
 
 -- | Sort digests for deterministic ordering in _sd array.
