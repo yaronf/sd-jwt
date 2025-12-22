@@ -20,6 +20,7 @@ module SDJWT
   , module SDJWT.Serialization
   , module SDJWT.Issuance
   , module SDJWT.Presentation
+  , module SDJWT.Verification
   ) where
 
 import SDJWT.Types
@@ -29,3 +30,4 @@ import SDJWT.Disclosure
 import SDJWT.Serialization
 import SDJWT.Issuance
 import SDJWT.Presentation
+import SDJWT.Verification

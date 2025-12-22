@@ -76,7 +76,7 @@ newtype EncodedDisclosure = EncodedDisclosure { unEncodedDisclosure :: Text }
   deriving (Eq, Show, Generic)
 
 -- | Key Binding information from cnf claim
-data KeyBindingInfo = KeyBindingInfo
+newtype KeyBindingInfo = KeyBindingInfo
   { kbPublicKey :: Text  -- TODO: Use proper JWK type from jose-jwt
   }
   deriving (Eq, Show, Generic)
@@ -106,7 +106,7 @@ data SDJWTPresentation = SDJWTPresentation
   deriving (Eq, Show, Generic)
 
 -- | Processed SD-JWT payload (after verification)
-data ProcessedSDJWTPayload = ProcessedSDJWTPayload
+newtype ProcessedSDJWTPayload = ProcessedSDJWTPayload
   { processedClaims :: Map Text Value
   }
   deriving (Eq, Show, Generic)

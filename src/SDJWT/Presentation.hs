@@ -7,12 +7,15 @@ module SDJWT.Presentation
   ( createPresentation
   , selectDisclosures
   , selectDisclosuresByNames
+  , addKeyBinding
   ) where
 
 import SDJWT.Types
 import SDJWT.Disclosure
+import SDJWT.KeyBinding
 import qualified Data.Text as T
 import qualified Data.Set as Set
+import Data.Int (Int64)
 
 -- | Create a presentation with selected disclosures.
 --
@@ -23,10 +26,10 @@ createPresentation
   :: SDJWT
   -> [EncodedDisclosure]  -- ^ Selected disclosures to include
   -> SDJWTPresentation
-createPresentation (SDJWT jwt _) selectedDisclosures =
+createPresentation (SDJWT jwt _) selectedDisclos =
   SDJWTPresentation
     { presentationJWT = jwt
-    , selectedDisclosures = selectedDisclosures
+    , selectedDisclosures = selectedDisclos
     , keyBindingJWT = Nothing
     }
 
@@ -50,10 +53,10 @@ selectDisclosuresByNames sdjwt@(SDJWT _ allDisclosures) claimNames = do
   let requestedNames = Set.fromList claimNames
   
   -- Filter disclosures that match the requested claim names
-  let selectedDisclosures = filterMatches decodedDisclosures allDisclosures requestedNames
+  let selectedDisclos = filterMatches decodedDisclosures allDisclosures requestedNames
   
   -- Create presentation
-  return $ createPresentation sdjwt selectedDisclosures
+  return $ createPresentation sdjwt selectedDisclos
 
 -- | Select disclosures from an SD-JWT (more flexible version).
 --
@@ -63,15 +66,39 @@ selectDisclosures
   :: SDJWT
   -> [EncodedDisclosure]  -- ^ Disclosures to include
   -> Either SDJWTError SDJWTPresentation
-selectDisclosures sdjwt@(SDJWT _ allDisclosures) selectedDisclosures = do
+selectDisclosures sdjwt@(SDJWT _ allDisclosures) selectedDisclos = do
   -- Validate that all selected disclosures are in the original SD-JWT
   let allDisclosuresSet = Set.fromList (map unEncodedDisclosure allDisclosures)
-  let selectedSet = Set.fromList (map unEncodedDisclosure selectedDisclosures)
+  let selectedSet = Set.fromList (map unEncodedDisclosure selectedDisclos)
   
   -- Check if all selected disclosures are in the original set
   if selectedSet `Set.isSubsetOf` allDisclosuresSet
-    then return $ createPresentation sdjwt selectedDisclosures
+    then return $ createPresentation sdjwt selectedDisclos
     else Left $ InvalidDisclosureFormat "Selected disclosures must be a subset of original disclosures"
+
+-- | Add key binding to a presentation.
+--
+-- Creates a Key Binding JWT and adds it to the presentation, converting it
+-- to SD-JWT+KB format. The KB-JWT proves that the holder possesses a specific key.
+--
+-- Parameters:
+-- - presentation: The SD-JWT presentation to add key binding to
+-- - hashAlg: Hash algorithm to use for sd_hash computation
+-- - holderPrivateKey: Private key for signing the KB-JWT (JWK as Text)
+-- - audience: Audience claim (verifier identifier)
+-- - nonce: Nonce provided by verifier
+-- - issuedAt: Issued at timestamp (Unix epoch seconds)
+--
+-- Returns the presentation with key binding added, or an error if KB-JWT creation fails.
+addKeyBinding
+  :: HashAlgorithm
+  -> T.Text  -- ^ Holder private key (JWK as Text)
+  -> T.Text  -- ^ Audience
+  -> T.Text  -- ^ Nonce
+  -> Int64   -- ^ Issued at (Unix epoch seconds)
+  -> SDJWTPresentation
+  -> IO (Either SDJWTError SDJWTPresentation)
+addKeyBinding = addKeyBindingToPresentation
 
 -- | Filter disclosures that match the requested claim names.
 --

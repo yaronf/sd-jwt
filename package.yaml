@@ -56,6 +56,9 @@ library:
     - SDJWT.Serialization
     - SDJWT.Issuance
     - SDJWT.Presentation
+    - SDJWT.Verification
+    - SDJWT.KeyBinding
+    - SDJWT.JWT
 
 executables:
   sd-jwt-exe:

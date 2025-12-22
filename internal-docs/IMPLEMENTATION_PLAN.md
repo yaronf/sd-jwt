@@ -1,5 +1,21 @@
 # SD-JWT Implementation Plan for Haskell
 
+## Current Status (Updated)
+
+**Overall Progress**: ~80% complete
+
+- ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
+- 🟡 **Phase 5**: Partially Complete (Issuance - basic works, array elements ✅, decoy digests ✅, missing JWT signing, nested structures)
+- 🟡 **Phase 6**: Partially Complete (Presentation - basic works, key binding infrastructure exists)
+- 🟡 **Phase 7**: Partially Complete (Verification - basic works, JWT verification infrastructure ✅, key binding verification ✅, missing RFC tests)
+- 🟡 **Phase 8**: Partially Complete (Key Binding module exists ✅, tests ✅, missing integration tests and RFC examples)
+
+**Critical Missing Features**:
+1. JWT signing/verification integration (jose-jwt library available but not integrated)
+2. Key Binding module and functions
+3. Nested structure support
+4. Complete RFC compliance tests
+
 ## Overview
 
 This document outlines the implementation plan for RFC 9901 (Selective Disclosure for JSON Web Tokens) in Haskell.
@@ -269,13 +285,16 @@ processPayload :: HashAlgorithm -> SDJWTPayload -> [EncodedDisclosure] -> Either
    - Must support all three algorithms: SHA-256, SHA-384, SHA-512
 4. For each disclosure:
    - Compute digest
-   - Verify digest exists in payload
+   - Verify digest exists in payload (check both _sd arrays and array ellipsis objects)
    - Check no duplicate disclosures
 5. If KB-JWT present:
    - Verify KB-JWT signature with holder's public key
    - Verify sd_hash matches SD-JWT
    - Verify nonce, audience, iat
 6. Reconstruct processed payload
+   - Replace digests in _sd arrays with claim values
+   - Replace {"...": "<digest>"} objects in arrays with actual values
+   - **TODO**: Currently array element processing is not implemented (see Verification.hs:278)
 
 ## Phase 6: Key Binding Support
 
@@ -376,25 +395,52 @@ data SDJWTError
    - Format validation tests
    - Edge cases (empty disclosures, no KB-JWT)
 
-5. **Phase 5 (Issuance)** - TODO
-   - Unit tests for SD-JWT creation
-   - RFC example tests (complete issuance flow from Section 5.1)
-   - Tests for nested structures (Section 6)
+5. **Phase 5 (Issuance)** - 🟡 PARTIALLY COMPLETE
+   - ✅ Unit tests for SD-JWT creation (basic)
+   - ✅ Basic issuance flow working
+   - ✅ Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
+   - ✅ Decoy digest support (addDecoyDigest)
+   - ✅ RFC example tests (Section 5.1 disclosures - basic digest verification)
+   - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation)
+   - ❌ Tests for nested structures (Section 6)
+   - ❌ Actual JWT signing (infrastructure exists in SDJWT.JWT, needs JWK parsing)
+   - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
+   - **TODO**: Implement JWK parsing from Text/JSON (required for JWT signing)
+   - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
 
-6. **Phase 6 (Presentation)** - TODO
-   - Unit tests for disclosure selection
-   - Integration tests for presentation creation
-   - Edge cases (no disclosures selected, all disclosures)
+6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE
+   - ✅ Unit tests for disclosure selection
+   - ✅ Integration tests for presentation creation (basic)
+   - ✅ Edge cases (no disclosures selected, all disclosures)
+   - ✅ Key binding support (addKeyBindingToPresentation function)
+   - ❌ Recursive disclosure handling (parent disclosures for nested structures)
+   - ❌ Disclosure dependency validation (ensure parent disclosures included)
+   - **TODO**: Implement recursive disclosure handling - when selecting a nested claim, include parent disclosures
+   - **TODO**: Add disclosure dependency validation - verify all required parent disclosures are present
 
-7. **Phase 7 (Verification)** - TODO
-   - Unit tests for verification logic
-   - RFC example tests (verify Section 5.2 presentations)
-   - Error handling tests (invalid digests, missing disclosures, etc.)
+7. **Phase 7 (Verification)** - 🟡 PARTIALLY COMPLETE
+   - ✅ Unit tests for verification logic (basic)
+   - ✅ Basic disclosure verification working
+   - ✅ JWT signature verification infrastructure (verifySDJWTSignature function)
+   - ✅ Key binding verification infrastructure (verifyKeyBinding function)
+   - ✅ Complete verification flow (verifySDJWT with all steps)
+   - ✅ RFC example tests (Section 5.2 presentations - object disclosures verified)
+   - ❌ RFC example tests (Section 5.2 - array element disclosures in verification)
+   - ❌ Actual JWT signature verification (infrastructure exists in SDJWT.JWT, needs JWK parsing)
+   - ❌ Error handling tests (invalid digests, missing disclosures, etc.)
+   - ❌ Array element disclosure processing in processPayload (currently returns error)
+   - **TODO**: Implement array element disclosure processing in `processPayload` - currently returns "Array disclosures not yet supported in processing" error (see Verification.hs:278)
+   - **TODO**: Add recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
+   - **TODO**: Add comprehensive error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
 
-8. **Phase 8 (Key Binding)** - TODO
-   - Unit tests for KB-JWT creation/verification
-   - Integration tests for SD-JWT+KB flow
-   - RFC example tests (Section 7)
+8. **Phase 8 (Key Binding)** - 🟡 PARTIALLY COMPLETE
+   - ✅ KeyBinding.hs module exists
+   - ✅ Unit tests for KB-JWT creation/verification
+   - ✅ Basic KB-JWT creation and verification (computeSDHash, createKeyBindingJWT, verifyKeyBindingJWT)
+   - ❌ Integration tests for SD-JWT+KB flow (end-to-end with actual JWT signing)
+   - ❌ RFC example tests (Section 7 - complete KB-JWT examples)
+   - **TODO**: Add integration tests for complete SD-JWT+KB flow with actual JWT signing/verification
+   - **TODO**: Add RFC example tests from Section 7 showing complete Key Binding examples
 
 ### 9.3 Test Framework
 
@@ -446,20 +492,27 @@ dependencies:
 3. **Week 3**: Serialization and basic infrastructure ✅
    - **Tests**: Unit tests for serialization/deserialization, format validation
 
-4. **Week 4**: SD-JWT issuance (basic cases)
-   - **Tests**: Unit tests for issuance, RFC example tests (complete Section 5.1 issuance)
+4. **Week 4**: SD-JWT issuance (basic cases) - 🟡 PARTIALLY COMPLETE
+   - ✅ **Tests**: Unit tests for issuance (basic)
+   - ❌ **Tests**: RFC example tests (complete Section 5.1 issuance)
+   - ❌ **Implementation**: Actual JWT signing integration
 
-5. **Week 5**: SD-JWT issuance (nested and recursive)
-   - **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
+5. **Week 5**: SD-JWT issuance (nested and recursive) - ❌ NOT STARTED
+   - ❌ **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
+   - ❌ **Implementation**: Nested structure support, array element disclosures
 
-6. **Week 6**: Presentation and disclosure selection
-   - **Tests**: Unit tests for disclosure selection, integration tests for presentation creation
+6. **Week 6**: Presentation and disclosure selection - 🟡 PARTIALLY COMPLETE
+   - ✅ **Tests**: Unit tests for disclosure selection, integration tests for presentation creation (basic)
+   - ❌ **Implementation**: Key binding support, recursive disclosure handling
 
-7. **Week 7**: Verification (basic)
-   - **Tests**: Unit tests for verification logic, RFC example tests (Section 5.2 presentations)
+7. **Week 7**: Verification (basic) - 🟡 PARTIALLY COMPLETE
+   - ✅ **Tests**: Unit tests for verification logic (basic)
+   - ❌ **Tests**: RFC example tests (Section 5.2 presentations)
+   - ❌ **Implementation**: Actual JWT signature verification
 
-8. **Week 8**: Key Binding support
-   - **Tests**: Unit tests for KB-JWT creation/verification, RFC example tests (Section 7)
+8. **Week 8**: Key Binding support - ❌ NOT STARTED
+   - ❌ **Tests**: Unit tests for KB-JWT creation/verification, RFC example tests (Section 7)
+   - ❌ **Implementation**: KeyBinding.hs module, KB-JWT creation/verification
 
 9. **Week 9**: Edge cases and polish
    - **Tests**: Additional edge case tests, property-based tests with QuickCheck

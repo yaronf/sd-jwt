@@ -21,9 +21,9 @@ import qualified Data.Text as T
 --
 -- The last tilde is always present, even if there are no disclosures.
 serializeSDJWT :: SDJWT -> T.Text
-serializeSDJWT (SDJWT jwt disclosures) =
+serializeSDJWT (SDJWT jwt sdDisclosures) =
   let
-    disclosureParts = map unEncodedDisclosure disclosures
+    disclosureParts = map unEncodedDisclosure sdDisclosures
     allParts = jwt : disclosureParts ++ [""]
   in
     T.intercalate "~" allParts
@@ -37,9 +37,9 @@ deserializeSDJWT :: T.Text -> Either SDJWTError SDJWT
 deserializeSDJWT input =
   case parseTildeSeparated input of
     Left err -> Left err
-    Right (jwt, disclosures, Nothing) ->
+    Right (jwt, sdDisclosures, Nothing) ->
       -- Verify last part is empty (SD-JWT format)
-      Right $ SDJWT jwt disclosures
+      Right $ SDJWT jwt sdDisclosures
     Right (_, _, Just _) ->
       Left $ SerializationError "SD-JWT should not have Key Binding JWT (use SD-JWT+KB format)"
 
@@ -50,9 +50,9 @@ deserializeSDJWT input =
 -- If a Key Binding JWT is present, it is included as the last component.
 -- Otherwise, the last component is empty (just a trailing tilde).
 serializePresentation :: SDJWTPresentation -> T.Text
-serializePresentation (SDJWTPresentation jwt disclosures mbKbJwt) =
+serializePresentation (SDJWTPresentation jwt sdDisclosures mbKbJwt) =
   let
-    disclosureParts = map unEncodedDisclosure disclosures
+    disclosureParts = map unEncodedDisclosure sdDisclosures
     kbPart = fromMaybe "" mbKbJwt
     allParts = jwt : disclosureParts ++ [kbPart]
   in
@@ -66,8 +66,8 @@ deserializePresentation :: T.Text -> Either SDJWTError SDJWTPresentation
 deserializePresentation input =
   case parseTildeSeparated input of
     Left err -> Left err
-    Right (jwt, disclosures, mbKbJwt) ->
-      Right $ SDJWTPresentation jwt disclosures mbKbJwt
+    Right (jwt, sdDisclosures, mbKbJwt) ->
+      Right $ SDJWTPresentation jwt sdDisclosures mbKbJwt
 
 -- | Parse tilde-separated format.
 --
@@ -95,7 +95,7 @@ parseTildeSeparated input =
               if T.null lastItem
                 then (reverse revDisclosures, Nothing)
                 else (reverse revDisclosures, Just lastItem)
-          disclosures = map EncodedDisclosure disclosureParts
+          sdDisclosures = map EncodedDisclosure disclosureParts
         in
-          Right (jwt, disclosures, lastPart)
+          Right (jwt, sdDisclosures, lastPart)
 
