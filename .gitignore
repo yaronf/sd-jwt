@@ -1,0 +1,46 @@
+# Stack
+.stack-work/
+*.cabal
+cabal.project.local
+cabal.project.local~
+
+# GHC
+dist/
+dist-*
+cabal-dev
+*.o
+*.hi
+*.dyn_o
+*.dyn_hi
+.hpc
+.hsenv
+.cabal-sandbox/
+cabal.sandbox.config
+*.prof
+*.aux
+*.hp
+*.ps
+*.pdf
+*.log
+
+# IDE
+.ghc.environment.*
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.hi
+*.o
+*.p_o
+*.hi-tmp
+*.dyn_hi
+*.dyn_o
+
+# Test
+.tasty.html
+
+# Temporary files
+*.tmp
+*.bak

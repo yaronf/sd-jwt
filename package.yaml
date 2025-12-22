@@ -1,0 +1,78 @@
+name:                sd-jwt
+version:             0.1.0.0
+github:              "githubuser/sd-jwt"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2023 Author name here"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+synopsis:            "Selective Disclosure for JSON Web Tokens (RFC 9901)"
+description:         "Implementation of RFC 9901: Selective Disclosure for JSON Web Tokens (SD-JWT)"
+category:            Web
+
+dependencies:
+- base >= 4.14 && < 5
+- aeson >= 2.0
+- bytestring >= 0.11
+- text >= 2.0
+- cryptonite >= 0.30
+- memory >= 0.18
+- jose-jwt >= 0.9
+- base64-bytestring >= 1.2
+- containers >= 0.6
+- unordered-containers >= 0.2
+- vector >= 0.13
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - SDJWT
+    - SDJWT.Types
+    - SDJWT.Utils
+    - SDJWT.Digest
+    - SDJWT.Disclosure
+    - SDJWT.Serialization
+
+executables:
+  sd-jwt-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sd-jwt
+
+tests:
+  sd-jwt-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sd-jwt

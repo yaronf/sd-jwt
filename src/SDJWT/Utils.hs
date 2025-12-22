@@ -1,0 +1,66 @@
+{-# LANGUAGE OverloadedStrings #-}
+-- | Utility functions for SD-JWT operations.
+--
+-- This module provides base64url encoding/decoding, salt generation,
+-- and text/ByteString conversions used throughout the SD-JWT library.
+module SDJWT.Utils
+  ( base64urlEncode
+  , base64urlDecode
+  , generateSalt
+  , textToByteString
+  , byteStringToText
+  ) where
+
+import qualified Data.ByteString.Base64.URL as Base64
+import qualified Data.ByteString as BS
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
+import qualified Crypto.Random as RNG
+import Control.Monad.IO.Class (MonadIO, liftIO)
+
+-- | Base64url encode a ByteString (without padding).
+--
+-- This function encodes a ByteString using base64url encoding as specified
+-- in RFC 4648 Section 5. The result is URL-safe and does not include padding.
+--
+-- >>> base64urlEncode "Hello, World!"
+-- "SGVsbG8sIFdvcmxkIQ"
+base64urlEncode :: BS.ByteString -> T.Text
+base64urlEncode = TE.decodeUtf8 . Base64.encodeUnpadded
+
+-- | Base64url decode a Text (handles padding).
+--
+-- This function decodes a base64url-encoded Text back to a ByteString.
+-- It handles both padded and unpadded input.
+--
+-- Returns 'Left' with an error message if decoding fails.
+base64urlDecode :: T.Text -> Either T.Text BS.ByteString
+base64urlDecode t =
+  case Base64.decodeUnpadded (TE.encodeUtf8 t) of
+    Left err -> Left $ T.pack $ show err
+    Right bs -> Right bs
+
+-- | Generate a cryptographically secure random salt.
+--
+-- Generates 128 bits (16 bytes) of random data as recommended by RFC 9901.
+-- This salt is used when creating disclosures to ensure that digests cannot
+-- be guessed or brute-forced.
+--
+-- The salt is generated using cryptonite's secure random number generator.
+generateSalt :: MonadIO m => m BS.ByteString
+generateSalt = liftIO $ RNG.getRandomBytes 16
+
+-- | Convert Text to ByteString (UTF-8 encoding).
+--
+-- This is a convenience function that encodes Text as UTF-8 ByteString.
+textToByteString :: T.Text -> BS.ByteString
+textToByteString = TE.encodeUtf8
+
+-- | Convert ByteString to Text (UTF-8 decoding).
+--
+-- This is a convenience function that decodes a UTF-8 ByteString to Text.
+-- Note: This will throw an exception if the ByteString is not valid UTF-8.
+-- For safe decoding, use 'Data.Text.Encoding.decodeUtf8'' instead.
+byteStringToText :: BS.ByteString -> T.Text
+byteStringToText = TE.decodeUtf8
+
