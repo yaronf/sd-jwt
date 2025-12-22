@@ -17,9 +17,13 @@ module SDJWT
   , module SDJWT.Utils
   , module SDJWT.Digest
   , module SDJWT.Disclosure
+  , module SDJWT.Serialization
+  , module SDJWT.Issuance
   ) where
 
 import SDJWT.Types
 import SDJWT.Utils
 import SDJWT.Digest
 import SDJWT.Disclosure
+import SDJWT.Serialization
+import SDJWT.Issuance

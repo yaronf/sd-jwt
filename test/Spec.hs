@@ -7,9 +7,12 @@ import SDJWT.Utils
 import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.Serialization
+import SDJWT.Issuance
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 
 main :: IO ()
 main = hspec $ do
@@ -85,6 +88,44 @@ main = hspec $ do
             length disclosures `shouldBe` 2
           Left err -> expectationFailure $ "Failed to parse: " ++ show err
 
+  describe "SDJWT.Issuance" $ do
+    describe "buildSDJWTPayload" $ do
+      it "creates SD-JWT payload with selective disclosures" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              , ("family_name", Aeson.String "Doe")
+              ]
+        let selectiveClaims = ["given_name", "family_name"]
+        result <- buildSDJWTPayload SHA256 selectiveClaims claims
+        case result of
+          Right (payload, disclosures) -> do
+            sdAlg payload `shouldBe` Just SHA256
+            length disclosures `shouldBe` 2
+            -- Check that _sd array exists in payload
+            case payloadValue payload of
+              Aeson.Object obj -> do
+                KeyMap.lookup "_sd" obj `shouldSatisfy` isJust
+                KeyMap.lookup "_sd_alg" obj `shouldSatisfy` isJust
+                KeyMap.lookup "sub" obj `shouldSatisfy` isJust  -- Regular claim preserved
+                KeyMap.lookup "given_name" obj `shouldBe` Nothing  -- Selective claim removed
+                KeyMap.lookup "family_name" obj `shouldBe` Nothing  -- Selective claim removed
+              _ -> expectationFailure "Payload should be an object"
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+    
+    describe "markSelectivelyDisclosable" $ do
+      it "creates disclosure and digest for a claim" $ do
+        result <- markSelectivelyDisclosable SHA256 "test_claim" (Aeson.String "test_value")
+        case result of
+          Right (digest, disclosure) -> do
+            unDigest digest `shouldSatisfy` (not . T.null)
+            unEncodedDisclosure disclosure `shouldSatisfy` (not . T.null)
+          Left err -> expectationFailure $ "Failed to mark claim: " ++ show err
+
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
 isLeft _ = False
+
+isJust :: Maybe a -> Bool
+isJust (Just _) = True
+isJust _ = False

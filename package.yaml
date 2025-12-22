@@ -54,6 +54,7 @@ library:
     - SDJWT.Digest
     - SDJWT.Disclosure
     - SDJWT.Serialization
+    - SDJWT.Issuance
 
 executables:
   sd-jwt-exe:
