@@ -11,6 +11,7 @@ module SDJWT.JWT
   ) where
 
 import SDJWT.Types
+import SDJWT.Utils (base64urlDecode, base64urlEncode)
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
 import Jose.Jwk (Jwk)
 import qualified Jose.Jwa as Jose
@@ -34,26 +35,30 @@ signJWT
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
 signJWT privateKeyJWK payload = do
-  -- Parse JWK from Text
-  jwk <- case parseJWKFromText privateKeyJWK of
-    Left err -> return $ Left err
-    Right key -> return $ Right key
-  
-  case jwk of
-    Left err -> return $ Left err
-    Right key -> do
-      -- Encode payload to ByteString
-      let payloadBS = BSL.toStrict $ Aeson.encode payload
+  -- Require valid JWK - empty strings are not valid keys
+  if T.null privateKeyJWK
+    then return $ Left $ InvalidSignature "JWK cannot be empty - provide a valid private key JWK"
+    else do
+      -- Parse JWK from Text
+      jwk <- case parseJWKFromText privateKeyJWK of
+        Left err -> return $ Left err
+        Right key -> return $ Right key
       
-      -- Create JWT encoding (RS256 signing)
-      let encoding = JwsEncoding Jose.RS256
-      
-      -- Sign the JWT
-      result <- encode [key] encoding (Claims payloadBS)
-      
-      case result of
-        Left jwtErr -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show jwtErr)
-        Right jwt -> return $ Right $ TE.decodeUtf8 $ unJwt jwt
+      case jwk of
+        Left err -> return $ Left err
+        Right key -> do
+          -- Encode payload to ByteString
+          let payloadBS = BSL.toStrict $ Aeson.encode payload
+          
+          -- Create JWT encoding (RS256 signing)
+          let encoding = JwsEncoding Jose.RS256
+          
+          -- Sign the JWT
+          result <- encode [key] encoding (Claims payloadBS)
+          
+          case result of
+            Left jwtErr -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show jwtErr)
+            Right jwt -> return $ Right $ TE.decodeUtf8 $ unJwt jwt
 
 -- | Verify a JWT signature using a public key.
 --
@@ -67,32 +72,36 @@ verifyJWT
   -> T.Text  -- ^ JWT to verify
   -> IO (Either SDJWTError Aeson.Value)
 verifyJWT publicKeyJWK jwtText = do
-  -- Parse JWK from Text
-  jwk <- case parseJWKFromText publicKeyJWK of
-    Left err -> return $ Left err
-    Right key -> return $ Right key
-  
-  case jwk of
-    Left err -> return $ Left err
-    Right key -> do
-      -- Convert JWT text to ByteString
-      let jwtBS = TE.encodeUtf8 jwtText
+  -- Require valid JWK - empty strings are not valid keys
+  if T.null publicKeyJWK
+    then return $ Left $ InvalidSignature "JWK cannot be empty - provide a valid public key JWK"
+    else do
+      -- Parse JWK from Text
+      jwk <- case parseJWKFromText publicKeyJWK of
+        Left err -> return $ Left err
+        Right key -> return $ Right key
       
-      -- Decode and verify JWT
-      result <- decode [key] Nothing jwtBS
-      
-      case result of
-        Left jwtErr -> return $ Left $ InvalidSignature $ "JWT verification failed: " <> T.pack (show jwtErr)
-        Right jwtContent -> do
-          -- Extract payload from JwtContent
-          let payloadBS = case jwtContent of
-                Jws (_, bs) -> bs  -- JWS payload is the second element of the tuple
-                Jwe _ -> BS.empty  -- JWE not supported yet
-                Unsecured bs -> bs  -- Unsecured JWT
-          -- Parse payload as JSON
-          case Aeson.eitherDecodeStrict payloadBS of
-            Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
-            Right payload -> return $ Right payload
+      case jwk of
+        Left err -> return $ Left err
+        Right key -> do
+          -- Convert JWT text to ByteString
+          let jwtBS = TE.encodeUtf8 jwtText
+          
+          -- Decode and verify JWT
+          result <- decode [key] Nothing jwtBS
+          
+          case result of
+            Left jwtErr -> return $ Left $ InvalidSignature $ "JWT verification failed: " <> T.pack (show jwtErr)
+            Right jwtContent -> do
+              -- Extract payload from JwtContent
+              let payloadBS = case jwtContent of
+                    Jws (_, bs) -> bs  -- JWS payload is the second element of the tuple
+                    Jwe _ -> BS.empty  -- JWE not supported yet
+                    Unsecured bs -> bs  -- Unsecured JWT
+              -- Parse payload as JSON
+              case Aeson.eitherDecodeStrict payloadBS of
+                Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
+                Right payload -> return $ Right payload
 
 -- | Parse a JWK from JSON Text.
 --

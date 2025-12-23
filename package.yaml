@@ -26,7 +26,7 @@ dependencies:
 - aeson >= 2.0
 - bytestring >= 0.11
 - text >= 2.0
-- cryptonite >= 0.30
+- cryptonite >= 0.30  # TODO: Migrate to crypton when jose-jwt supports it (cryptonite is deprecated)
 - memory >= 0.18
 - jose-jwt >= 0.9
 - base64-bytestring >= 1.2

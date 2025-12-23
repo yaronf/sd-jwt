@@ -17,7 +17,7 @@ import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.Utils
 import SDJWT.KeyBinding
--- import SDJWT.JWT  -- Will be used when JWK parsing is implemented
+import SDJWT.JWT
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -71,9 +71,13 @@ verifySDJWT mbIssuerKey presentation = do
           -- Verify key binding if present
           case keyBindingJWT presentation of
             Just kbJWT -> do
-              -- TODO: Verify KB-JWT signature when JWK parsing is implemented
-              -- For now, verify sd_hash matches
-              case verifyKeyBindingJWT alg "" kbJWT presentation of
+              -- Note: KB-JWT signature verification requires holder's public key
+              -- For now, we skip KB-JWT verification if no holder key is provided
+              -- In a full implementation, the holder's public key would come from
+              -- the cnf claim in the SD-JWT payload
+              -- TODO: Extract holder public key from cnf claim and verify KB-JWT
+              kbVerifyResult <- verifyKeyBindingJWT alg "" kbJWT presentation
+              case kbVerifyResult of
                 Left err -> return (Left err)
                 Right () -> do
                   -- Process payload to reconstruct claims
@@ -89,20 +93,16 @@ verifySDJWT mbIssuerKey presentation = do
 -- | Verify SD-JWT issuer signature.
 --
 -- Verifies the signature on the issuer-signed JWT using the issuer's public key.
--- This is a placeholder that will be fully implemented when JWK parsing is available.
 verifySDJWTSignature
   :: T.Text  -- ^ Issuer public key (JWK as Text)
   -> SDJWTPresentation
   -> IO (Either SDJWTError ())
-verifySDJWTSignature _issuerKey _presentation = do
-  -- TODO: Verify JWT signature using verifyJWT when JWK parsing is implemented
-  -- For now, we assume the signature is valid (placeholder)
-  -- When implemented:
-  --   verifiedPayload <- verifyJWT issuerKey (presentationJWT presentation)
-  --   case verifiedPayload of
-  --     Left err -> return (Left err)
-  --     Right _ -> return (Right ())
-  return (Right ())
+verifySDJWTSignature issuerKey presentation = do
+  -- Verify JWT signature using verifyJWT
+  verifiedPayloadResult <- verifyJWT issuerKey (presentationJWT presentation)
+  case verifiedPayloadResult of
+    Left err -> return (Left err)
+    Right _ -> return (Right ())
 
 -- | Verify key binding in a presentation.
 --
@@ -116,12 +116,7 @@ verifyKeyBinding
 verifyKeyBinding hashAlg holderKey presentation = do
   case keyBindingJWT presentation of
     Nothing -> return (Right ())  -- No key binding, verification passes
-    Just kbJWT -> do
-      -- TODO: Verify KB-JWT signature using verifyJWT when JWK parsing is implemented
-      -- For now, verify sd_hash matches
-      case verifyKeyBindingJWT hashAlg holderKey kbJWT presentation of
-        Left err -> return (Left err)
-        Right () -> return (Right ())
+    Just kbJWT -> verifyKeyBindingJWT hashAlg holderKey kbJWT presentation
 
 -- | Verify that all disclosures match digests in the payload.
 --

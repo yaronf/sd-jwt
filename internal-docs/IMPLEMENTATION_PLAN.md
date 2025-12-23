@@ -2,19 +2,27 @@
 
 ## Current Status (Updated)
 
-**Overall Progress**: ~80% complete
+**Overall Progress**: ~85% complete
 
 - ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
-- 🟡 **Phase 5**: Partially Complete (Issuance - basic works, array elements ✅, decoy digests ✅, missing JWT signing, nested structures)
-- 🟡 **Phase 6**: Partially Complete (Presentation - basic works, key binding infrastructure exists)
-- 🟡 **Phase 7**: Partially Complete (Verification - basic works, JWT verification infrastructure ✅, key binding verification ✅, missing RFC tests)
-- 🟡 **Phase 8**: Partially Complete (Key Binding module exists ✅, tests ✅, missing integration tests and RFC examples)
+- 🟡 **Phase 5**: Mostly Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, missing nested structures)
+- 🟡 **Phase 6**: Partially Complete (Presentation - basic works ✅, key binding infrastructure ✅, missing recursive disclosure handling)
+- 🟡 **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, missing array element processing in processPayload)
+- ✅ **Phase 8**: Mostly Complete (Key Binding module ✅, tests ✅, missing integration tests and RFC examples for Section 7)
 
 **Critical Missing Features**:
-1. JWT signing/verification integration (jose-jwt library available but not integrated)
-2. Key Binding module and functions
-3. Nested structure support
-4. Complete RFC compliance tests
+1. ~~JWT signing/verification integration~~ ✅ **COMPLETED** - Integrated in Issuance.hs and Verification.hs
+2. ~~Key Binding module and functions~~ ✅ **COMPLETED** - KeyBinding.hs module with full implementation
+3. Nested structure support (recursive _sd arrays)
+4. Array element disclosure processing in verification (processPayload)
+5. Complete RFC compliance tests (Section 7 Key Binding examples)
+
+**Recent Updates**:
+- ✅ JWT signing/verification fully integrated using jose-jwt library
+- ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
+- ✅ RFC example tests for Phase 5 (Issuance) and Phase 7 (Verification)
+- ✅ JWK parsing from Text/JSON implemented
+- ✅ Note added about cryptonite deprecation (migrate to crypton when jose-jwt supports it)
 
 ## Overview
 
@@ -395,19 +403,23 @@ data SDJWTError
    - Format validation tests
    - Edge cases (empty disclosures, no KB-JWT)
 
-5. **Phase 5 (Issuance)** - 🟡 PARTIALLY COMPLETE
+5. **Phase 5 (Issuance)** - 🟡 MOSTLY COMPLETE
    - ✅ Unit tests for SD-JWT creation (basic)
    - ✅ Basic issuance flow working
    - ✅ Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
    - ✅ Decoy digest support (addDecoyDigest)
    - ✅ RFC example tests (Section 5.1 disclosures - basic digest verification)
    - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
-   - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation)
+   - ✅ JWT signing integrated in createSDJWT (using SDJWT.JWT.signJWT)
+   - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
+   - ✅ EC key generation utilities (generateTestECKeyPair)
+   - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation with real keys)
    - ❌ Tests for nested structures (Section 6)
-   - ❌ Actual JWT signing (infrastructure exists in SDJWT.JWT, JWK parsing ready)
    - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
-   - **TODO**: Integrate JWT signing in createSDJWT (now that JWK parsing works)
+   - ❌ Tests using EC keys for JWT signing (currently only RSA keys tested)
    - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
+   - **TODO**: Add complete RFC example tests with full JWT creation and signing
+   - **TODO**: Add tests using EC keys (P-256) for JWT signing in issuance to ensure EC key support works correctly
 
 6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE
    - ✅ Unit tests for disclosure selection
@@ -419,29 +431,36 @@ data SDJWTError
    - **TODO**: Implement recursive disclosure handling - when selecting a nested claim, include parent disclosures
    - **TODO**: Add disclosure dependency validation - verify all required parent disclosures are present
 
-7. **Phase 7 (Verification)** - 🟡 PARTIALLY COMPLETE
+7. **Phase 7 (Verification)** - 🟡 MOSTLY COMPLETE
    - ✅ Unit tests for verification logic (basic)
    - ✅ Basic disclosure verification working
-   - ✅ JWT signature verification infrastructure (verifySDJWTSignature function)
-   - ✅ Key binding verification infrastructure (verifyKeyBinding function)
+   - ✅ JWT signature verification (verifySDJWTSignature function using SDJWT.JWT.verifyJWT)
+   - ✅ Key binding verification (verifyKeyBinding function using verifyKeyBindingJWT)
    - ✅ Complete verification flow (verifySDJWT with all steps)
    - ✅ RFC example tests (Section 5.2 presentations - object disclosures verified)
+   - ✅ Actual JWT signature verification working (using real RSA keys in tests)
    - ❌ RFC example tests (Section 5.2 - array element disclosures in verification)
-   - ❌ Actual JWT signature verification (infrastructure exists in SDJWT.JWT, needs JWK parsing)
    - ❌ Error handling tests (invalid digests, missing disclosures, etc.)
    - ❌ Array element disclosure processing in processPayload (currently returns error)
+   - ❌ Tests using EC keys for JWT verification (currently only RSA keys tested)
    - **TODO**: Implement array element disclosure processing in `processPayload` - currently returns "Array disclosures not yet supported in processing" error (see Verification.hs:278)
    - **TODO**: Add recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
    - **TODO**: Add comprehensive error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
+   - **TODO**: Add tests using EC keys (P-256) for JWT signature verification to ensure EC key support works correctly
 
-8. **Phase 8 (Key Binding)** - 🟡 PARTIALLY COMPLETE
+8. **Phase 8 (Key Binding)** - ✅ MOSTLY COMPLETE
    - ✅ KeyBinding.hs module exists
    - ✅ Unit tests for KB-JWT creation/verification
    - ✅ Basic KB-JWT creation and verification (computeSDHash, createKeyBindingJWT, verifyKeyBindingJWT)
+   - ✅ KB-JWT signing/verification using real RSA keys (integrated with SDJWT.JWT)
+   - ✅ addKeyBindingToPresentation function implemented
+   - ✅ Test key generation utilities support EC keys (generateTestECKeyPair)
    - ❌ Integration tests for SD-JWT+KB flow (end-to-end with actual JWT signing)
    - ❌ RFC example tests (Section 7 - complete KB-JWT examples)
+   - ❌ Tests using EC keys (currently only RSA keys tested)
    - **TODO**: Add integration tests for complete SD-JWT+KB flow with actual JWT signing/verification
    - **TODO**: Add RFC example tests from Section 7 showing complete Key Binding examples
+   - **TODO**: Add tests using EC keys (P-256) for JWT signing/verification and key binding to ensure EC key support works correctly
 
 ### 9.3 Test Framework
 
@@ -466,9 +485,9 @@ dependencies:
   - aeson >= 2.0
   - bytestring >= 0.11
   - text >= 2.0
-  - cryptonite >= 0.30  # For cryptographic operations
+  - cryptonite >= 0.30  # For cryptographic operations (TODO: Migrate to crypton when jose-jwt supports it - cryptonite is deprecated)
   - memory >= 0.18      # For secure random generation
-  - jose-jwt >= 0.10   # For JWT handling
+  - jose-jwt >= 0.10   # For JWT handling (currently depends on cryptonite)
   - base64-bytestring >= 1.2  # For base64url encoding
   - unordered-containers >= 0.2  # For Map
   - vector >= 0.13     # For arrays
@@ -493,27 +512,39 @@ dependencies:
 3. **Week 3**: Serialization and basic infrastructure ✅
    - **Tests**: Unit tests for serialization/deserialization, format validation
 
-4. **Week 4**: SD-JWT issuance (basic cases) - 🟡 PARTIALLY COMPLETE
+4. **Week 4**: SD-JWT issuance (basic cases) - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for issuance (basic)
-   - ❌ **Tests**: RFC example tests (complete Section 5.1 issuance)
-   - ❌ **Implementation**: Actual JWT signing integration
+   - ✅ **Tests**: RFC example tests (Section 5.1 disclosures and digests)
+   - ✅ **Implementation**: JWT signing integration (createSDJWT uses signJWT)
+   - ✅ **Implementation**: Test key generation utilities (TestKeys.hs with cached 2048-bit RSA keys)
+   - ❌ **Tests**: Complete RFC example tests with full JWT creation
 
-5. **Week 5**: SD-JWT issuance (nested and recursive) - ❌ NOT STARTED
+5. **Week 5**: SD-JWT issuance (nested and recursive) - 🟡 PARTIALLY COMPLETE
+   - ✅ **Implementation**: Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
+   - ✅ **Implementation**: Decoy digest support (addDecoyDigest)
    - ❌ **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
-   - ❌ **Implementation**: Nested structure support, array element disclosures
+   - ❌ **Implementation**: Nested structure support (recursive _sd arrays)
 
 6. **Week 6**: Presentation and disclosure selection - 🟡 PARTIALLY COMPLETE
    - ✅ **Tests**: Unit tests for disclosure selection, integration tests for presentation creation (basic)
    - ❌ **Implementation**: Key binding support, recursive disclosure handling
 
-7. **Week 7**: Verification (basic) - 🟡 PARTIALLY COMPLETE
+7. **Week 7**: Verification (basic) - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for verification logic (basic)
-   - ❌ **Tests**: RFC example tests (Section 5.2 presentations)
-   - ❌ **Implementation**: Actual JWT signature verification
+   - ✅ **Tests**: RFC example tests (Section 5.2 presentations - object disclosures)
+   - ✅ **Implementation**: JWT signature verification (verifySDJWTSignature uses verifyJWT)
+   - ✅ **Implementation**: Key binding verification working with real keys
+   - ❌ **Tests**: RFC example tests for array element disclosures
+   - ❌ **Implementation**: Array element disclosure processing in processPayload
 
-8. **Week 8**: Key Binding support - ❌ NOT STARTED
-   - ❌ **Tests**: Unit tests for KB-JWT creation/verification, RFC example tests (Section 7)
-   - ❌ **Implementation**: KeyBinding.hs module, KB-JWT creation/verification
+8. **Week 8**: Key Binding support - ✅ MOSTLY COMPLETE
+   - ✅ **Tests**: Unit tests for KB-JWT creation/verification
+   - ✅ **Implementation**: KeyBinding.hs module, KB-JWT creation/verification
+   - ✅ **Implementation**: KB-JWT signing/verification using real RSA keys
+   - ✅ **Implementation**: EC key generation utilities (generateTestECKeyPair)
+   - ❌ **Tests**: RFC example tests (Section 7 - complete KB-JWT examples)
+   - ❌ **Tests**: Integration tests for complete SD-JWT+KB flow
+   - ❌ **Tests**: Tests using EC keys (P-256) for signing/verification and key binding
 
 9. **Week 9**: Edge cases and polish
    - **Tests**: Additional edge case tests, property-based tests with QuickCheck

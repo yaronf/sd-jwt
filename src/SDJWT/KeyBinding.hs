@@ -14,7 +14,7 @@ module SDJWT.KeyBinding
 import SDJWT.Types
 import SDJWT.Utils
 import SDJWT.Serialization
--- import SDJWT.JWT  -- Will be used when JWK parsing is implemented
+import SDJWT.JWT
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
 import qualified Data.Aeson as Aeson
@@ -50,7 +50,7 @@ createKeyBindingJWT
   -> Int64   -- ^ Issued at (Unix epoch seconds)
   -> SDJWTPresentation
   -> IO (Either SDJWTError T.Text)
-createKeyBindingJWT hashAlg _holderPrivateKey audience nonce issuedAt presentation = do
+createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentation = do
   -- Compute sd_hash of the presentation
   let sdHash = computeSDHash hashAlg presentation
   
@@ -62,19 +62,8 @@ createKeyBindingJWT hashAlg _holderPrivateKey audience nonce issuedAt presentati
         , ("sd_hash", Aeson.String (unDigest sdHash))
         ]
   
-  -- TODO: Sign the KB-JWT using jose-jwt with holder's private key
-  -- Note: This requires a proper holder private key JWK.
-  -- For now, we create an unsigned placeholder since JWK parsing is not yet implemented.
-  -- When JWK parsing is implemented, replace this with:
-  --   signedKBJWT <- signJWT holderPrivateKey kbPayload
-  let jwtPayload = Aeson.encode kbPayload
-  let encodedPayload = base64urlEncode (BSL.toStrict jwtPayload)
-  
-  -- Create placeholder KB-JWT: header.payload (unsigned for now)
-  let header = "eyJhbGciOiJSUzI1NiJ9"  -- Placeholder header
-  let unsignedKBJWT = T.concat [header, ".", encodedPayload]
-  
-  return $ Right unsignedKBJWT
+  -- Sign the KB-JWT using jose-jwt with holder's private key
+  signJWT holderPrivateKey kbPayload
 
 -- | Compute sd_hash for key binding.
 --
@@ -116,36 +105,43 @@ computeSDHash hashAlg presentation =
 -- Returns 'Right ()' if verification succeeds, 'Left' with error otherwise.
 verifyKeyBindingJWT
   :: HashAlgorithm
-  -> T.Text  -- ^ Holder public key (JWK as Text, placeholder for now)
+  -> T.Text  -- ^ Holder public key (JWK as Text)
   -> T.Text  -- ^ KB-JWT to verify
   -> SDJWTPresentation
-  -> Either SDJWTError ()
-verifyKeyBindingJWT hashAlg _holderPublicKey kbJWT presentation = do
-  -- TODO: Verify KB-JWT signature using jose-jwt
-  -- For now, skip signature verification
-  
-  -- Parse KB-JWT payload
-  kbPayload <- parseKBJWTPayload kbJWT
-  
-  -- Extract claims
-  sdHashClaim <- extractClaim "sd_hash" kbPayload
-  nonceClaim <- extractClaim "nonce" kbPayload
-  audClaim <- extractClaim "aud" kbPayload
-  iatClaim <- extractClaim "iat" kbPayload
-  
-  -- Verify sd_hash matches presentation
-  let computedHash = computeSDHash hashAlg presentation
-  case sdHashClaim of
-    Aeson.String hashText ->
-      if hashText == unDigest computedHash
-        then return ()
-        else Left $ InvalidKeyBinding "sd_hash mismatch"
-    _ -> Left $ InvalidKeyBinding "Invalid sd_hash claim format"
-  
-  -- Verify nonce, audience, iat are present (basic validation)
-  case (nonceClaim, audClaim, iatClaim) of
-    (Aeson.String _, Aeson.String _, Aeson.Number _) -> return ()
-    _ -> Left $ InvalidKeyBinding "Missing required claims (nonce, aud, iat)"
+  -> IO (Either SDJWTError ())
+verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
+  -- Verify KB-JWT signature using jose-jwt
+  verifiedPayloadResult <- verifyJWT holderPublicKey kbJWT
+  case verifiedPayloadResult of
+    Left err -> return (Left err)
+    Right kbPayload -> do
+      -- Extract claims from verified payload
+      sdHashClaim <- case extractClaim "sd_hash" kbPayload of
+        Left err -> return (Left err)
+        Right claim -> return (Right claim)
+      nonceClaim <- case extractClaim "nonce" kbPayload of
+        Left err -> return (Left err)
+        Right claim -> return (Right claim)
+      audClaim <- case extractClaim "aud" kbPayload of
+        Left err -> return (Left err)
+        Right claim -> return (Right claim)
+      iatClaim <- case extractClaim "iat" kbPayload of
+        Left err -> return (Left err)
+        Right claim -> return (Right claim)
+      
+      case sdHashClaim of
+        Left err -> return (Left err)
+        Right (Aeson.String hashText) -> do
+          -- Verify sd_hash matches presentation
+          let computedHash = computeSDHash hashAlg presentation
+          if hashText == unDigest computedHash
+            then do
+              -- Verify nonce, audience, iat are present (basic validation)
+              case (nonceClaim, audClaim, iatClaim) of
+                (Right (Aeson.String _), Right (Aeson.String _), Right (Aeson.Number _)) -> return (Right ())
+                _ -> return $ Left $ InvalidKeyBinding "Missing required claims (nonce, aud, iat)"
+            else return $ Left $ InvalidKeyBinding "sd_hash mismatch"
+        Right _ -> return $ Left $ InvalidKeyBinding "Invalid sd_hash claim format"
 
 -- | Add key binding to a presentation.
 --

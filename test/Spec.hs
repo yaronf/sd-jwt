@@ -11,6 +11,8 @@ import SDJWT.Issuance
 import SDJWT.Presentation
 import SDJWT.Verification
 import SDJWT.KeyBinding
+import SDJWT.JWT
+import TestKeys
 import qualified Data.Vector as V
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -316,27 +318,43 @@ main = hspec $ do
         result `shouldSatisfy` const True
     
     describe "verifySDJWTSignature" $ do
-      it "verifies issuer signature (placeholder)" $ do
-        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJfc2RfYWxnIjoic2hhLTI1NiJ9.test"
-        let presentation = SDJWTPresentation jwt [] Nothing
-        result <- verifySDJWTSignature "issuer_key" presentation
-        case result of
-          Right () -> return ()  -- Success
-          Left err -> expectationFailure $ "Signature verification failed: " ++ show err
+      it "verifies issuer signature with real RSA key" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create a test payload
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        
+        -- Sign the JWT
+        signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+          Right signedJWT -> do
+            -- Create presentation with signed JWT
+            let presentation = SDJWTPresentation signedJWT [] Nothing
+            
+            -- Verify the signature
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            case result of
+              Right () -> return ()  -- Success
+              Left err -> expectationFailure $ "Signature verification failed: " ++ show err
     
     describe "verifyKeyBinding" $ do
       it "verifies key binding when present" $ do
+        -- Generate test RSA key pair for holder
+        holderKeyPair <- generateTestRSAKeyPair
+        
         let jwt = "test.jwt"
         let disclosure = EncodedDisclosure "test_disclosure"
         -- Create presentation first (without KB-JWT)
         let presentationWithoutKB = SDJWTPresentation jwt [disclosure] Nothing
         -- Create a KB-JWT using the presentation without KB-JWT
-        kbResult <- createKeyBindingJWT SHA256 "holder_key" "audience" "nonce" 1234567890 presentationWithoutKB
+        kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
         case kbResult of
           Right kbJWT -> do
             -- Now add the KB-JWT to create the final presentation
             let presentation = SDJWTPresentation jwt [disclosure] (Just kbJWT)
-            result <- verifyKeyBinding SHA256 "holder_key" presentation
+            result <- verifyKeyBinding SHA256 (publicKeyJWK holderKeyPair) presentation
             case result of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Key binding verification failed: " ++ show err
@@ -443,35 +461,40 @@ main = hspec $ do
     
     describe "createKeyBindingJWT" $ do
       it "creates a KB-JWT with required claims" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
         let jwt = "test.jwt"
         let disclosure = EncodedDisclosure "test_disclosure"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
-        let holderKey = "placeholder_key"
         let audience = "verifier_123"
         let nonce = "nonce_456"
         let issuedAt = 1234567890 :: Int64
         
-        result <- createKeyBindingJWT SHA256 holderKey audience nonce issuedAt presentation
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) audience nonce issuedAt presentation
         case result of
           Right kbJWT -> do
             -- Verify KB-JWT is created (non-empty)
             kbJWT `shouldSatisfy` (not . T.null)
             -- Verify it contains dots (JWT format: header.payload.signature)
-            T.splitOn "." kbJWT `shouldSatisfy` ((>= 2) . length)
+            T.splitOn "." kbJWT `shouldSatisfy` ((>= 3) . length)  -- Should have signature now
           Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
     
     describe "verifyKeyBindingJWT" $ do
       it "verifies sd_hash matches presentation" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
         let jwt = "test.jwt"
         let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT
-        result <- createKeyBindingJWT SHA256 "holder_key" "audience" "nonce" 1234567890 presentation
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
         case result of
           Right kbJWT -> do
-            -- Verify the KB-JWT (should pass sd_hash check, signature check is placeholder)
-            let verifyResult = verifyKeyBindingJWT SHA256 "holder_key" kbJWT presentation
+            -- Verify the KB-JWT (should pass signature and sd_hash checks)
+            verifyResult <- verifyKeyBindingJWT SHA256 (publicKeyJWK keyPair) kbJWT presentation
             case verifyResult of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "KB-JWT verification failed: " ++ show err
@@ -479,11 +502,14 @@ main = hspec $ do
     
     describe "addKeyBindingToPresentation" $ do
       it "adds key binding to a presentation" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
         let jwt = "test.jwt"
         let disclosure = EncodedDisclosure "test_disclosure"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
-        result <- addKeyBindingToPresentation SHA256 "holder_key" "audience" "nonce" 1234567890 presentation
+        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
         case result of
           Right updatedPresentation -> do
             -- Verify key binding was added

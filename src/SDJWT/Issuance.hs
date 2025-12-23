@@ -18,7 +18,7 @@ import SDJWT.Types
 import SDJWT.Utils
 import SDJWT.Digest
 import SDJWT.Disclosure
--- import SDJWT.JWT  -- Will be used when JWK parsing is implemented
+import SDJWT.JWT
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -182,36 +182,26 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 -- | Create a complete SD-JWT (signed).
 --
 -- This function creates an SD-JWT and signs it using the issuer's key.
--- For now, this is a placeholder that returns the unsigned JWT.
--- Full JWT signing will be implemented when integrating with jose-jwt.
+-- Creates a complete SD-JWT with signed JWT using jose-jwt.
 createSDJWT
   :: HashAlgorithm
+  -> T.Text  -- ^ Issuer private key JWK (JSON format)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError SDJWT)
-createSDJWT hashAlg selectiveClaimNames claims = do
+createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
   result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
   case result of
     Left err -> return (Left err)
     Right (payload, sdDisclosures) -> do
-  
-      -- TODO: Sign the JWT using jose-jwt
-      -- Note: This requires a proper issuer private key JWK.
-      -- For now, we create an unsigned placeholder since JWK parsing is not yet implemented.
-      -- When JWK parsing is implemented, replace this with:
-      --   signedJWT <- signJWT issuerPrivateKeyJWK (payloadValue payload)
-      let jwtPayload = Aeson.encode (payloadValue payload)
-      let encodedPayload = base64urlEncode (BSL.toStrict jwtPayload)
-      
-      -- Create a placeholder JWT: header.payload (unsigned for now)
-      -- In a real implementation, this would be: header.payload.signature
-      let header = "eyJhbGciOiJSUzI1NiJ9"  -- Placeholder header
-      let unsignedJWT = T.concat [header, ".", encodedPayload]
-      
-      return $ Right $ SDJWT
-        { issuerSignedJWT = unsignedJWT
-        , disclosures = sdDisclosures
-        }
+      -- Sign the JWT using jose-jwt
+      signedJWTResult <- signJWT issuerPrivateKeyJWK (payloadValue payload)
+      case signedJWTResult of
+        Left err -> return (Left err)
+        Right signedJWT -> return $ Right $ SDJWT
+          { issuerSignedJWT = signedJWT
+          , disclosures = sdDisclosures
+          }
 
 -- | Generate a decoy digest.
 --
