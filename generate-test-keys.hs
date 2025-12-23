@@ -16,11 +16,11 @@ import qualified Data.Text as T
 
 main :: IO ()
 main = do
-  -- Generate RSA key pair (2048 bits = 256 bytes, current standard)
-  putStrLn "Generating 2048-bit RSA key pair (this may take a minute)..."
-  drg <- getSystemDRG
+  -- Generate first RSA key pair (2048 bits = 256 bytes, current standard)
+  putStrLn "Generating first 2048-bit RSA key pair (this may take a minute)..."
+  drg1 <- getSystemDRG
   -- RSA.generate takes key size in BYTES, so 256 bytes = 2048 bits
-  let (rsaPub, rsaPriv) = fst $ withDRG drg (RSA.generate 256 (65537 :: Integer))
+  let (rsaPub, rsaPriv) = fst $ withDRG drg1 (RSA.generate 256 (65537 :: Integer))
   
   let rsaPrivateJwk = Jose.RsaPrivateJwk rsaPriv Nothing Nothing Nothing
   let rsaPublicJwk = Jose.RsaPublicJwk rsaPub Nothing Nothing Nothing
@@ -29,10 +29,23 @@ main = do
   let rsaPrivateText = TE.decodeUtf8 $ BSL.toStrict rsaPrivateJSON
   let rsaPublicText = TE.decodeUtf8 $ BSL.toStrict rsaPublicJSON
   
+  -- Generate second RSA key pair (for testing signature verification with wrong key)
+  putStrLn "Generating second 2048-bit RSA key pair (this may take a minute)..."
+  drg2 <- getSystemDRG
+  let (rsaPub2, rsaPriv2) = fst $ withDRG drg2 (RSA.generate 256 (65537 :: Integer))
+  
+  let rsaPrivateJwk2 = Jose.RsaPrivateJwk rsaPriv2 Nothing Nothing Nothing
+  let rsaPublicJwk2 = Jose.RsaPublicJwk rsaPub2 Nothing Nothing Nothing
+  let rsaPrivateJSON2 = Aeson.encode rsaPrivateJwk2
+  let rsaPublicJSON2 = Aeson.encode rsaPublicJwk2
+  let rsaPrivateText2 = TE.decodeUtf8 $ BSL.toStrict rsaPrivateJSON2
+  let rsaPublicText2 = TE.decodeUtf8 $ BSL.toStrict rsaPublicJSON2
+  
   -- Generate EC key pair
   putStrLn "Generating EC P-256 key pair..."
+  drg3 <- getSystemDRG
   let curve = getCurveByName SEC_p256r1
-  let (ecPub, ecPriv) = fst $ withDRG drg (ECGen.generate curve)
+  let (ecPub, ecPriv) = fst $ withDRG drg3 (ECGen.generate curve)
   let publicPoint = public_q ecPub
   let privateNumber = private_d ecPriv
   let ecKeyPair = KeyPair curve publicPoint privateNumber
@@ -48,6 +61,10 @@ main = do
         [ (Key.fromString "rsa", Aeson.object
             [ (Key.fromString "private", Aeson.String rsaPrivateText)
             , (Key.fromString "public", Aeson.String rsaPublicText)
+            ])
+        , (Key.fromString "rsa2", Aeson.object
+            [ (Key.fromString "private", Aeson.String rsaPrivateText2)
+            , (Key.fromString "public", Aeson.String rsaPublicText2)
             ])
         , (Key.fromString "ec", Aeson.object
             [ (Key.fromString "private", Aeson.String ecPrivateText)

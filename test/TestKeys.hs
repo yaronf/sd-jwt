@@ -6,6 +6,7 @@
 -- to avoid regenerating them on every test run.
 module TestKeys
   ( generateTestRSAKeyPair
+  , generateTestRSAKeyPair2
   , generateTestECKeyPair
   , TestKeyPair(..)
   ) where
@@ -60,6 +61,17 @@ generateTestRSAKeyPair :: IO TestKeyPair
 generateTestRSAKeyPair = return $ TestKeyPair
   { privateKeyJWK = extractKey "rsa" "private"
   , publicKeyJWK = extractKey "rsa" "public"
+  }
+
+-- | Generate a second test RSA key pair (for testing signature verification with wrong key).
+--
+-- Returns cached 2048-bit RSA key pair from test-keys.json.
+-- This is a different key pair from generateTestRSAKeyPair, used for testing
+-- that signature verification properly rejects JWTs signed with wrong keys.
+generateTestRSAKeyPair2 :: IO TestKeyPair
+generateTestRSAKeyPair2 = return $ TestKeyPair
+  { privateKeyJWK = extractKey "rsa2" "private"
+  , publicKeyJWK = extractKey "rsa2" "public"
   }
 
 -- | Generate a test EC key pair (P-256).

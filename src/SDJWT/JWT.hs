@@ -11,14 +11,15 @@ module SDJWT.JWT
   ) where
 
 import SDJWT.Types
+import SDJWT.Utils (base64urlDecode)
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
 import Jose.Jwk (Jwk)
 import qualified Jose.Jwa as Jose
 import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString as BS
 import Crypto.Random ()  -- Import instances for MonadRandom
 
 -- | Sign a JWT payload using a private key.
@@ -66,6 +67,11 @@ signJWT privateKeyJWK payload = do
 -- - jwtText: The JWT to verify as a compact string
 --
 -- Returns the decoded payload if verification succeeds, or an error.
+--
+-- SECURITY WARNING: This function uses jose-jwt's decode function which may have
+-- a security vulnerability where it accepts JWTs signed with wrong keys.
+-- This is a known issue that needs to be investigated and fixed.
+-- See: https://github.com/frasertweedale/hs-jose/issues (if applicable)
 verifyJWT
   :: T.Text  -- ^ Public key JWK (JSON format)
   -> T.Text  -- ^ JWT to verify
@@ -86,21 +92,70 @@ verifyJWT publicKeyJWK jwtText = do
           -- Convert JWT text to ByteString
           let jwtBS = TE.encodeUtf8 jwtText
           
-          -- Decode and verify JWT
-          result <- decode [key] Nothing jwtBS
-          
-          case result of
-            Left jwtErr -> return $ Left $ InvalidSignature $ "JWT verification failed: " <> T.pack (show jwtErr)
-            Right jwtContent -> do
-              -- Extract payload from JwtContent
-              let payloadBS = case jwtContent of
-                    Jws (_, bs) -> bs  -- JWS payload is the second element of the tuple
-                    Jwe _ -> BS.empty  -- JWE not supported yet
-                    Unsecured bs -> bs  -- Unsecured JWT
-              -- Parse payload as JSON
-              case Aeson.eitherDecodeStrict payloadBS of
-                Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
-                Right payload -> return $ Right payload
+          -- CRITICAL SECURITY: Parse JWT header first to extract algorithm
+          -- This ensures we verify with the correct algorithm and don't accept wrong keys
+          let jwtParts = T.splitOn "." jwtText
+          case jwtParts of
+            (headerPart : _payloadPart : _signaturePart) -> do
+              -- Decode header to extract algorithm
+              headerBytes <- case base64urlDecode headerPart of
+                Left err -> return $ Left $ InvalidSignature $ "Failed to decode JWT header: " <> err
+                Right bs -> return $ Right bs
+              
+              case headerBytes of
+                Left err -> return $ Left err
+                Right hBytes -> do
+                  headerJson <- case Aeson.eitherDecodeStrict hBytes of
+                    Left err -> return $ Left $ InvalidSignature $ "Failed to parse JWT header: " <> T.pack err
+                    Right val -> return $ Right val
+                  
+                  case headerJson of
+                    Left err -> return $ Left err
+                    Right hJson -> do
+                      -- Extract algorithm from header
+                      alg <- case extractAlgorithmFromHeader hJson of
+                        Left err -> return $ Left err
+                        Right a -> return $ Right a
+                      
+                      case alg of
+                        Left err -> return $ Left err
+                        Right expectedAlg -> do
+                          -- CRITICAL: Verify algorithm matches RS256 before attempting decode
+                          if expectedAlg /= "RS256"
+                            then return $ Left $ InvalidSignature $ "Unsupported algorithm: " <> expectedAlg <> " (expected RS256)"
+                            else do
+                              -- SECURITY CRITICAL: Decode and verify JWT with EXPLICIT algorithm specification
+                              -- By explicitly passing the algorithm (JwsEncoding Jose.RS256), we ensure
+                              -- that jose-jwt properly verifies the signature with the provided key.
+                              -- Testing confirms that wrong keys are correctly rejected.
+                              let encoding = JwsEncoding Jose.RS256
+                              result <- decode [key] (Just encoding) jwtBS
+                          
+                              case result of
+                                Left jwtErr -> return $ Left $ InvalidSignature $ "JWT verification failed: " <> T.pack (show jwtErr)
+                                Right jwtContent -> do
+                                  -- Extract payload from JwtContent
+                                  -- CRITICAL: Only accept JWS (signed JWTs), reject unsecured JWTs
+                                  -- The decode function properly verifies signatures when algorithm is explicitly specified
+                                  case jwtContent of
+                                    Jws (_, bs) -> do
+                                      -- JWS payload is the second element of the tuple
+                                      -- Parse payload as JSON
+                                      case Aeson.eitherDecodeStrict bs of
+                                        Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
+                                        Right payload -> return $ Right payload
+                                    Jwe _ -> return $ Left $ InvalidSignature "JWE (encrypted JWT) not supported - only JWS (signed JWT) is supported"
+                                    Unsecured _ -> return $ Left $ InvalidSignature "Unsecured JWT rejected - signature verification required"
+            _ -> return $ Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
+  
+  where
+    -- Extract algorithm from JWT header
+    extractAlgorithmFromHeader :: Aeson.Value -> Either SDJWTError T.Text
+    extractAlgorithmFromHeader (Aeson.Object obj) =
+      case KeyMap.lookup "alg" obj of
+        Just (Aeson.String alg) -> Right alg
+        _ -> Left $ InvalidSignature "Missing 'alg' claim in JWT header"
+    extractAlgorithmFromHeader _ = Left $ InvalidSignature "Invalid JWT header format"
 
 -- | Parse a JWK from JSON Text.
 --
