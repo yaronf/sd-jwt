@@ -22,7 +22,10 @@
 - ✅ Array element disclosure processing implemented in Verification.hs (processPayload)
 - ✅ Recursive array processing to replace {"...": "<digest>"} objects with values
 - ✅ Tests for array element disclosure verification added
+- ✅ Ed25519 (EdDSA) key support added - fully tested for signing and verification
+- ✅ Comprehensive tests for Ed25519 keys in issuance, verification, and key binding
 - ✅ Note added about cryptonite deprecation (migrate to crypton when jose-jwt supports it)
+- ✅ EC P-256 support removed (jose-jwt does not support EC signing, so verification-only support was removed)
 
 ## Overview
 
@@ -409,17 +412,16 @@ data SDJWTError
    - ✅ Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
    - ✅ Decoy digest support (addDecoyDigest)
    - ✅ RFC example tests (Section 5.1 disclosures - basic digest verification)
-   - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
-   - ✅ JWT signing integrated in createSDJWT (using SDJWT.JWT.signJWT)
-   - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
-   - ✅ EC key generation utilities (generateTestECKeyPair)
-   - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation with real keys)
-   - ❌ Tests for nested structures (Section 6)
-   - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
-   - ❌ Tests using EC keys for JWT signing (currently only RSA keys tested)
-   - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
-   - **TODO**: Add complete RFC example tests with full JWT creation and signing
-   - **TODO**: Add tests using EC keys (P-256) for JWT signing in issuance to ensure EC key support works correctly
+  - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
+  - ✅ JWT signing integrated in createSDJWT (using SDJWT.JWT.signJWT)
+  - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
+  - ✅ Ed25519 key generation utilities (generateTestEd25519KeyPair)
+  - ✅ Tests using Ed25519 keys for JWT signing in issuance
+  - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation with real keys)
+  - ❌ Tests for nested structures (Section 6)
+  - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
+  - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
+  - **TODO**: Add complete RFC example tests with full JWT creation and signing
 
 6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE
    - ✅ Unit tests for disclosure selection
@@ -442,25 +444,24 @@ data SDJWTError
    - ✅ RFC example tests (Section 5.2 - array element disclosures in verification)
    - ✅ Array element disclosure processing in processPayload (recursive array processing implemented)
    - ✅ Recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
-   - ✅ Tests for array element disclosure processing
-   - ❌ Error handling tests (invalid digests, missing disclosures, etc.)
-   - ❌ Tests using EC keys for JWT verification (currently only RSA keys tested)
-   - **TODO**: Add comprehensive error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
-   - **TODO**: Add tests using EC keys (P-256) for JWT signature verification to ensure EC key support works correctly
+  - ✅ Tests for array element disclosure processing
+  - ✅ Tests using Ed25519 keys for JWT signature verification
+  - ✅ Error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
+  - **TODO**: Add more comprehensive error handling edge cases if needed
 
 8. **Phase 8 (Key Binding)** - ✅ MOSTLY COMPLETE
    - ✅ KeyBinding.hs module exists
    - ✅ Unit tests for KB-JWT creation/verification
    - ✅ Basic KB-JWT creation and verification (computeSDHash, createKeyBindingJWT, verifyKeyBindingJWT)
-   - ✅ KB-JWT signing/verification using real RSA keys (integrated with SDJWT.JWT)
-   - ✅ addKeyBindingToPresentation function implemented
-   - ✅ Test key generation utilities support EC keys (generateTestECKeyPair)
-   - ❌ Integration tests for SD-JWT+KB flow (end-to-end with actual JWT signing)
-   - ❌ RFC example tests (Section 7 - complete KB-JWT examples)
-   - ❌ Tests using EC keys (currently only RSA keys tested)
-   - **TODO**: Add integration tests for complete SD-JWT+KB flow with actual JWT signing/verification
-   - **TODO**: Add RFC example tests from Section 7 showing complete Key Binding examples
-   - **TODO**: Add tests using EC keys (P-256) for JWT signing/verification and key binding to ensure EC key support works correctly
+  - ✅ KB-JWT signing/verification using real RSA keys (integrated with SDJWT.JWT)
+  - ✅ KB-JWT signing/verification using Ed25519 keys (fully tested)
+  - ✅ addKeyBindingToPresentation function implemented
+  - ✅ Test key generation utilities support Ed25519 keys (generateTestEd25519KeyPair)
+  - ✅ Tests using Ed25519 keys for KB-JWT signing/verification
+  - ❌ Integration tests for SD-JWT+KB flow (end-to-end with actual JWT signing)
+  - ❌ RFC example tests (Section 7 - complete KB-JWT examples)
+  - **TODO**: Add integration tests for complete SD-JWT+KB flow with actual JWT signing/verification
+  - **TODO**: Add RFC example tests from Section 7 showing complete Key Binding examples
 
 ### 9.3 Test Framework
 
@@ -486,6 +487,11 @@ dependencies:
   - bytestring >= 0.11
   - text >= 2.0
   - cryptonite >= 0.30  # For cryptographic operations (TODO: Migrate to crypton when jose-jwt supports it - cryptonite is deprecated)
+  
+**Supported JWT Algorithms**:
+- ✅ **RSA (RS256)**: Fully supported for signing and verification
+- ✅ **Ed25519 (EdDSA)**: Fully supported for signing and verification
+- ❌ **EC P-256 (ES256)**: Not supported (jose-jwt library does not support EC signing)
   - memory >= 0.18      # For secure random generation
   - jose-jwt >= 0.10   # For JWT handling (currently depends on cryptonite)
   - base64-bytestring >= 1.2  # For base64url encoding
@@ -540,11 +546,11 @@ dependencies:
 8. **Week 8**: Key Binding support - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for KB-JWT creation/verification
    - ✅ **Implementation**: KeyBinding.hs module, KB-JWT creation/verification
-   - ✅ **Implementation**: KB-JWT signing/verification using real RSA keys
-   - ✅ **Implementation**: EC key generation utilities (generateTestECKeyPair)
-   - ❌ **Tests**: RFC example tests (Section 7 - complete KB-JWT examples)
-   - ❌ **Tests**: Integration tests for complete SD-JWT+KB flow
-   - ❌ **Tests**: Tests using EC keys (P-256) for signing/verification and key binding
+  - ✅ **Implementation**: KB-JWT signing/verification using real RSA keys
+  - ✅ **Implementation**: Ed25519 key generation utilities (generateTestEd25519KeyPair)
+  - ✅ **Tests**: Tests using Ed25519 keys for KB-JWT signing/verification
+  - ❌ **Tests**: RFC example tests (Section 7 - complete KB-JWT examples)
+  - ❌ **Tests**: Integration tests for complete SD-JWT+KB flow
 
 9. **Week 9**: Edge cases and polish
    - **Tests**: Additional edge case tests, property-based tests with QuickCheck

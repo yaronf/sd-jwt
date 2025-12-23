@@ -12,6 +12,7 @@ module SDJWT.JWT
 
 import SDJWT.Types
 import SDJWT.Utils (base64urlDecode)
+import qualified SDJWT.JWT.EC as EC  -- Temporary EC signing support
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
 import Jose.Jwk (Jwk)
 import qualified Jose.Jwa as Jose
@@ -24,7 +25,7 @@ import qualified Data.ByteString.Lazy as BSL
 import Crypto.Random ()  -- Import instances for MonadRandom
 
 -- | Detect the key type from a JWK JSON and return the appropriate algorithm.
--- Returns "RS256" for RSA keys, "ES256" for EC P-256 keys, "EdDSA" for Ed25519 keys, or an error.
+-- Returns "RS256" for RSA keys, "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
 detectKeyAlgorithm :: T.Text -> Either SDJWTError T.Text
 detectKeyAlgorithm jwkText = do
   case Aeson.eitherDecodeStrict (TE.encodeUtf8 jwkText) of
@@ -38,24 +39,22 @@ detectKeyAlgorithm jwkText = do
         then Right "RS256"
         else if kty == "EC"
           then do
-            -- Check curve for EC keys
+            -- Check curve for EC keys (only P-256 is supported)
+            _crv <- case KeyMap.lookup (Key.fromText "crv") obj of
+              Just (Aeson.String "P-256") -> Right ()
+              Just (Aeson.String crvText) -> Left $ InvalidSignature $ "Unsupported EC curve: " <> crvText <> " (only P-256 is supported)"
+              _ -> Left $ InvalidSignature "Missing 'crv' field in EC JWK"
+            Right "ES256"
+        else if kty == "OKP"
+          then do
+            -- Check curve for OKP keys (Ed25519, Ed448)
             crv <- case KeyMap.lookup (Key.fromText "crv") obj of
               Just (Aeson.String crvText) -> Right crvText
-              _ -> Left $ InvalidSignature "Missing 'crv' field in EC JWK"
+              _ -> Left $ InvalidSignature "Missing 'crv' field in OKP JWK"
             
-            if crv == "P-256"
-              then Right "ES256"
-              else Left $ InvalidSignature $ "Unsupported EC curve: " <> crv <> " (only P-256 is supported)"
-          else if kty == "OKP"
-            then do
-              -- Check curve for OKP keys (Ed25519, Ed448)
-              crv <- case KeyMap.lookup (Key.fromText "crv") obj of
-                Just (Aeson.String crvText) -> Right crvText
-                _ -> Left $ InvalidSignature "Missing 'crv' field in OKP JWK"
-            
-              if crv == "Ed25519"
-                then Right "EdDSA"
-                else Left $ InvalidSignature $ "Unsupported OKP curve: " <> crv <> " (only Ed25519 is supported)"
+            if crv == "Ed25519"
+              then Right "EdDSA"
+              else Left $ InvalidSignature $ "Unsupported OKP curve: " <> crv <> " (only Ed25519 is supported)"
           else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (only RSA, EC P-256, and Ed25519 are supported)"
     Right _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
 
@@ -66,7 +65,10 @@ detectKeyAlgorithm jwkText = do
 -- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
--- Automatically detects key type and uses RS256 for RSA keys or ES256 for EC P-256 keys.
+-- Automatically detects key type and uses:
+-- - RS256 for RSA keys (via jose-jwt)
+-- - EdDSA for Ed25519 keys (via jose-jwt)
+-- - ES256 for EC P-256 keys (via SDJWT.JWT.EC module - temporary until jose-jwt adds EC signing)
 signJWT
   :: T.Text  -- ^ Private key JWK (JSON format)
   -> Aeson.Value  -- ^ JWT payload
@@ -84,36 +86,36 @@ signJWT privateKeyJWK payload = do
       case alg of
         Left err -> return $ Left err
         Right algText -> do
-          -- Parse JWK from Text
-          jwk <- case parseJWKFromText privateKeyJWK of
-            Left err -> return $ Left err
-            Right key -> return $ Right key
-          
-          case jwk of
-            Left err -> return $ Left err
-            Right key -> do
-              -- Encode payload to ByteString
-              let payloadBS = BSL.toStrict $ Aeson.encode payload
-              
-              -- Create JWT encoding based on detected algorithm
-              -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-              -- EC keys can only be used for verification, not signing
-              -- Ed25519 (EdDSA) signing is supported
-              encodingResult <- case algText of
-                    "RS256" -> return $ Right $ JwsEncoding Jose.RS256
-                    "EdDSA" -> return $ Right $ JwsEncoding Jose.EdDSA
-                    "ES256" -> return $ Left $ InvalidSignature "EC signing is not supported by jose-jwt library - only RSA (RS256) and Ed25519 (EdDSA) signing are supported"
-                    _ -> return $ Left $ InvalidSignature $ "Unsupported algorithm: " <> algText <> " (only RS256 and EdDSA are supported for signing)"
-              
-              case encodingResult of
+          -- Handle EC keys separately (using our temporary EC module)
+          if algText == "ES256"
+            then EC.signJWTES256 privateKeyJWK payload
+            else do
+              -- For RSA and EdDSA, use jose-jwt
+              jwk <- case parseJWKFromText privateKeyJWK of
                 Left err -> return $ Left err
-                Right enc -> do
-                  -- Sign the JWT
-                  result <- encode [key] enc (Claims payloadBS)
+                Right key -> return $ Right key
+              
+              case jwk of
+                Left err -> return $ Left err
+                Right key -> do
+                  -- Encode payload to ByteString
+                  let payloadBS = BSL.toStrict $ Aeson.encode payload
                   
-                  case result of
-                    Left jwtErr -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show jwtErr)
-                    Right jwt -> return $ Right $ TE.decodeUtf8 $ unJwt jwt
+                  -- Create JWT encoding based on detected algorithm
+                  encodingResult <- case algText of
+                        "RS256" -> return $ Right $ JwsEncoding Jose.RS256
+                        "EdDSA" -> return $ Right $ JwsEncoding Jose.EdDSA
+                        _ -> return $ Left $ InvalidSignature $ "Unsupported algorithm: " <> algText <> " (only RS256, EdDSA, and ES256 are supported)"
+                  
+                  case encodingResult of
+                    Left err -> return $ Left err
+                    Right enc -> do
+                      -- Sign the JWT
+                      result <- encode [key] enc (Claims payloadBS)
+                      
+                      case result of
+                        Left jwtErr -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show jwtErr)
+                        Right jwt -> return $ Right $ TE.decodeUtf8 $ unJwt jwt
 
 -- | Verify a JWT signature using a public key.
 --
@@ -175,18 +177,19 @@ verifyJWT publicKeyJWK jwtText = do
                       case alg of
                         Left err -> return $ Left err
                         Right expectedAlg -> do
-                          -- CRITICAL: Verify algorithm is supported (RS256, ES256, or EdDSA)
-                          if expectedAlg /= "RS256" && expectedAlg /= "ES256" && expectedAlg /= "EdDSA"
-                            then return $ Left $ InvalidSignature $ "Unsupported algorithm: " <> expectedAlg <> " (only RS256, ES256, and EdDSA are supported)"
+                          -- CRITICAL: Verify algorithm is supported (RS256, EdDSA, or ES256)
+                          if expectedAlg /= "RS256" && expectedAlg /= "EdDSA" && expectedAlg /= "ES256"
+                            then return $ Left $ InvalidSignature $ "Unsupported algorithm: " <> expectedAlg <> " (only RS256, EdDSA, and ES256 are supported)"
                             else do
                               -- SECURITY CRITICAL: Decode and verify JWT with EXPLICIT algorithm specification
                               -- By explicitly passing the algorithm, we ensure
                               -- that jose-jwt properly verifies the signature with the provided key.
                               -- Testing confirms that wrong keys are correctly rejected.
+                              -- Note: jose-jwt supports ES256 verification (but not signing)
                               let encoding = case expectedAlg of
                                     "RS256" -> JwsEncoding Jose.RS256
-                                    "ES256" -> JwsEncoding Jose.ES256
                                     "EdDSA" -> JwsEncoding Jose.EdDSA
+                                    "ES256" -> JwsEncoding Jose.ES256
                                     _ -> error "Unreachable: algorithm already validated"
                               result <- decode [key] (Just encoding) jwtBS
                           
@@ -219,12 +222,15 @@ verifyJWT publicKeyJWK jwtText = do
 -- | Parse a JWK from JSON Text.
 --
 -- Parses a JSON Web Key (JWK) from its JSON representation.
--- Supports all key types that jose-jwt supports: RSA, EC, Ed25519, Ed448, and symmetric keys.
+-- Supports RSA and Ed25519 keys (the key types that jose-jwt supports for signing).
 --
 -- The JWK JSON format follows RFC 7517. Examples:
 -- - RSA public key: {"kty":"RSA","n":"...","e":"..."}
--- - EC public key: {"kty":"EC","crv":"P-256","x":"...","y":"..."}
+-- - Ed25519 public key: {"kty":"OKP","crv":"Ed25519","x":"..."}
 -- - RSA private key: {"kty":"RSA","n":"...","e":"...","d":"...","p":"...","q":"..."}
+-- - Ed25519 private key: {"kty":"OKP","crv":"Ed25519","d":"...","x":"..."}
+--
+-- Note: EC P-256 keys are not supported as jose-jwt does not support EC signing.
 parseJWKFromText :: T.Text -> Either SDJWTError Jwk
 parseJWKFromText jwkText =
   case Aeson.eitherDecodeStrict (TE.encodeUtf8 jwkText) of

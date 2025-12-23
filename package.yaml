@@ -59,6 +59,7 @@ library:
     - SDJWT.Verification
     - SDJWT.KeyBinding
     - SDJWT.JWT
+    - SDJWT.JWT.EC  # Temporary EC signing support - can be removed once jose-jwt adds EC signing
 
 executables:
   sd-jwt-exe:

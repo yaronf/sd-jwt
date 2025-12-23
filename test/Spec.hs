@@ -12,6 +12,7 @@ import SDJWT.Presentation
 import SDJWT.Verification
 import SDJWT.KeyBinding
 import SDJWT.JWT
+import SDJWT.JWT.EC (signJWTES256)
 import TestKeys
 import qualified Data.Vector as V
 import qualified Data.Aeson as Aeson
@@ -295,44 +296,6 @@ main = hspec $ do
             getDisclosureClaimName decoded `shouldBe` Nothing  -- Array disclosures don't have claim names
             getDisclosureValue decoded `shouldBe` Aeson.String "US"
     
-    describe "JWT signing with EC keys" $ do
-      it "creates SD-JWT with EC key signing (P-256)" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        pendingWith "jose-jwt library does not support EC signing (ES256) - only RSA signing (RS256) is supported"
-        
-        -- Generate test EC key pair
-        -- Generate test EC key pair
-        issuerKeyPair <- generateTestECKeyPair
-        
-        -- Create claims with selective disclosure
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
-              ]
-        let selectiveClaimNames = ["given_name", "family_name"]
-        
-        -- Create SD-JWT with EC key signing
-        result <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
-        case result of
-          Left err -> expectationFailure $ "Failed to create SD-JWT with EC key: " ++ show err
-          Right sdJWT -> do
-            -- Verify SD-JWT is created (non-empty)
-            issuerSignedJWT sdJWT `shouldSatisfy` (not . T.null)
-            -- Verify it contains dots (JWT format: header.payload.signature)
-            T.splitOn "." (issuerSignedJWT sdJWT) `shouldSatisfy` ((>= 3) . length)
-            -- Verify disclosures are created
-            disclosures sdJWT `shouldSatisfy` (not . null)
-            
-            -- Verify we can verify the signature with EC public key
-            let presentation = SDJWTPresentation (issuerSignedJWT sdJWT) (disclosures sdJWT) Nothing
-            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation
-            case verifyResult of
-              Right () -> return ()  -- Success
-              Left err -> expectationFailure $ "EC signature verification failed: " ++ show err
-      
       it "creates SD-JWT with Ed25519 key signing" $ do
         -- Generate test Ed25519 key pair
         issuerKeyPair <- generateTestEd25519KeyPair
@@ -363,6 +326,37 @@ main = hspec $ do
             case verifyResult of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Ed25519 signature verification failed: " ++ show err
+      
+      it "creates SD-JWT with EC P-256 key signing (ES256)" $ do
+        -- Generate test EC key pair
+        issuerKeyPair <- generateTestECKeyPair
+        
+        -- Create claims with selective disclosure
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              , ("family_name", Aeson.String "Doe")
+              ]
+        let selectiveClaimNames = ["given_name", "family_name"]
+        
+        -- Create SD-JWT with EC P-256 key signing (ES256)
+        result <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT with EC key: " ++ show err
+          Right sdJWT -> do
+            -- Verify SD-JWT is created (non-empty)
+            issuerSignedJWT sdJWT `shouldSatisfy` (not . T.null)
+            -- Verify it contains dots (JWT format: header.payload.signature)
+            T.splitOn "." (issuerSignedJWT sdJWT) `shouldSatisfy` ((>= 3) . length)
+            -- Verify disclosures are created
+            disclosures sdJWT `shouldSatisfy` (not . null)
+            
+            -- Verify we can verify the signature with EC public key
+            let presentation = SDJWTPresentation (issuerSignedJWT sdJWT) (disclosures sdJWT) Nothing
+            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation
+            case verifyResult of
+              Right () -> return ()  -- Success
+              Left err -> expectationFailure $ "EC signature verification failed: " ++ show err
 
   describe "SDJWT.Verification" $ do
     describe "extractHashAlgorithm" $ do
@@ -408,12 +402,6 @@ main = hspec $ do
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Signature verification failed: " ++ show err
       
-      it "verifies issuer signature with real EC key (P-256)" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        pendingWith "jose-jwt library does not support EC signing (ES256) - cannot test EC verification without signing capability"
-      
       it "verifies issuer signature with real Ed25519 key" $ do
         -- Generate test Ed25519 key pair
         keyPair <- generateTestEd25519KeyPair
@@ -434,6 +422,27 @@ main = hspec $ do
             case result of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Ed25519 signature verification failed: " ++ show err
+      
+      it "verifies issuer signature with real EC P-256 key (ES256)" $ do
+        -- Generate test EC key pair
+        keyPair <- generateTestECKeyPair
+        
+        -- Create a test payload
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        
+        -- Sign the JWT with EC P-256 key (ES256)
+        signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT with EC key: " ++ show err
+          Right signedJWT -> do
+            -- Create presentation with signed JWT
+            let presentation = SDJWTPresentation signedJWT [] Nothing
+            
+            -- Verify the signature with EC public key
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            case result of
+              Right () -> return ()  -- Success
+              Left err -> expectationFailure $ "EC signature verification failed: " ++ show err
     
     describe "verifyKeyBinding" $ do
       it "verifies key binding when present" $ do
@@ -829,13 +838,6 @@ main = hspec $ do
               Right _ -> return ()  -- Success - signature verification passed as expected
               Left err -> expectationFailure $ "Signature verification should succeed with correct key, but got error: " ++ show err
       
-      it "succeeds when JWT signature is valid (correct EC key)" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        -- Once EC signing is supported, we can test end-to-end EC key verification
-        pendingWith "jose-jwt library does not support EC signing (ES256) - cannot test EC verification without signing capability"
-      
       it "fails when JWT signature is invalid" $ do
         -- CRITICAL SECURITY TEST: This test verifies that signature verification
         -- properly rejects JWTs signed with wrong keys.
@@ -974,31 +976,6 @@ main = hspec $ do
             T.splitOn "." kbJWT `shouldSatisfy` ((>= 3) . length)  -- Should have signature now
           Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
       
-      it "creates a KB-JWT with EC key (P-256)" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        pendingWith "jose-jwt library does not support EC signing (ES256) - only RSA signing (RS256) is supported"
-        
-        -- Generate test EC key pair
-        keyPair <- generateTestECKeyPair
-        
-        let jwt = "test.jwt"
-        let disclosure = EncodedDisclosure "test_disclosure"
-        let presentation = SDJWTPresentation jwt [disclosure] Nothing
-        let audience = "verifier_123"
-        let nonce = "nonce_456"
-        let issuedAt = 1234567890 :: Int64
-        
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) audience nonce issuedAt presentation
-        case result of
-          Right kbJWT -> do
-            -- Verify KB-JWT is created (non-empty)
-            kbJWT `shouldSatisfy` (not . T.null)
-            -- Verify it contains dots (JWT format: header.payload.signature)
-            T.splitOn "." kbJWT `shouldSatisfy` ((>= 3) . length)
-          Left err -> expectationFailure $ "Failed to create KB-JWT with EC key: " ++ show err
-    
     describe "verifyKeyBindingJWT" $ do
       it "verifies sd_hash matches presentation" $ do
         -- Generate test RSA key pair
@@ -1019,30 +996,6 @@ main = hspec $ do
               Left err -> expectationFailure $ "KB-JWT verification failed: " ++ show err
           Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
       
-      it "verifies KB-JWT with EC key (P-256)" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        pendingWith "jose-jwt library does not support EC signing (ES256) - cannot test KB-JWT with EC keys without signing capability"
-        
-        -- Generate test EC key pair
-        keyPair <- generateTestECKeyPair
-        
-        let jwt = "test.jwt"
-        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
-        let presentation = SDJWTPresentation jwt [disclosure] Nothing
-        
-        -- Create a KB-JWT with EC key
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
-        case result of
-          Right kbJWT -> do
-            -- Verify the KB-JWT with EC public key (should pass signature and sd_hash checks)
-            verifyResult <- verifyKeyBindingJWT SHA256 (publicKeyJWK keyPair) kbJWT presentation
-            case verifyResult of
-              Right () -> return ()  -- Success
-              Left err -> expectationFailure $ "KB-JWT verification with EC key failed: " ++ show err
-          Left err -> expectationFailure $ "Failed to create KB-JWT with EC key: " ++ show err
-      
       it "verifies KB-JWT with Ed25519 key" $ do
         -- Generate test Ed25519 key pair
         keyPair <- generateTestEd25519KeyPair
@@ -1061,6 +1014,25 @@ main = hspec $ do
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "KB-JWT verification with Ed25519 key failed: " ++ show err
           Left err -> expectationFailure $ "Failed to create KB-JWT with Ed25519 key: " ++ show err
+      
+      it "verifies KB-JWT with EC P-256 key (ES256)" $ do
+        -- Generate test EC key pair
+        keyPair <- generateTestECKeyPair
+        
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        
+        -- Create a KB-JWT with EC P-256 key (ES256)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
+        case result of
+          Right kbJWT -> do
+            -- Verify the KB-JWT with EC public key (should pass signature and sd_hash checks)
+            verifyResult <- verifyKeyBindingJWT SHA256 (publicKeyJWK keyPair) kbJWT presentation
+            case verifyResult of
+              Right () -> return ()  -- Success
+              Left err -> expectationFailure $ "KB-JWT verification with EC key failed: " ++ show err
+          Left err -> expectationFailure $ "Failed to create KB-JWT with EC key: " ++ show err
     
     describe "addKeyBindingToPresentation" $ do
       it "adds key binding to a presentation" $ do
@@ -1081,29 +1053,6 @@ main = hspec $ do
             selectedDisclosures updatedPresentation `shouldBe` [disclosure]
           Left err -> expectationFailure $ "Failed to add key binding: " ++ show err
       
-      it "adds key binding to a presentation with EC key" $ do
-        -- NOTE: jose-jwt library does not support EC signing (ES256) as of version 0.9.6
-        -- EC keys can only be used for verification, not signing
-        -- This test is pending until jose-jwt adds EC signing support
-        pendingWith "jose-jwt library does not support EC signing (ES256) - only RSA signing (RS256) is supported"
-        
-        -- Generate test EC key pair
-        keyPair <- generateTestECKeyPair
-        
-        let jwt = "test.jwt"
-        let disclosure = EncodedDisclosure "test_disclosure"
-        let presentation = SDJWTPresentation jwt [disclosure] Nothing
-        
-        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
-        case result of
-          Right updatedPresentation -> do
-            -- Verify key binding was added
-            keyBindingJWT updatedPresentation `shouldSatisfy` isJust
-            -- Verify other fields unchanged
-            presentationJWT updatedPresentation `shouldBe` jwt
-            selectedDisclosures updatedPresentation `shouldBe` [disclosure]
-          Left err -> expectationFailure $ "Failed to add key binding with EC key: " ++ show err
-      
       it "adds key binding to a presentation with Ed25519 key" $ do
         -- Generate test Ed25519 key pair
         keyPair <- generateTestEd25519KeyPair
@@ -1121,6 +1070,156 @@ main = hspec $ do
             presentationJWT updatedPresentation `shouldBe` jwt
             selectedDisclosures updatedPresentation `shouldBe` [disclosure]
           Left err -> expectationFailure $ "Failed to add key binding with Ed25519 key: " ++ show err
+      
+      it "adds key binding to a presentation with EC P-256 key (ES256)" $ do
+        -- Generate test EC key pair
+        keyPair <- generateTestECKeyPair
+        
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "test_disclosure"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        
+        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
+        case result of
+          Right updatedPresentation -> do
+            -- Verify key binding was added
+            keyBindingJWT updatedPresentation `shouldSatisfy` isJust
+            -- Verify other fields unchanged
+            presentationJWT updatedPresentation `shouldBe` jwt
+            selectedDisclosures updatedPresentation `shouldBe` [disclosure]
+          Left err -> expectationFailure $ "Failed to add key binding with Ed25519 key: " ++ show err
+
+  describe "SDJWT.JWT.EC" $ do
+    describe "signJWTES256" $ do
+      it "signs a JWT with EC P-256 key" $ do
+        -- Generate test EC key pair
+        keyPair <- generateTestECKeyPair
+        
+        -- Create a test payload
+        let payload = Aeson.object [("sub", Aeson.String "user_123"), ("iat", Aeson.Number 1234567890)]
+        
+        -- Sign the JWT using EC module directly
+        result <- signJWTES256 (privateKeyJWK keyPair) payload
+        case result of
+          Left err -> expectationFailure $ "Failed to sign JWT with EC key: " ++ show err
+          Right signedJWT -> do
+            -- Verify JWT structure (header.payload.signature)
+            let parts = T.splitOn "." signedJWT
+            length parts `shouldBe` 3
+            
+            -- Verify we can decode and verify with jose-jwt
+            verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT
+            case verifyResult of
+              Left err -> expectationFailure $ "Failed to verify EC-signed JWT: " ++ show err
+              Right decodedPayload -> do
+                -- Verify payload matches
+                case decodedPayload of
+                  Aeson.Object obj -> case KeyMap.lookup (Key.fromText "sub") obj of
+                    Just (Aeson.String "user_123") -> return ()
+                    _ -> expectationFailure "Payload 'sub' field mismatch"
+                  _ -> expectationFailure "Payload is not an object"
+      
+      it "fails with invalid JWK format" $ do
+        let invalidJWK = "not a valid JSON"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 invalidJWK payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with invalid JWK format"
+      
+      it "fails with non-EC key type" $ do
+        -- Use RSA key (should fail)
+        rsaKeyPair <- generateTestRSAKeyPair
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 (privateKeyJWK rsaKeyPair) payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with non-EC key"
+      
+      it "fails with unsupported EC curve" $ do
+        -- Create JWK with unsupported curve (P-384 instead of P-256)
+        let unsupportedCurveJWK = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 unsupportedCurveJWK payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with unsupported curve"
+      
+      it "fails with missing 'd' field (private key)" $ do
+        -- Create JWK without private key scalar
+        let missingD = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 missingD payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with missing 'd' field"
+      
+      it "fails with missing 'x' field" $ do
+        -- Create JWK without x coordinate
+        let missingX = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 missingX payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with missing 'x' field"
+      
+      it "fails with missing 'y' field" $ do
+        -- Create JWK without y coordinate
+        let missingY = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 missingY payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with missing 'y' field"
+      
+      it "fails with invalid base64url in coordinates" $ do
+        -- Create JWK with invalid base64url encoding
+        let invalidBase64 = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"!!!invalid!!!\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        result <- signJWTES256 invalidBase64 payload
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
+          Right _ -> expectationFailure "Should fail with invalid base64url"
+      
+      it "produces different signatures for same payload (non-deterministic)" $ do
+        -- ECDSA signatures are non-deterministic, so signing the same payload twice
+        -- should produce different signatures (but both should verify)
+        keyPair <- generateTestECKeyPair
+        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        
+        -- Sign twice
+        result1 <- signJWTES256 (privateKeyJWK keyPair) payload
+        result2 <- signJWTES256 (privateKeyJWK keyPair) payload
+        
+        case (result1, result2) of
+          (Right jwt1, Right jwt2) -> do
+            -- Signatures should be different (ECDSA is non-deterministic)
+            jwt1 `shouldNotBe` jwt2
+            
+            -- But both should verify correctly
+            verify1 <- verifyJWT (publicKeyJWK keyPair) jwt1
+            verify2 <- verifyJWT (publicKeyJWK keyPair) jwt2
+            
+            case (verify1, verify2) of
+              (Right _, Right _) -> return ()  -- Both verify successfully
+              (Left err, _) -> expectationFailure $ "First JWT verification failed: " ++ show err
+              (_, Left err) -> expectationFailure $ "Second JWT verification failed: " ++ show err
+          (Left err, _) -> expectationFailure $ "First signing failed: " ++ show err
+          (_, Left err) -> expectationFailure $ "Second signing failed: " ++ show err
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
