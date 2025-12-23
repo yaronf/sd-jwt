@@ -4,6 +4,69 @@
 -- This module provides functions for creating SD-JWTs on the issuer side.
 -- It handles marking claims as selectively disclosable, creating disclosures,
 -- computing digests, and building the final signed JWT.
+--
+-- == Nested Structures
+--
+-- This module supports nested structures (RFC 9901 Sections 6.2 and 6.3) using
+-- JSON Pointer syntax (RFC 6901) for specifying nested claim paths.
+--
+-- === JSON Pointer Syntax
+--
+-- Nested paths use forward slash (@/@) as a separator:
+--
+-- @
+-- ["address\/street_address", "address\/locality"]
+-- @
+--
+-- This marks @street_address@ and @locality@ within the @address@ object as
+-- selectively disclosable.
+--
+-- === Escaping Special Characters
+--
+-- JSON Pointer provides escaping for keys containing special characters:
+--
+-- * @~1@ represents a literal forward slash @/@
+-- * @~0@ represents a literal tilde @~@
+--
+-- Examples:
+--
+-- * @["contact~1email"]@ → marks the literal key @"contact\/email"@ as selectively disclosable
+-- * @["user~0name"]@ → marks the literal key @"user~name"@ as selectively disclosable
+-- * @["address\/email"]@ → marks @email@ within @address@ object as selectively disclosable
+--
+-- === Nested Structure Patterns
+--
+-- The module supports two patterns for nested structures:
+--
+-- 1. /Structured SD-JWT/ (Section 6.2): Parent object stays in payload with @_sd@ array
+--    containing digests for sub-claims.
+--
+-- 2. /Recursive Disclosures/ (Section 6.3): Parent is selectively disclosable, and its
+--    disclosure contains an @_sd@ array with digests for sub-claims.
+--
+-- The pattern is automatically detected based on whether the parent claim is also
+-- in the selective claims list.
+--
+-- === Examples
+--
+-- Structured SD-JWT (Section 6.2):
+--
+-- @
+-- buildSDJWTPayload SHA256 ["address\/street_address", "address\/locality"] claims
+-- @
+--
+-- This creates a payload where @address@ object contains an @_sd@ array.
+--
+-- Recursive Disclosures (Section 6.3):
+--
+-- @
+-- buildSDJWTPayload SHA256 ["address", "address\/street_address", "address\/locality"] claims
+-- @
+--
+-- This creates a payload where @address@ digest is in top-level @_sd@, and the
+-- @address@ disclosure contains an @_sd@ array with sub-claim digests.
+--
+-- See 'partitionNestedPaths' for detailed JSON Pointer parsing implementation.
 module SDJWT.Issuance
   ( createSDJWT
   , createSDJWTFromClaims
@@ -23,14 +86,16 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
-import Data.List (sortBy)
+import Data.List (sortBy, partition)
 import Data.Ord (comparing)
 import Data.Either (partitionEithers)
+import Data.Maybe (mapMaybe)
 
 -- | Create an SD-JWT from a claims set, marking specified claims as selectively disclosable.
 --
@@ -136,47 +201,84 @@ processArrayForSelectiveDisclosure hashAlg arr indices = do
 -- 4. Builds the JSON payload with _sd array containing digests
 -- 5. Returns the payload and all disclosures
 --
--- Note: This version only handles object properties. For array elements,
--- use the enhanced version with array element specifications.
+-- Supports nested structures (Section 6.2, 6.3):
+-- - Use dot notation for nested paths: ["address.street_address", "address.locality"]
+-- - For Section 6.2 (structured): parent object stays, sub-claims get _sd array within parent
+-- - For Section 6.3 (recursive): parent is selectively disclosable, disclosure contains _sd array
 buildSDJWTPayload
   :: HashAlgorithm
-  -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
+  -> [T.Text]  -- ^ Claim names to mark as selectively disclosable (supports JSON Pointer syntax for nested paths, see 'partitionNestedPaths')
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError (SDJWTPayload, [EncodedDisclosure]))
 buildSDJWTPayload hashAlg selectiveClaimNames claims = do
-  -- Separate selective and regular claims
-  let (selectiveClaims, regularClaims) = Map.partitionWithKey
-        (\name _ -> name `elem` selectiveClaimNames) claims
+  -- Group claims by nesting level (top-level vs nested)
+  let (topLevelClaims, nestedPaths) = partitionNestedPaths selectiveClaimNames
   
-  -- Create disclosures and digests for selective claims
-  disclosureResults <- mapM (uncurry (markSelectivelyDisclosable hashAlg)) (Map.toList selectiveClaims)
+  -- Group nested paths by parent to detect recursive disclosures (Section 6.3)
+  let nestedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) nestedPaths
+  let recursiveParents = Map.keysSet nestedByParent `Set.intersection` Set.fromList topLevelClaims
   
-  -- Check for errors
-  let (errors, successes) = partitionEithers disclosureResults
-  case errors of
-    (err:_) -> return (Left err)
-    [] -> do
-      let (digests, sdDisclosures) = unzip successes
+  -- Separate recursive disclosures (Section 6.3) from structured disclosures (Section 6.2)
+  let (recursivePaths, structuredPaths) = partition (\(p, _) -> Set.member p recursiveParents) nestedPaths
+  
+  -- Process structured nested structures first (Section 6.2: structured SD-JWT)
+  structuredResults <- processNestedStructures hashAlg structuredPaths claims
+  
+  -- Check for errors in structured processing
+  case structuredResults of
+    Left err -> return (Left err)
+    Right (structuredPayload, structuredDisclosures, remainingClaimsAfterStructured) -> do
+      -- Process recursive disclosures (Section 6.3)
+      recursiveResults <- processRecursiveDisclosures hashAlg recursivePaths remainingClaimsAfterStructured
       
-      -- Build the JSON payload
-      -- Start with regular claims
-      let payloadObj = foldl (\acc (k, v) ->
-            KeyMap.insert (Key.fromText k) v acc) KeyMap.empty (Map.toList regularClaims)
-      
-      -- Add _sd_alg claim
-      let payloadWithAlg = KeyMap.insert "_sd_alg" (Aeson.String (hashAlgorithmToText hashAlg)) payloadObj
-      
-      -- Add _sd array with digests (sorted for determinism)
-      let sortedDigests = map (Aeson.String . unDigest) (sortDigests digests)
-      let payloadWithSD = KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedDigests)) payloadWithAlg
-      
-      -- Create SDJWTPayload
-      let payload = SDJWTPayload
-            { sdAlg = Just hashAlg
-            , payloadValue = Aeson.Object payloadWithSD
-            }
-      
-      return (Right (payload, sdDisclosures))
+      case recursiveResults of
+        Left err -> return (Left err)
+        Right (recursiveParentInfo, recursiveDisclosures, remainingClaimsAfterRecursive) -> do
+          -- Process remaining top-level selectively disclosable claims (excluding recursive parents)
+          let topLevelClaimsWithoutRecursive = filter (`Set.notMember` recursiveParents) topLevelClaims
+          let (selectiveClaims, regularClaims) = Map.partitionWithKey
+                (\name _ -> name `elem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
+          
+          -- Create disclosures and digests for top-level selective claims
+          disclosureResults <- mapM (uncurry (markSelectivelyDisclosable hashAlg)) (Map.toList selectiveClaims)
+          
+          -- Check for errors
+          let (errors, successes) = partitionEithers disclosureResults
+          case errors of
+            (err:_) -> return (Left err)
+            [] -> do
+              let (topLevelDigests, topLevelDisclosures) = unzip successes
+              
+              -- Extract recursive parent digests
+              let recursiveParentDigests = map (\(_, digest, _) -> digest) recursiveParentInfo
+              
+              -- Combine all disclosures (structured + recursive + top-level)
+              let allDisclosures = structuredDisclosures ++ recursiveDisclosures ++ topLevelDisclosures
+              
+              -- Combine all digests (recursive parents + top-level)
+              let allDigests = recursiveParentDigests ++ topLevelDigests
+              
+              -- Build the JSON payload
+              -- Start with regular claims (including processed structured nested structures)
+              let payloadObj = foldl (\acc (k, v) ->
+                    KeyMap.insert (Key.fromText k) v acc) structuredPayload (Map.toList regularClaims)
+              
+              -- Add _sd_alg claim
+              let payloadWithAlg = KeyMap.insert "_sd_alg" (Aeson.String (hashAlgorithmToText hashAlg)) payloadObj
+              
+              -- Add _sd array with digests (sorted for determinism) if there are any digests
+              let finalPayload = if null allDigests
+                    then payloadWithAlg
+                    else let sortedDigests = map (Aeson.String . unDigest) (sortDigests allDigests)
+                         in KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedDigests)) payloadWithAlg
+              
+              -- Create SDJWTPayload
+              let payload = SDJWTPayload
+                    { sdAlg = Just hashAlg
+                    , payloadValue = Aeson.Object finalPayload
+                    }
+              
+              return (Right (payload, allDisclosures))
 
 -- | Create a complete SD-JWT (signed).
 --
@@ -233,4 +335,199 @@ hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 -- | Sort digests for deterministic ordering in _sd array.
 sortDigests :: [Digest] -> [Digest]
 sortDigests = sortBy (comparing unDigest)
+
+-- | Partition claim names into top-level and nested paths.
+--
+-- Nested paths use JSON Pointer syntax (RFC 6901) with forward slash as separator.
+-- Examples:
+--   - "address/street_address" → parent="address", child="street_address"
+--   - "user/profile/email" → parent="user/profile", child="email" (only supports 2-level nesting currently)
+--
+-- Escaping (RFC 6901):
+--   - "~1" represents a literal forward slash "/"
+--   - "~0" represents a literal tilde "~"
+-- Examples:
+--   - "contact~1email" → literal key "contact/email" (not a nested path)
+--   - "user~0name" → literal key "user~name" (not a nested path)
+--
+-- Note: Only single-level nesting is currently supported (parent/child).
+-- For deeper nesting, use multiple calls or extend the API.
+partitionNestedPaths :: [T.Text] -> ([T.Text], [(T.Text, T.Text)])
+partitionNestedPaths claimNames =
+  let (topLevel, nested) = partition (not . T.isInfixOf "/") claimNames
+      nestedPaths = mapMaybe parseJSONPointerPath nested
+      -- Unescape top-level claim names (they may contain ~0 or ~1)
+      unescapedTopLevel = map unescapeJSONPointer topLevel
+  in (unescapedTopLevel, nestedPaths)
+  where
+    -- Parse a JSON Pointer path, handling escaping
+    -- Returns Nothing if invalid, Just (parent, child) if valid nested path
+    parseJSONPointerPath :: T.Text -> Maybe (T.Text, T.Text)
+    parseJSONPointerPath path = do
+      -- Split by "/" but handle escaped slashes
+      let segments = splitJSONPointer path
+      case segments of
+        [parent, child] -> Just (unescapeJSONPointer parent, unescapeJSONPointer child)
+        _ -> Nothing  -- Only support 2-level nesting (parent/child) for now
+    
+    -- Split JSON Pointer path by "/", respecting escapes
+    splitJSONPointer :: T.Text -> [T.Text]
+    splitJSONPointer path = go path [] ""
+      where
+        go remaining acc current
+          | T.null remaining = reverse (if T.null current then acc else current : acc)
+          | T.head remaining == '/' && (T.null current || not (T.isSuffixOf "~" current)) =
+              -- Found unescaped slash
+              go (T.tail remaining) (if T.null current then acc else current : acc) ""
+          | T.take 2 remaining == "~1" =
+              -- Escaped slash
+              go (T.drop 2 remaining) acc (current <> "/")
+          | T.take 2 remaining == "~0" =
+              -- Escaped tilde
+              go (T.drop 2 remaining) acc (current <> "~")
+          | otherwise =
+              -- Regular character
+              go (T.tail remaining) acc (T.snoc current (T.head remaining))
+    
+    -- Unescape JSON Pointer segment (convert ~1 to /, ~0 to ~)
+    -- Note: Order matters - must replace ~1 before ~0 to avoid double-replacement
+    unescapeJSONPointer :: T.Text -> T.Text
+    unescapeJSONPointer = T.replace "~1" "/" . T.replace "~0" "~"
+
+-- | Process nested structures (Section 6.2: structured SD-JWT).
+-- Creates _sd arrays within parent objects for sub-claims.
+-- Returns: (processed payload object, all disclosures, remaining unprocessed claims)
+processNestedStructures
+  :: HashAlgorithm
+  -> [(T.Text, T.Text)]  -- ^ List of (parent, child) claim paths
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
+  -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure], Map.Map T.Text Aeson.Value))
+processNestedStructures hashAlg nestedPaths claims = do
+  -- Group nested paths by parent
+  let groupedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) nestedPaths
+  
+  -- Process each parent object
+  results <- mapM (\(parentName, childNames) -> do
+    case Map.lookup parentName claims of
+      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> parentName
+      Just (Aeson.Object parentObj) -> do
+        -- Extract child claims from parent object
+        let childClaims = mapMaybe (\childName -> do
+              let childKey = Key.fromText childName
+              childValue <- KeyMap.lookup childKey parentObj
+              return (childName, childValue)
+              ) childNames
+        
+        -- Create disclosures for child claims
+        disclosureResults <- mapM (\(childName, childValue) ->
+          markSelectivelyDisclosable hashAlg childName childValue) childClaims
+        
+        -- Check for errors
+        let (errors, successes) = partitionEithers disclosureResults
+        case errors of
+          (err:_) -> return $ Left err
+          [] -> do
+            let (childDigests, childDisclosures) = unzip successes
+            
+            -- Build new parent object with _sd array
+            -- Keep all keys except the selectively disclosable children
+            let childKeysToRemove = map Key.fromText childNames
+            let regularChildren = KeyMap.filterWithKey (\k _ -> not (k `elem` childKeysToRemove)) parentObj
+            
+            -- Add _sd array with sorted digests
+            let sortedChildDigests = map (Aeson.String . unDigest) (sortDigests childDigests)
+            let parentWithSD = KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedChildDigests)) regularChildren
+            
+            return $ Right (parentName, Aeson.Object parentWithSD, childDisclosures)
+      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Parent claim is not an object: " <> parentName
+    ) (Map.toList groupedByParent)
+  
+  -- Check for errors
+  let (errors, successes) = partitionEithers results
+  case errors of
+    (err:_) -> return (Left err)
+    [] -> do
+      -- Build processed payload object
+      let processedParents = Map.fromList $ map (\(name, obj, _) -> (name, obj)) successes
+      let allDisclosures = concatMap (\(_, _, childDisclosures) -> childDisclosures) successes
+      
+      -- Remove processed parents from remaining claims
+      let remainingClaims = Map.filterWithKey (\name _ -> not (Map.member name processedParents)) claims
+      
+      -- Convert processed parents to KeyMap
+      let processedPayload = foldl (\acc (name, obj) ->
+            KeyMap.insert (Key.fromText name) obj acc) KeyMap.empty (Map.toList processedParents)
+      
+      return (Right (processedPayload, allDisclosures, remainingClaims))
+
+-- | Process recursive disclosures (Section 6.3: recursive disclosures).
+-- Creates disclosures for parent claims where the disclosure value contains
+-- an _sd array with digests for sub-claims.
+-- Returns: (parent digests and disclosures with recursive structure, all disclosures including children, remaining unprocessed claims)
+processRecursiveDisclosures
+  :: HashAlgorithm
+  -> [(T.Text, T.Text)]  -- ^ List of (parent, child) claim paths for recursive disclosures
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
+  -> IO (Either SDJWTError ([(T.Text, Digest, EncodedDisclosure)], [EncodedDisclosure], Map.Map T.Text Aeson.Value))
+processRecursiveDisclosures hashAlg recursivePaths claims = do
+  -- Group recursive paths by parent
+  let groupedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) recursivePaths
+  
+  -- Process each recursive parent
+  results <- mapM (\(parentName, childNames) -> do
+    case Map.lookup parentName claims of
+      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> parentName
+      Just (Aeson.Object parentObj) -> do
+        -- Extract child claims from parent object
+        let childClaims = mapMaybe (\childName -> do
+              let childKey = Key.fromText childName
+              childValue <- KeyMap.lookup childKey parentObj
+              return (childName, childValue)
+              ) childNames
+        
+        -- Create disclosures for child claims first
+        childDisclosureResults <- mapM (\(childName, childValue) ->
+          markSelectivelyDisclosable hashAlg childName childValue) childClaims
+        
+        -- Check for errors
+        let (errors, childSuccesses) = partitionEithers childDisclosureResults
+        case errors of
+          (err:_) -> return $ Left err
+          [] -> do
+            let (childDigests, childDisclosures) = unzip childSuccesses
+            
+            -- Build parent disclosure value: object with _sd array containing child digests
+            let sortedChildDigests = map (Aeson.String . unDigest) (sortDigests childDigests)
+            let parentDisclosureValue = Aeson.Object $ KeyMap.fromList
+                  [("_sd", Aeson.Array (V.fromList sortedChildDigests))]
+            
+            -- Create disclosure for parent claim with recursive structure
+            parentResult <- markSelectivelyDisclosable hashAlg parentName parentDisclosureValue
+            
+            case parentResult of
+              Left err -> return $ Left err
+              Right (parentDigest, parentDisclosure) -> do
+                -- Return parent name, digest, disclosure, and all child disclosures
+                return $ Right (parentName, parentDigest, parentDisclosure, childDisclosures)
+      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Parent claim is not an object: " <> parentName
+    ) (Map.toList groupedByParent)
+  
+  -- Check for errors
+  let (errors, successes) = partitionEithers results
+  case errors of
+    (err:_) -> return (Left err)
+    [] -> do
+      -- Extract parent info and all child disclosures
+      let parentInfo = map (\(name, digest, disc, _) -> (name, digest, disc)) successes
+      let allChildDisclosures = concatMap (\(_, _, _, childDiscs) -> childDiscs) successes
+      
+      -- Remove recursive parents from remaining claims (they're now in disclosures)
+      let recursiveParentNames = Set.fromList $ map (\(name, _, _, _) -> name) successes
+      let remainingClaims = Map.filterWithKey (\name _ -> not (Set.member name recursiveParentNames)) claims
+      
+      -- Combine parent and child disclosures (parents first, then children)
+      let parentDisclosures = map (\(_, _, disc) -> disc) parentInfo
+      let allDisclosures = parentDisclosures ++ allChildDisclosures
+      
+      return (Right (parentInfo, allDisclosures, remainingClaims))
 

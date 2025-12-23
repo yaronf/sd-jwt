@@ -37,17 +37,19 @@ import qualified Crypto.Random as RNG
 -- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
+--
+-- NOTE: This function uses 'IO' because ECDSA signing requires randomness.
+-- Each signature must use a unique, cryptographically secure random nonce (k value)
+-- for security. Reusing nonces or using predictable nonces can lead to private
+-- key recovery attacks. The function obtains randomness from the system's
+-- random number generator via 'RNG.getSystemDRG'.
 signJWTES256
   :: T.Text  -- ^ Private key JWK (JSON format, must be EC P-256)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
 signJWTES256 privateKeyJWK payload = do
-  -- Parse EC private key from JWK
-  ecPrivKey <- case parseECPrivateKeyFromJWK privateKeyJWK of
-    Left err -> return $ Left err
-    Right key -> return $ Right key
-  
-  case ecPrivKey of
+  -- Parse EC private key from JWK (pure operation, but we're already in IO)
+  case parseECPrivateKeyFromJWK privateKeyJWK of
     Left err -> return $ Left err
     Right privKey -> do
       -- Build JWT header
@@ -67,18 +69,18 @@ signJWTES256 privateKeyJWK payload = do
       let messageToSign = TE.encodeUtf8 $ headerB64 <> "." <> payloadB64
       
       -- Sign using cryptonite
+      -- NOTE: ECDSA signing requires randomness (a random nonce k for each signature).
+      -- This is why we need IO: to get a system random number generator.
+      -- Each signature must use a unique, unpredictable nonce for security.
       drg <- RNG.getSystemDRG
       let (signature, _) = RNG.withDRG drg $ sign privKey HashAlg.SHA256 messageToSign
       
       -- Convert signature to JWT format: r || s (each 32 bytes for P-256)
-      signatureB64 <- case signatureToJWTFormat signature of
+      case signatureToJWTFormat signature of
         Left err -> return $ Left err
-        Right sigBS -> return $ Right $ base64urlEncode sigBS
-      
-      case signatureB64 of
-        Left err -> return $ Left err
-        Right sigB64 -> do
+        Right sigBS -> do
           -- Build final JWT: base64url(header).base64url(payload).base64url(signature)
+          let sigB64 = base64urlEncode sigBS
           let jwt = headerB64 <> "." <> payloadB64 <> "." <> sigB64
           return $ Right jwt
 

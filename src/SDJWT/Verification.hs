@@ -27,6 +27,7 @@ import qualified Data.Vector as V
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe)
 import Data.Either (partitionEithers)
+import qualified Data.Text as T
 
 -- | Complete SD-JWT verification.
 --
@@ -136,6 +137,13 @@ verifyDisclosures hashAlg presentation = do
   -- Get all digests from payload
   let payloadDigests = extractDigestsFromPayload sdPayload
   
+  -- Get all digests from recursive disclosures (disclosures that contain _sd arrays)
+  -- For Section 6.3 recursive disclosures, child digests are in the parent disclosure's _sd array
+  let recursiveDisclosureDigests = extractDigestsFromRecursiveDisclosures hashAlg (selectedDisclosures presentation)
+  
+  -- Combine all valid digests (payload + recursive disclosures)
+  let allValidDigests = Set.fromList (map unDigest (payloadDigests ++ recursiveDisclosureDigests))
+  
   -- Compute digests for all disclosures
   let disclosureDigests = map (computeDigest hashAlg) (selectedDisclosures presentation)
   
@@ -146,9 +154,8 @@ verifyDisclosures hashAlg presentation = do
     then Left $ DuplicateDisclosure "Duplicate disclosures found"
     else return ()
   
-  -- Verify each disclosure digest exists in payload
-  let payloadDigestSet = Set.fromList (map unDigest payloadDigests)
-  let missingDigests = filter (\d -> unDigest d `Set.notMember` payloadDigestSet) disclosureDigests
+  -- Verify each disclosure digest exists in payload or recursive disclosures
+  let missingDigests = filter (\d -> unDigest d `Set.notMember` allValidDigests) disclosureDigests
   
   case missingDigests of
     [] -> return ()
@@ -241,16 +248,21 @@ extractDigestsFromPayload sdPayload =
       digestsFromArrays = extractDigestsFromArrays (payloadValue sdPayload)
   in digestsFromSDArray ++ digestsFromArrays
 
--- | Extract digests from _sd array.
+-- | Extract digests from _sd array (recursively processes nested objects).
 extractDigestsFromSDArray :: Aeson.Value -> [Digest]
 extractDigestsFromSDArray (Aeson.Object obj) =
-  case KeyMap.lookup "_sd" obj of
-    Just (Aeson.Array arr) ->
-      mapMaybe (\v -> case v of
-        Aeson.String s -> Just (Digest s)
-        _ -> Nothing
-      ) (V.toList arr)
-    _ -> []
+  let topLevelDigests = case KeyMap.lookup "_sd" obj of
+        Just (Aeson.Array arr) ->
+          mapMaybe (\v -> case v of
+            Aeson.String s -> Just (Digest s)
+            _ -> Nothing
+          ) (V.toList arr)
+        _ -> []
+      -- Recursively extract digests from nested objects
+      nestedDigests = concatMap (extractDigestsFromSDArray . snd) (KeyMap.toList obj)
+  in topLevelDigests ++ nestedDigests
+extractDigestsFromSDArray (Aeson.Array arr) =
+  concatMap extractDigestsFromSDArray (V.toList arr)
 extractDigestsFromSDArray _ = []
 
 -- | Recursively extract digests from arrays containing {"...": "<digest>"} objects.
@@ -269,6 +281,22 @@ extractDigestsFromArrays (Aeson.Object obj) =
   -- Recursively check nested objects
   concatMap (extractDigestsFromArrays . snd) (KeyMap.toList obj)
 extractDigestsFromArrays _ = []
+
+-- | Extract digests from recursive disclosures (disclosures that contain _sd arrays).
+-- For Section 6.3 recursive disclosures, child digests are in the parent disclosure's _sd array.
+extractDigestsFromRecursiveDisclosures
+  :: HashAlgorithm
+  -> [EncodedDisclosure]
+  -> [Digest]
+extractDigestsFromRecursiveDisclosures hashAlg disclosures =
+  concatMap (\encDisclosure -> do
+    case decodeDisclosure encDisclosure of
+      Left _ -> []  -- Skip invalid disclosures
+      Right decoded -> do
+        let claimValue = getDisclosureValue decoded
+        -- Extract digests from _sd arrays in disclosure values
+        extractDigestsFromSDArray claimValue
+    ) disclosures
 
 -- | Extract regular (non-selectively disclosable) claims from payload.
 extractRegularClaims :: Aeson.Value -> Map.Map T.Text Aeson.Value
@@ -308,7 +336,7 @@ buildDisclosureMap hashAlg sdDisclosures = do
 
 -- | Replace digests in payload with actual claim values.
 -- This function:
--- 1. Processes object claims (replaces digests in _sd arrays with values)
+-- 1. Processes object claims (replaces digests in _sd arrays with values, recursively)
 -- 2. Recursively processes arrays to replace {"...": "<digest>"} objects with values
 replaceDigestsWithValues
   :: Map.Map T.Text Aeson.Value
@@ -317,13 +345,56 @@ replaceDigestsWithValues
   -> Aeson.Value  -- Original payload
   -> Map.Map T.Text Aeson.Value
 replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap payloadValue =
-  -- Process object claims: replace digests in _sd arrays with values
+  -- Process object claims: replace digests in _sd arrays with values (including nested _sd arrays)
   let disclosedPairs = Map.elems objectDisclosureMap  -- [(claimName, claimValue)]
       disclosedClaims = Map.fromList disclosedPairs
       objectClaims = Map.union disclosedClaims regularClaims
   
   -- Process arrays recursively to replace {"...": "<digest>"} objects
-  in processArraysInClaims objectClaims arrayDisclosureMap
+  -- Also process nested _sd arrays recursively
+  in processArraysInClaims (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap
+
+-- | Recursively process _sd arrays in claims to replace digests with values.
+processSDArraysInClaims
+  :: Map.Map T.Text Aeson.Value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Map.Map T.Text Aeson.Value
+processSDArraysInClaims claims objectDisclosureMap =
+  Map.map (\value -> processSDArraysInValue value objectDisclosureMap) claims
+
+-- | Recursively process a JSON value to replace digests in _sd arrays with values.
+processSDArraysInValue
+  :: Aeson.Value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Aeson.Value
+processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
+  -- Check if this object has an _sd array
+  case KeyMap.lookup "_sd" obj of
+    Just (Aeson.Array arr) -> do
+      -- Extract claims from _sd array digests
+      let disclosedClaims = mapMaybe (\elem -> case elem of
+            Aeson.String digest -> 
+              -- Look up the claim name and value for this digest
+              Map.lookup digest objectDisclosureMap
+            _ -> Nothing  -- Not a string digest, skip
+            ) (V.toList arr)
+      
+      -- Build new object: remove _sd, add disclosed claims, keep other fields
+      let objWithoutSD = KeyMap.delete "_sd" obj
+      let objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
+            KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
+      
+      -- Recursively process nested objects (including the newly added claims)
+      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
+      Aeson.Object processedObj
+    Nothing -> do
+      -- No _sd array, just recursively process nested objects
+      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj
+      Aeson.Object processedObj
+processSDArraysInValue (Aeson.Array arr) objectDisclosureMap =
+  -- Recursively process array elements
+  Aeson.Array $ V.map (\elem -> processSDArraysInValue elem objectDisclosureMap) arr
+processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
 processArraysInClaims

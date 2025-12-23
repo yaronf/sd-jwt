@@ -23,6 +23,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
 import Data.Int (Int64)
+import Data.Maybe (isJust, isNothing, mapMaybe)
+import Data.List (find)
 
 main :: IO ()
 main = hspec $ do
@@ -217,10 +219,365 @@ main = hspec $ do
               Left err -> expectationFailure $ "Failed to select by names: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
 
+  -- Nested Structure Tests (Section 6.2 - Structured SD-JWT)
+  describe "SDJWT.Issuance (Nested Structures)" $ do
+    describe "RFC Section 6.2 - Structured SD-JWT with nested address claims" $ do
+      it "creates SD-JWT payload with nested _sd array in address object" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("iat", Aeson.Number 1683000000)
+              , ("exp", Aeson.Number 1883000000)
+              , ("sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "Schulstr. 12")
+                  , (Key.fromText "locality", Aeson.String "Schulpforta")
+                  , (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
+                  , (Key.fromText "country", Aeson.String "DE")
+                  ])
+              ]
+        
+        -- Mark nested address sub-claims as selectively disclosable (using JSON Pointer syntax)
+        result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality", "address/region", "address/country"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Verify payload structure
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                -- Verify address object exists and contains _sd array
+                case KeyMap.lookup (Key.fromText "address") payloadObj of
+                  Just (Aeson.Object addressObj) -> do
+                    -- Verify _sd array exists in address object
+                    case KeyMap.lookup (Key.fromText "_sd") addressObj of
+                      Just (Aeson.Array sdArray) -> do
+                        -- Should have 4 digests (one for each sub-claim)
+                        V.length sdArray `shouldBe` 4
+                        -- Verify all digests are strings
+                        V.all (\v -> case v of Aeson.String _ -> True; _ -> False) sdArray `shouldBe` True
+                      _ -> expectationFailure "address object should contain _sd array"
+                    -- Verify address object doesn't contain the original sub-claims
+                    KeyMap.lookup (Key.fromText "street_address") addressObj `shouldBe` Nothing
+                    KeyMap.lookup (Key.fromText "locality") addressObj `shouldBe` Nothing
+                    KeyMap.lookup (Key.fromText "region") addressObj `shouldBe` Nothing
+                    KeyMap.lookup (Key.fromText "country") addressObj `shouldBe` Nothing
+                  _ -> expectationFailure "address object should exist in payload"
+                -- Verify top-level claims are preserved
+                KeyMap.lookup (Key.fromText "iss") payloadObj `shouldSatisfy` isJust
+                KeyMap.lookup (Key.fromText "sub") payloadObj `shouldSatisfy` isJust
+                -- Verify _sd_alg is present
+                KeyMap.lookup (Key.fromText "_sd_alg") payloadObj `shouldSatisfy` isJust
+              _ -> expectationFailure "payload should be an object"
+            
+            -- Verify 4 disclosures were created (one for each sub-claim)
+            length disclosures `shouldBe` 4
+            
+            -- Verify each disclosure can be decoded and contains correct claim name
+            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                  Right dec -> Just dec
+                  Left _ -> Nothing
+                  ) disclosures
+            
+            length decodedDisclosures `shouldBe` 4
+            
+            -- Verify claim names in disclosures
+            let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
+            claimNames `shouldContain` ["street_address"]
+            claimNames `shouldContain` ["locality"]
+            claimNames `shouldContain` ["region"]
+            claimNames `shouldContain` ["country"]
+            
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "creates SD-JWT with some nested claims disclosed and some hidden" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("sub", Aeson.String "user_123")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  , (Key.fromText "country", Aeson.String "US")
+                  ])
+              ]
+        
+        -- Mark only street_address and locality as selectively disclosable
+        -- country should remain visible (using JSON Pointer syntax)
+        result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "address") payloadObj of
+                  Just (Aeson.Object addressObj) -> do
+                    -- Verify _sd array exists with 2 digests
+                    case KeyMap.lookup (Key.fromText "_sd") addressObj of
+                      Just (Aeson.Array sdArray) -> do
+                        V.length sdArray `shouldBe` 2
+                      _ -> expectationFailure "address object should contain _sd array"
+                    -- Verify country is still visible (not selectively disclosable)
+                    case KeyMap.lookup (Key.fromText "country") addressObj of
+                      Just (Aeson.String "US") -> return ()
+                      _ -> expectationFailure "country should be visible in address object"
+                    -- Verify street_address and locality are hidden
+                    KeyMap.lookup (Key.fromText "street_address") addressObj `shouldBe` Nothing
+                    KeyMap.lookup (Key.fromText "locality") addressObj `shouldBe` Nothing
+                  _ -> expectationFailure "address object should exist"
+              _ -> expectationFailure "payload should be an object"
+            
+            -- Should have 2 disclosures
+            length disclosures `shouldBe` 2
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "verifies nested structure disclosures can be verified" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("sub", Aeson.String "user_123")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  ])
+              ]
+        
+        -- Get test keys for signing
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with nested structures and sign it (using JSON Pointer syntax)
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
+        
+        case result of
+          Right sdjwt -> do
+            -- Create presentation with all disclosures
+            case selectDisclosuresByNames sdjwt ["street_address", "locality"] of
+              Right presentation -> do
+                -- Verify presentation (without issuer key for now - signature verification skipped)
+                verificationResult <- verifySDJWT Nothing presentation
+                
+                case verificationResult of
+                  Right processedPayload -> do
+                    -- Verify address object is reconstructed correctly
+                    case Map.lookup "address" (processedClaims processedPayload) of
+                      Just (Aeson.Object addressObj) -> do
+                        -- Verify street_address and locality are present
+                        KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
+                        KeyMap.lookup (Key.fromText "locality") addressObj `shouldSatisfy` isJust
+                      _ -> expectationFailure "address object should be reconstructed"
+                  Left err -> expectationFailure $ "Verification failed: " ++ show err
+              Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+  
+    describe "RFC Section 6.3 - Recursive Disclosures" $ do
+      it "creates SD-JWT with recursive disclosures (parent and sub-claims both selectively disclosable)" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("iat", Aeson.Number 1683000000)
+              , ("exp", Aeson.Number 1883000000)
+              , ("sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "Schulstr. 12")
+                  , (Key.fromText "locality", Aeson.String "Schulpforta")
+                  , (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
+                  , (Key.fromText "country", Aeson.String "DE")
+                  ])
+              ]
+        
+        -- Mark both parent "address" and its sub-claims as selectively disclosable (Section 6.3)
+        -- Using JSON Pointer syntax: "/" separates path segments
+        result <- buildSDJWTPayload SHA256 ["address", "address/street_address", "address/locality", "address/region", "address/country"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Verify payload structure - address should NOT be in payload (it's selectively disclosable)
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                -- Address should not be in payload (it's in top-level _sd)
+                KeyMap.lookup (Key.fromText "address") payloadObj `shouldBe` Nothing
+                -- Top-level _sd array should exist with address digest
+                case KeyMap.lookup (Key.fromText "_sd") payloadObj of
+                  Just (Aeson.Array sdArray) -> do
+                    V.length sdArray `shouldBe` 1  -- Only address digest in top-level _sd
+                  _ -> expectationFailure "Top-level _sd array should exist"
+                -- Regular claims should be preserved
+                KeyMap.lookup (Key.fromText "iss") payloadObj `shouldSatisfy` isJust
+                KeyMap.lookup (Key.fromText "sub") payloadObj `shouldSatisfy` isJust
+              _ -> expectationFailure "payload should be an object"
+            
+            -- Should have 5 disclosures: 1 parent (address) + 4 children
+            length disclosures `shouldBe` 5
+            
+            -- Verify parent disclosure contains _sd array with child digests
+            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                  Right dec -> Just dec
+                  Left _ -> Nothing
+                  ) disclosures
+            
+            -- Find the address disclosure
+            let addressDisclosure = find (\dec -> getDisclosureClaimName dec == Just "address") decodedDisclosures
+            
+            case addressDisclosure of
+              Just addrDisc -> do
+                -- Address disclosure value should be an object with _sd array
+                case getDisclosureValue addrDisc of
+                  Aeson.Object addrObj -> do
+                    case KeyMap.lookup (Key.fromText "_sd") addrObj of
+                      Just (Aeson.Array childSDArray) -> do
+                        -- Should have 4 digests (one for each sub-claim)
+                        V.length childSDArray `shouldBe` 4
+                        -- All should be strings (digests)
+                        V.all (\v -> case v of Aeson.String _ -> True; _ -> False) childSDArray `shouldBe` True
+                      _ -> expectationFailure "Address disclosure should contain _sd array"
+                  _ -> expectationFailure "Address disclosure value should be an object"
+              Nothing -> expectationFailure "Address disclosure should exist"
+            
+            -- Verify child disclosures exist
+            let childClaimNames = mapMaybe getDisclosureClaimName decodedDisclosures
+            childClaimNames `shouldContain` ["street_address"]
+            childClaimNames `shouldContain` ["locality"]
+            childClaimNames `shouldContain` ["region"]
+            childClaimNames `shouldContain` ["country"]
+            
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "verifies recursive disclosures can be verified correctly" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("sub", Aeson.String "user_123")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  ])
+              ]
+        
+        -- Get test keys for signing
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with recursive disclosures (parent + children)
+        -- Using JSON Pointer syntax: "/" separates path segments
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
+        
+        case result of
+          Right sdjwt -> do
+            -- Create presentation with all disclosures
+            case selectDisclosuresByNames sdjwt ["address", "street_address", "locality"] of
+              Right presentation -> do
+                -- Verify presentation (without issuer key for now - signature verification skipped)
+                verificationResult <- verifySDJWT Nothing presentation
+                
+                case verificationResult of
+                  Right processedPayload -> do
+                    -- Verify address object is reconstructed correctly
+                    case Map.lookup "address" (processedClaims processedPayload) of
+                      Just (Aeson.Object addressObj) -> do
+                        -- Verify street_address and locality are present
+                        KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
+                        KeyMap.lookup (Key.fromText "locality") addressObj `shouldSatisfy` isJust
+                      _ -> expectationFailure "address object should be reconstructed"
+                  Left err -> expectationFailure $ "Verification failed: " ++ show err
+              Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
+              Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+  
+    describe "JSON Pointer Escaping" $ do
+      it "handles keys containing forward slashes using ~1 escape" $ do
+        -- Test that a key literally named "contact/email" is treated as top-level, not nested
+        -- Note: The Map key is the actual JSON key (unescaped), but we pass the escaped form to buildSDJWTPayload
+        let claims = Map.fromList
+              [ ("contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street", Aeson.String "123 Main St")
+                  ])
+              ]
+        
+        -- Mark the literal "contact/email" key as selectively disclosable (using escaped form in path)
+        -- Since "contact~1email" doesn't contain "/", it's treated as top-level and matched to "contact/email"
+        result <- buildSDJWTPayload SHA256 ["contact~1email"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should have 1 disclosure
+            length disclosures `shouldBe` 1
+            -- The literal key should be in top-level _sd, not nested
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "_sd") payloadObj of
+                  Just (Aeson.Array sdArray) -> do
+                    V.length sdArray `shouldBe` 1  -- One digest for "contact/email"
+                  _ -> expectationFailure "Top-level _sd array should exist"
+                -- The literal key should not be in payload (it's selectively disclosable)
+                KeyMap.lookup (Key.fromText "contact/email") payloadObj `shouldBe` Nothing
+              _ -> expectationFailure "payload should be an object"
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles keys containing tildes using ~0 escape" $ do
+        -- Test that a key literally named "user~name" is treated as top-level, not nested
+        -- Note: The Map key is the actual JSON key (unescaped), but we pass the escaped form to buildSDJWTPayload
+        let claims = Map.fromList
+              [ ("user~name", Aeson.String "testuser")  -- Literal key "user~name" (unescaped in Map)
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street", Aeson.String "123 Main St")
+                  ])
+              ]
+        
+        -- Mark the literal "user~name" key as selectively disclosable (using escaped form in path)
+        -- Since "user~0name" doesn't contain "/", it's treated as top-level and matched to "user~name"
+        result <- buildSDJWTPayload SHA256 ["user~0name"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should have 1 disclosure
+            length disclosures `shouldBe` 1
+            -- Verify the disclosure contains the correct claim name
+            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                  Right dec -> Just dec
+                  Left _ -> Nothing
+                  ) disclosures
+            case decodedDisclosures of
+              [decoded] -> do
+                getDisclosureClaimName decoded `shouldBe` Just "user~name"  -- Unescaped
+              _ -> expectationFailure "Should have exactly one disclosure"
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "correctly distinguishes nested paths from escaped keys" $ do
+        -- Test that escaped keys (contact~1email) are treated as top-level,
+        -- while nested paths (address/email) are treated as nested
+        -- Note: Map keys are unescaped (actual JSON keys)
+        let claims = Map.fromList
+              [ ("contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street", Aeson.String "123 Main St")
+                  , (Key.fromText "email", Aeson.String "address@example.com")
+                  ])
+              ]
+        
+        -- Mark literal "contact/email" as top-level (using escaped form) AND nested "address/email" as nested
+        result <- buildSDJWTPayload SHA256 ["contact~1email", "address/email"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should have 2 disclosures: 1 top-level + 1 nested
+            length disclosures `shouldBe` 2
+            
+            -- Verify nested structure: address should contain _sd array
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "address") payloadObj of
+                  Just (Aeson.Object addressObj) -> do
+                    -- Should have _sd array with email digest
+                    case KeyMap.lookup (Key.fromText "_sd") addressObj of
+                      Just (Aeson.Array sdArray) -> do
+                        V.length sdArray `shouldBe` 1  -- One digest for "email"
+                      _ -> expectationFailure "address should contain _sd array"
+                  _ -> expectationFailure "address object should exist"
+                
+                -- Top-level _sd should contain digest for literal "contact/email"
+                case KeyMap.lookup (Key.fromText "_sd") payloadObj of
+                  Just (Aeson.Array topSDArray) -> do
+                    V.length topSDArray `shouldBe` 1  -- One digest for "contact/email"
+                  _ -> expectationFailure "Top-level _sd array should exist"
+              _ -> expectationFailure "payload should be an object"
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+
   -- RFC Example Tests (Section 5.1 - Issuance)
   -- NOTE: These tests verify that RFC example disclosures produce expected digests.
   -- TODO: Add complete issuance flow test (create full SD-JWT matching RFC Section 5.1)
-  -- TODO: Add tests for nested structures (Section 6 examples)
   describe "SDJWT.Issuance (RFC Examples)" $ do
     describe "RFC Section 5.1 - given_name disclosure" $ do
       it "verifies RFC example disclosure produces expected digest" $ do
@@ -1389,7 +1746,3 @@ main = hspec $ do
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True
 isLeft _ = False
-
-isJust :: Maybe a -> Bool
-isJust (Just _) = True
-isJust _ = False
