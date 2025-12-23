@@ -6,6 +6,7 @@ import qualified Crypto.PubKey.RSA as RSA
 import qualified Crypto.PubKey.ECC.Generate as ECGen
 import Crypto.PubKey.ECC.ECDSA (KeyPair(..), PrivateKey(..), PublicKey(..))
 import Crypto.PubKey.ECC.Types (getCurveByName, CurveName(..))
+import qualified Crypto.PubKey.Ed25519 as Ed25519
 import Crypto.Random (getSystemDRG, withDRG)
 import qualified Jose.Jwk as Jose
 import qualified Data.Aeson as Aeson
@@ -56,6 +57,18 @@ main = do
   let ecPrivateText = TE.decodeUtf8 $ BSL.toStrict ecPrivateJSON
   let ecPublicText = TE.decodeUtf8 $ BSL.toStrict ecPublicJSON
   
+  -- Generate Ed25519 key pair
+  putStrLn "Generating Ed25519 key pair..."
+  drg4 <- getSystemDRG
+  let ed25519SecretKey = fst $ withDRG drg4 Ed25519.generateSecretKey
+  let ed25519Pub = Ed25519.toPublic ed25519SecretKey
+  let ed25519PrivateJwk = Jose.Ed25519PrivateJwk ed25519SecretKey ed25519Pub Nothing
+  let ed25519PublicJwk = Jose.Ed25519PublicJwk ed25519Pub Nothing
+  let ed25519PrivateJSON = Aeson.encode ed25519PrivateJwk
+  let ed25519PublicJSON = Aeson.encode ed25519PublicJwk
+  let ed25519PrivateText = TE.decodeUtf8 $ BSL.toStrict ed25519PrivateJSON
+  let ed25519PublicText = TE.decodeUtf8 $ BSL.toStrict ed25519PublicJSON
+  
   -- Output JSON
   let output = Aeson.object
         [ (Key.fromString "rsa", Aeson.object
@@ -69,6 +82,10 @@ main = do
         , (Key.fromString "ec", Aeson.object
             [ (Key.fromString "private", Aeson.String ecPrivateText)
             , (Key.fromString "public", Aeson.String ecPublicText)
+            ])
+        , (Key.fromString "ed25519", Aeson.object
+            [ (Key.fromString "private", Aeson.String ed25519PrivateText)
+            , (Key.fromString "public", Aeson.String ed25519PublicText)
             ])
         ]
   

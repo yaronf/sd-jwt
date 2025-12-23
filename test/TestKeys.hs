@@ -8,6 +8,7 @@ module TestKeys
   ( generateTestRSAKeyPair
   , generateTestRSAKeyPair2
   , generateTestECKeyPair
+  , generateTestEd25519KeyPair
   , TestKeyPair(..)
   ) where
 
@@ -83,4 +84,15 @@ generateTestECKeyPair :: IO TestKeyPair
 generateTestECKeyPair = return $ TestKeyPair
   { privateKeyJWK = extractKey "ec" "private"
   , publicKeyJWK = extractKey "ec" "public"
+  }
+
+-- | Generate a test Ed25519 key pair.
+--
+-- Returns cached Ed25519 key pair from test-keys.json.
+-- This is fast since keys are pre-generated and cached.
+-- Keys are generated using 'stack runghc generate-test-keys.hs'.
+generateTestEd25519KeyPair :: IO TestKeyPair
+generateTestEd25519KeyPair = return $ TestKeyPair
+  { privateKeyJWK = extractKey "ed25519" "private"
+  , publicKeyJWK = extractKey "ed25519" "public"
   }
