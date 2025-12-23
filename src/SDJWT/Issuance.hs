@@ -25,7 +25,6 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BS
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA

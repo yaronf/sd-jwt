@@ -11,7 +11,6 @@ module SDJWT.JWT
   ) where
 
 import SDJWT.Types
-import SDJWT.Utils (base64urlDecode, base64urlEncode)
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
 import Jose.Jwk (Jwk)
 import qualified Jose.Jwa as Jose

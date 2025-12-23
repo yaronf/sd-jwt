@@ -22,7 +22,6 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
 import Data.Int (Int64)
 
 -- | Create a Key Binding JWT.
@@ -161,20 +160,6 @@ addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentati
     Right kb -> return $ Right presentation { keyBindingJWT = Just kb }
 
 -- Helper functions
-
--- | Parse KB-JWT payload from JWT string.
-parseKBJWTPayload :: T.Text -> Either SDJWTError Aeson.Value
-parseKBJWTPayload jwt = do
-  let parts = T.splitOn "." jwt
-  case parts of
-    (_header : payloadPart : _signature) -> do
-      payloadBytes <- case base64urlDecode payloadPart of
-        Left err -> Left $ JSONParseError $ "Failed to decode KB-JWT payload: " <> err
-        Right bs -> Right bs
-      case Aeson.eitherDecodeStrict payloadBytes of
-        Left err -> Left $ JSONParseError $ "Failed to parse KB-JWT payload: " <> T.pack err
-        Right val -> Right val
-    _ -> Left $ InvalidKeyBinding "Invalid KB-JWT format"
 
 -- | Extract a claim from a JSON object.
 extractClaim :: T.Text -> Aeson.Value -> Either SDJWTError Aeson.Value

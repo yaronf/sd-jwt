@@ -12,7 +12,6 @@ module TestKeys
 
 import qualified Data.Aeson as Aeson
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe (unsafePerformIO)
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -37,6 +36,7 @@ loadTestKeys = do
     Right val -> return val
 
 -- | Cached test keys (loaded once)
+{-# NOINLINE cachedTestKeys #-}
 cachedTestKeys :: Aeson.Value
 cachedTestKeys = unsafePerformIO loadTestKeys
 
