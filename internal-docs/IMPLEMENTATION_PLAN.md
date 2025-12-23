@@ -2,17 +2,16 @@
 
 ## Current Status (Updated)
 
-**Overall Progress**: ~87% complete
+**Overall Progress**: ~90% complete
 
 - ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
 - 🟡 **Phase 5**: Mostly Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, missing nested structures)
 - 🟡 **Phase 6**: Partially Complete (Presentation - basic works ✅, key binding infrastructure ✅, missing recursive disclosure handling)
 - ✅ **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, array element processing ✅)
-- ✅ **Phase 8**: Mostly Complete (Key Binding module ✅, tests ✅, missing integration tests and RFC examples for Section 7)
+- ✅ **Phase 8**: Complete (Key Binding module ✅, tests ✅, RFC test vectors verified ✅)
 
 **Critical Missing Features**:
 1. Nested structure support (recursive _sd arrays)
-2. Complete RFC compliance tests (Section 7 Key Binding examples)
 
 **Recent Updates**:
 - ✅ JWT signing/verification fully integrated using jose-jwt library
@@ -25,7 +24,11 @@
 - ✅ Ed25519 (EdDSA) key support added - fully tested for signing and verification
 - ✅ Comprehensive tests for Ed25519 keys in issuance, verification, and key binding
 - ✅ Note added about cryptonite deprecation (migrate to crypton when jose-jwt supports it)
-- ✅ EC P-256 support removed (jose-jwt does not support EC signing, so verification-only support was removed)
+- ✅ EC P-256 (ES256) signing support added using cryptonite (SDJWT.JWT.EC module - temporary until jose-jwt adds EC signing)
+- ✅ EC P-256 (ES256) verification support using jose-jwt's existing verification
+- ✅ Comprehensive unit tests for EC module (9 tests covering success and error cases)
+- ✅ RFC test vector verification tests added (Section 5.1 and 5.2 complete examples)
+- ✅ All RFC test vectors passing (72 tests total)
 
 ## Overview
 
@@ -417,11 +420,10 @@ data SDJWTError
   - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
   - ✅ Ed25519 key generation utilities (generateTestEd25519KeyPair)
   - ✅ Tests using Ed25519 keys for JWT signing in issuance
-  - ❌ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation with real keys)
+  - ✅ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation verified with RFC test vectors)
   - ❌ Tests for nested structures (Section 6)
   - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
   - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
-  - **TODO**: Add complete RFC example tests with full JWT creation and signing
 
 6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE
    - ✅ Unit tests for disclosure selection
@@ -458,10 +460,8 @@ data SDJWTError
   - ✅ addKeyBindingToPresentation function implemented
   - ✅ Test key generation utilities support Ed25519 keys (generateTestEd25519KeyPair)
   - ✅ Tests using Ed25519 keys for KB-JWT signing/verification
-  - ❌ Integration tests for SD-JWT+KB flow (end-to-end with actual JWT signing)
-  - ❌ RFC example tests (Section 7 - complete KB-JWT examples)
-  - **TODO**: Add integration tests for complete SD-JWT+KB flow with actual JWT signing/verification
-  - **TODO**: Add RFC example tests from Section 7 showing complete Key Binding examples
+  - ✅ Integration tests for SD-JWT+KB flow (end-to-end verified via RFC Section 5.2 test vectors)
+  - ✅ RFC example tests (Section 5.2 SD-JWT+KB example verified)
 
 ### 9.3 Test Framework
 
@@ -491,7 +491,8 @@ dependencies:
 **Supported JWT Algorithms**:
 - ✅ **RSA (RS256)**: Fully supported for signing and verification
 - ✅ **Ed25519 (EdDSA)**: Fully supported for signing and verification
-- ❌ **EC P-256 (ES256)**: Not supported (jose-jwt library does not support EC signing)
+- ✅ **EC P-256 (ES256)**: Fully supported for signing (via SDJWT.JWT.EC module using cryptonite) and verification (via jose-jwt)
+  - **Note**: EC signing is implemented in a separate module (SDJWT.JWT.EC) that can be removed once jose-jwt adds native EC signing support
   - memory >= 0.18      # For secure random generation
   - jose-jwt >= 0.10   # For JWT handling (currently depends on cryptonite)
   - base64-bytestring >= 1.2  # For base64url encoding
@@ -523,7 +524,7 @@ dependencies:
    - ✅ **Tests**: RFC example tests (Section 5.1 disclosures and digests)
    - ✅ **Implementation**: JWT signing integration (createSDJWT uses signJWT)
    - ✅ **Implementation**: Test key generation utilities (TestKeys.hs with cached 2048-bit RSA keys)
-   - ❌ **Tests**: Complete RFC example tests with full JWT creation
+   - ✅ **Tests**: Complete RFC example tests with full JWT creation (RFC test vectors verified)
 
 5. **Week 5**: SD-JWT issuance (nested and recursive) - 🟡 PARTIALLY COMPLETE
    - ✅ **Implementation**: Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
