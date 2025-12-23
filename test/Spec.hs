@@ -379,9 +379,6 @@ main = hspec $ do
   
   -- RFC Example Tests (Section 5.2 - Presentation/Verification)
   -- NOTE: These tests verify presentation verification with selected disclosures.
-  -- Currently tests object disclosures only - array element disclosures require
-  -- recursive array processing which is not yet implemented (see Verification.hs:278)
-  -- TODO: Add array element disclosure verification test when processPayload supports it
   -- TODO: Add complete SD-JWT+KB flow test matching RFC Section 5.2 example
   describe "SDJWT.Verification (RFC Examples)" $ do
     describe "RFC Section 5.2 - verify presentation with selected disclosures" $ do
@@ -396,6 +393,9 @@ main = hspec $ do
         let givenNameDisclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
         let addressDisclosure = EncodedDisclosure "WyJBSngtMDk1VlBycFR0TjRRTU9xUk9BIiwgImFkZHJlc3MiLCB7InN0cmVldF9hZGRyZXNzIjogIjEyMyBNYWluIFN0IiwgImxvY2FsaXR5IjogIkFueXRvd24iLCAicmVnaW9uIjogIkFueXN0YXRlIiwgImNvdW50cnkiOiAiVVMifV0"
         let nationalityDisclosure = EncodedDisclosure "WyJsa2x4RjVqTVlsR1RQVW92TU5JdkNBIiwgIlVTIl0"
+        
+        -- Compute digest for nationality disclosure to match it in the payload
+        let nationalityDigest = computeDigest SHA256 nationalityDisclosure
         
         -- Create a mock JWT payload matching RFC structure
         -- The JWT payload should contain _sd array with digests and nationalities array with ellipsis objects
@@ -412,8 +412,8 @@ main = hspec $ do
                    "jsu9yVulwQQlhFlM_3JlzMaSFzglhQG0DpfayQwLUK4"]) -- given_name
               , ("sub", Aeson.String "user_42")
               , ("nationalities", Aeson.Array $ V.fromList
-                  [ Aeson.object [("...", Aeson.String "pFndjkZ_VCzmyTa6UjlZo3dh-ko8aIKQc9DlGzhaVYo")]  -- US
-                  , Aeson.object [("...", Aeson.String "7Cf6JkPudry3lcbwHgeZ8khAv1U1OSlerP0VkBJrWZ0")]]) -- DE
+                  [ Aeson.object [("...", Aeson.String (unDigest nationalityDigest))]  -- US (disclosed)
+                  , Aeson.object [("...", Aeson.String "7Cf6JkPudry3lcbwHgeZ8khAv1U1OSlerP0VkBJrWZ0")]]) -- DE (not disclosed)
               ]
         
         -- Encode JWT payload
@@ -422,10 +422,8 @@ main = hspec $ do
         let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
         
         -- Create presentation with selected disclosures (matching RFC Section 5.2)
-        -- Order: family_name, address, given_name
-        -- Note: Array element disclosure (nationality) verification requires proper array processing
-        -- which is not yet implemented, so we test only object disclosures here
-        let selectedDisclosures = [familyNameDisclosure, addressDisclosure, givenNameDisclosure]
+        -- Order: family_name, address, given_name, nationality (US)
+        let selectedDisclosures = [familyNameDisclosure, addressDisclosure, givenNameDisclosure, nationalityDisclosure]
         let presentation = SDJWTPresentation mockJWT selectedDisclosures Nothing
         
         -- Verify the presentation
@@ -445,8 +443,69 @@ main = hspec $ do
                 KeyMap.lookup (Key.fromText "region") addrObj `shouldBe` Just (Aeson.String "Anystate")
                 KeyMap.lookup (Key.fromText "country") addrObj `shouldBe` Just (Aeson.String "US")
               _ -> expectationFailure "Address claim not found or not an object"
-            -- Note: Array element disclosure verification (nationality) requires recursive
-            -- array processing which is not yet implemented in processPayload
+            -- Verify array element disclosure (nationality) is processed correctly
+            case Map.lookup "nationalities" claims of
+              Just (Aeson.Array nationalitiesArr) -> do
+                -- Should have 2 elements: US (disclosed) and DE (not disclosed, still ellipsis)
+                V.length nationalitiesArr `shouldBe` 2
+                -- First element should be "US" (disclosed)
+                case nationalitiesArr V.!? 0 of
+                  Just (Aeson.String "US") -> return ()
+                  _ -> expectationFailure "First nationality element should be 'US'"
+                -- Second element should still be ellipsis object (not disclosed)
+                case nationalitiesArr V.!? 1 of
+                  Just (Aeson.Object ellipsisObj) -> do
+                    KeyMap.lookup (Key.fromText "...") ellipsisObj `shouldSatisfy` isJust
+                  _ -> expectationFailure "Second nationality element should be ellipsis object"
+              _ -> expectationFailure "Nationalities claim not found or not an array"
+          Left err -> expectationFailure $ "Verification failed: " ++ show err
+      
+      it "verifies array element disclosure processing" $ do
+        -- Test that array element disclosures are correctly processed
+        -- Create an array disclosure for "FR"
+        let arrayDisclosure = EncodedDisclosure "WyJsa2x4RjVqTVlsR1RQVW92TU5JdkNBIiwgIkZSIl0"
+        let arrayDigest = computeDigest SHA256 arrayDisclosure
+        
+        -- Create a JWT payload with an array containing ellipsis objects
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("countries", Aeson.Array $ V.fromList
+                  [ Aeson.String "US"  -- Regular element
+                  , Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- Disclosed element
+                  , Aeson.object [("...", Aeson.String "someOtherDigest")]])  -- Not disclosed element
+              ]
+        
+        -- Encode JWT payload
+        let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode jwtPayloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        
+        -- Create presentation with array disclosure
+        let presentation = SDJWTPresentation mockJWT [arrayDisclosure] Nothing
+        
+        -- Verify the presentation
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Right processed -> do
+            let claims = processedClaims processed
+            -- Verify array element disclosure is processed correctly
+            case Map.lookup "countries" claims of
+              Just (Aeson.Array countriesArr) -> do
+                V.length countriesArr `shouldBe` 3
+                -- First element should be "US" (unchanged)
+                case countriesArr V.!? 0 of
+                  Just (Aeson.String "US") -> return ()
+                  _ -> expectationFailure "First element should be 'US'"
+                -- Second element should be "FR" (disclosed)
+                case countriesArr V.!? 1 of
+                  Just (Aeson.String "FR") -> return ()
+                  _ -> expectationFailure "Second element should be 'FR'"
+                -- Third element should still be ellipsis object (not disclosed)
+                case countriesArr V.!? 2 of
+                  Just (Aeson.Object ellipsisObj) -> do
+                    KeyMap.lookup (Key.fromText "...") ellipsisObj `shouldSatisfy` isJust
+                  _ -> expectationFailure "Third element should be ellipsis object"
+              _ -> expectationFailure "Countries claim not found or not an array"
           Left err -> expectationFailure $ "Verification failed: " ++ show err
 
   describe "SDJWT.KeyBinding" $ do

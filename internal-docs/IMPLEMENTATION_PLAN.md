@@ -2,26 +2,26 @@
 
 ## Current Status (Updated)
 
-**Overall Progress**: ~85% complete
+**Overall Progress**: ~87% complete
 
 - ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
 - 🟡 **Phase 5**: Mostly Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, missing nested structures)
 - 🟡 **Phase 6**: Partially Complete (Presentation - basic works ✅, key binding infrastructure ✅, missing recursive disclosure handling)
-- 🟡 **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, missing array element processing in processPayload)
+- ✅ **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, array element processing ✅)
 - ✅ **Phase 8**: Mostly Complete (Key Binding module ✅, tests ✅, missing integration tests and RFC examples for Section 7)
 
 **Critical Missing Features**:
-1. ~~JWT signing/verification integration~~ ✅ **COMPLETED** - Integrated in Issuance.hs and Verification.hs
-2. ~~Key Binding module and functions~~ ✅ **COMPLETED** - KeyBinding.hs module with full implementation
-3. Nested structure support (recursive _sd arrays)
-4. Array element disclosure processing in verification (processPayload)
-5. Complete RFC compliance tests (Section 7 Key Binding examples)
+1. Nested structure support (recursive _sd arrays)
+2. Complete RFC compliance tests (Section 7 Key Binding examples)
 
 **Recent Updates**:
 - ✅ JWT signing/verification fully integrated using jose-jwt library
 - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
 - ✅ RFC example tests for Phase 5 (Issuance) and Phase 7 (Verification)
 - ✅ JWK parsing from Text/JSON implemented
+- ✅ Array element disclosure processing implemented in Verification.hs (processPayload)
+- ✅ Recursive array processing to replace {"...": "<digest>"} objects with values
+- ✅ Tests for array element disclosure verification added
 - ✅ Note added about cryptonite deprecation (migrate to crypton when jose-jwt supports it)
 
 ## Overview
@@ -431,7 +431,7 @@ data SDJWTError
    - **TODO**: Implement recursive disclosure handling - when selecting a nested claim, include parent disclosures
    - **TODO**: Add disclosure dependency validation - verify all required parent disclosures are present
 
-7. **Phase 7 (Verification)** - 🟡 MOSTLY COMPLETE
+7. **Phase 7 (Verification)** - ✅ MOSTLY COMPLETE
    - ✅ Unit tests for verification logic (basic)
    - ✅ Basic disclosure verification working
    - ✅ JWT signature verification (verifySDJWTSignature function using SDJWT.JWT.verifyJWT)
@@ -439,12 +439,12 @@ data SDJWTError
    - ✅ Complete verification flow (verifySDJWT with all steps)
    - ✅ RFC example tests (Section 5.2 presentations - object disclosures verified)
    - ✅ Actual JWT signature verification working (using real RSA keys in tests)
-   - ❌ RFC example tests (Section 5.2 - array element disclosures in verification)
+   - ✅ RFC example tests (Section 5.2 - array element disclosures in verification)
+   - ✅ Array element disclosure processing in processPayload (recursive array processing implemented)
+   - ✅ Recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
+   - ✅ Tests for array element disclosure processing
    - ❌ Error handling tests (invalid digests, missing disclosures, etc.)
-   - ❌ Array element disclosure processing in processPayload (currently returns error)
    - ❌ Tests using EC keys for JWT verification (currently only RSA keys tested)
-   - **TODO**: Implement array element disclosure processing in `processPayload` - currently returns "Array disclosures not yet supported in processing" error (see Verification.hs:278)
-   - **TODO**: Add recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
    - **TODO**: Add comprehensive error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
    - **TODO**: Add tests using EC keys (P-256) for JWT signature verification to ensure EC key support works correctly
 
@@ -532,10 +532,10 @@ dependencies:
 7. **Week 7**: Verification (basic) - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for verification logic (basic)
    - ✅ **Tests**: RFC example tests (Section 5.2 presentations - object disclosures)
+   - ✅ **Tests**: RFC example tests for array element disclosures
    - ✅ **Implementation**: JWT signature verification (verifySDJWTSignature uses verifyJWT)
    - ✅ **Implementation**: Key binding verification working with real keys
-   - ❌ **Tests**: RFC example tests for array element disclosures
-   - ❌ **Implementation**: Array element disclosure processing in processPayload
+   - ✅ **Implementation**: Array element disclosure processing in processPayload (recursive array processing)
 
 8. **Week 8**: Key Binding support - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for KB-JWT creation/verification

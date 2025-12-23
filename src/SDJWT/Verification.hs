@@ -26,6 +26,7 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe)
+import Data.Either (partitionEithers)
 
 -- | Complete SD-JWT verification.
 --
@@ -167,11 +168,11 @@ processPayload hashAlg sdPayload sdDisclosures = do
   -- Start with regular claims (non-selectively disclosable)
   let regularClaims = extractRegularClaims (payloadValue sdPayload)
   
-  -- Process disclosures to create a map of digests to claim values
-  disclosureMap <- buildDisclosureMap hashAlg sdDisclosures
+  -- Process disclosures to create maps of digests to claim values
+  (objectDisclosureMap, arrayDisclosureMap) <- buildDisclosureMap hashAlg sdDisclosures
   
-  -- Replace digests in _sd arrays with actual values
-  let finalClaims = replaceDigestsWithValues regularClaims disclosureMap (payloadValue sdPayload)
+  -- Replace digests in _sd arrays with actual values and process arrays
+  let finalClaims = replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap (payloadValue sdPayload)
   
   return $ ProcessedSDJWTPayload { processedClaims = finalClaims }
 
@@ -233,19 +234,41 @@ parsePayloadFromJWT jwt = do
         _ -> Nothing
     extractHashAlgorithmFromPayload _ = Nothing
 
--- | Extract digests from payload's _sd array.
+-- | Extract digests from payload's _sd array and arrays with ellipsis objects.
 extractDigestsFromPayload :: SDJWTPayload -> [Digest]
 extractDigestsFromPayload sdPayload =
-  case payloadValue sdPayload of
-    Aeson.Object obj ->
-      case KeyMap.lookup "_sd" obj of
-        Just (Aeson.Array arr) ->
-          mapMaybe (\v -> case v of
-            Aeson.String s -> Just (Digest s)
-            _ -> Nothing
-          ) (V.toList arr)
-        _ -> []
+  let digestsFromSDArray = extractDigestsFromSDArray (payloadValue sdPayload)
+      digestsFromArrays = extractDigestsFromArrays (payloadValue sdPayload)
+  in digestsFromSDArray ++ digestsFromArrays
+
+-- | Extract digests from _sd array.
+extractDigestsFromSDArray :: Aeson.Value -> [Digest]
+extractDigestsFromSDArray (Aeson.Object obj) =
+  case KeyMap.lookup "_sd" obj of
+    Just (Aeson.Array arr) ->
+      mapMaybe (\v -> case v of
+        Aeson.String s -> Just (Digest s)
+        _ -> Nothing
+      ) (V.toList arr)
     _ -> []
+extractDigestsFromSDArray _ = []
+
+-- | Recursively extract digests from arrays containing {"...": "<digest>"} objects.
+extractDigestsFromArrays :: Aeson.Value -> [Digest]
+extractDigestsFromArrays (Aeson.Array arr) =
+  -- Check each element in the array
+  concatMap (\elem -> case elem of
+    Aeson.Object obj ->
+      -- Check if this is a {"...": "<digest>"} object
+      case KeyMap.lookup (Key.fromText "...") obj of
+        Just (Aeson.String digest) -> [Digest digest]
+        _ -> extractDigestsFromArrays elem  -- Recursively check nested structures
+    _ -> extractDigestsFromArrays elem  -- Recursively check nested structures
+    ) (V.toList arr)
+extractDigestsFromArrays (Aeson.Object obj) =
+  -- Recursively check nested objects
+  concatMap (extractDigestsFromArrays . snd) (KeyMap.toList obj)
+extractDigestsFromArrays _ = []
 
 -- | Extract regular (non-selectively disclosable) claims from payload.
 extractRegularClaims :: Aeson.Value -> Map.Map T.Text Aeson.Value
@@ -258,41 +281,85 @@ extractRegularClaims (Aeson.Object obj) =
   ) (KeyMap.toList obj)
 extractRegularClaims _ = Map.empty
 
--- | Build a map from digests to disclosure values.
+-- | Build maps from digests to disclosure values.
+-- Returns two maps:
+-- 1. Object disclosures: digest -> (claimName, claimValue)
+-- 2. Array disclosures: digest -> value
 buildDisclosureMap
   :: HashAlgorithm
   -> [EncodedDisclosure]
-  -> Either SDJWTError (Map.Map T.Text (T.Text, Aeson.Value))
+  -> Either SDJWTError (Map.Map T.Text (T.Text, Aeson.Value), Map.Map T.Text Aeson.Value)
 buildDisclosureMap hashAlg sdDisclosures = do
-  results <- mapM (\encDisclosure -> do
+  -- Process each disclosure and separate into object and array disclosures
+  disclosureResults <- mapM (\encDisclosure -> do
     decodedDisclosure <- decodeDisclosure encDisclosure
     let digest = computeDigest hashAlg encDisclosure
     let claimName = getDisclosureClaimName decodedDisclosure
     let claimValue = getDisclosureValue decodedDisclosure
-    case claimName of
-      Just name -> return (unDigest digest, (name, claimValue))
-      -- TODO: Support array element disclosures in processPayload
-      -- Array disclosures don't have claim names, so we need to match them
-      -- by digest to the {"...": "<digest>"} objects in arrays
-      -- See RFC 9901 Section 4.2.3 for array element disclosure format
-      Nothing -> Left $ InvalidDisclosureFormat "Array disclosures not yet supported in processing"
+    return $ case claimName of
+      Just name -> Left (unDigest digest, (name, claimValue))  -- Object disclosure
+      Nothing -> Right (unDigest digest, claimValue)  -- Array disclosure
     ) sdDisclosures
   
-  return $ Map.fromList results
+  -- Partition into object and array results
+  let (objectResults, arrayResults) = partitionEithers disclosureResults
+  
+  return (Map.fromList objectResults, Map.fromList arrayResults)
 
 -- | Replace digests in payload with actual claim values.
+-- This function:
+-- 1. Processes object claims (replaces digests in _sd arrays with values)
+-- 2. Recursively processes arrays to replace {"...": "<digest>"} objects with values
 replaceDigestsWithValues
   :: Map.Map T.Text Aeson.Value
-  -> Map.Map T.Text (T.Text, Aeson.Value)
-  -> Aeson.Value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Aeson.Value  -- Original payload
   -> Map.Map T.Text Aeson.Value
-replaceDigestsWithValues regularClaims disclosureMap _payloadValue =
-  -- Add disclosed claims to regular claims
-  -- disclosureMap: Map digest -> (claimName, claimValue)
-  -- We want: Map claimName -> claimValue
-  let disclosedPairs = Map.elems disclosureMap  -- [(claimName, claimValue)]
+replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap payloadValue =
+  -- Process object claims: replace digests in _sd arrays with values
+  let disclosedPairs = Map.elems objectDisclosureMap  -- [(claimName, claimValue)]
       disclosedClaims = Map.fromList disclosedPairs
-  in Map.union disclosedClaims regularClaims
+      objectClaims = Map.union disclosedClaims regularClaims
+  
+  -- Process arrays recursively to replace {"...": "<digest>"} objects
+  in processArraysInClaims objectClaims arrayDisclosureMap
+
+-- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
+processArraysInClaims
+  :: Map.Map T.Text Aeson.Value
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Map.Map T.Text Aeson.Value
+processArraysInClaims claims arrayDisclosureMap =
+  Map.map (\value -> processValueForArrays value arrayDisclosureMap) claims
+
+-- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays.
+processValueForArrays
+  :: Aeson.Value
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Aeson.Value
+processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
+  -- Process each element in the array
+  let processedElements = V.map (\elem -> processValueForArrays elem arrayDisclosureMap) arr
+      -- Replace {"...": "<digest>"} objects with actual values
+      replacedElements = V.map (\elem -> case elem of
+        Aeson.Object obj ->
+          -- Check if this is a {"...": "<digest>"} object
+          case KeyMap.lookup (Key.fromText "...") obj of
+            Just (Aeson.String digest) ->
+              -- Look up the value for this digest
+              case Map.lookup digest arrayDisclosureMap of
+                Just value -> value
+                Nothing -> elem  -- Digest not found, keep original
+            _ -> elem  -- Not an ellipsis object, keep as is
+        _ -> elem  -- Not an object, keep as is
+        ) processedElements
+  in Aeson.Array replacedElements
+processValueForArrays (Aeson.Object obj) arrayDisclosureMap =
+  -- Recursively process nested objects
+  let processedObj = KeyMap.map (\value -> processValueForArrays value arrayDisclosureMap) obj
+  in Aeson.Object processedObj
+processValueForArrays value _arrayDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Process payload from presentation (convenience function).
 processPayloadFromPresentation
