@@ -15,7 +15,7 @@ module SDJWT.Verification
   ) where
 
 import SDJWT.Types
-import SDJWT.Digest
+import SDJWT.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
 import SDJWT.Disclosure
 import SDJWT.Utils
 import SDJWT.KeyBinding
@@ -294,44 +294,7 @@ parsePayloadFromJWT jwt = do
 
 -- | Extract digests from payload's _sd array and arrays with ellipsis objects.
 extractDigestsFromPayload :: SDJWTPayload -> [Digest]
-extractDigestsFromPayload sdPayload =
-  let digestsFromSDArray = extractDigestsFromSDArray (payloadValue sdPayload)
-      digestsFromArrays = extractDigestsFromArrays (payloadValue sdPayload)
-  in digestsFromSDArray ++ digestsFromArrays
-
--- | Extract digests from _sd array (recursively processes nested objects).
-extractDigestsFromSDArray :: Aeson.Value -> [Digest]
-extractDigestsFromSDArray (Aeson.Object obj) =
-  let topLevelDigests = case KeyMap.lookup "_sd" obj of
-        Just (Aeson.Array arr) ->
-          mapMaybe (\case
-            Aeson.String s -> Just (Digest s)
-            _ -> Nothing
-          ) (V.toList arr)
-        _ -> []
-      -- Recursively extract digests from nested objects
-      nestedDigests = concatMap (extractDigestsFromSDArray . snd) (KeyMap.toList obj)
-  in topLevelDigests ++ nestedDigests
-extractDigestsFromSDArray (Aeson.Array arr) =
-  concatMap extractDigestsFromSDArray (V.toList arr)
-extractDigestsFromSDArray _ = []
-
--- | Recursively extract digests from arrays containing {"...": "<digest>"} objects.
-extractDigestsFromArrays :: Aeson.Value -> [Digest]
-extractDigestsFromArrays (Aeson.Array arr) =
-  -- Check each element in the array
-  concatMap (\elem -> case elem of
-    Aeson.Object obj ->
-      -- Check if this is a {"...": "<digest>"} object
-      case KeyMap.lookup (Key.fromText "...") obj of
-        Just (Aeson.String digest) -> [Digest digest]
-        _ -> extractDigestsFromArrays elem  -- Recursively check nested structures
-    _ -> extractDigestsFromArrays elem  -- Recursively check nested structures
-    ) (V.toList arr)
-extractDigestsFromArrays (Aeson.Object obj) =
-  -- Recursively check nested objects
-  concatMap (extractDigestsFromArrays . snd) (KeyMap.toList obj)
-extractDigestsFromArrays _ = []
+extractDigestsFromPayload sdPayload = extractDigestsFromValue (payloadValue sdPayload)
 
 -- | Extract digests from recursive disclosures (disclosures that contain _sd arrays).
 -- For Section 6.3 recursive disclosures, child digests are in the parent disclosure's _sd array.
@@ -346,7 +309,7 @@ extractDigestsFromRecursiveDisclosures hashAlg disclosures =
       Right decoded -> do
         let claimValue = getDisclosureValue decoded
         -- Extract digests from _sd arrays in disclosure values
-        extractDigestsFromSDArray claimValue
+        extractDigestsFromValue claimValue
     ) disclosures
 
 -- | Extract regular (non-selectively disclosable) claims from payload.

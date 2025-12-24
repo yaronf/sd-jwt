@@ -9,6 +9,7 @@ module SDJWT.Utils
   , generateSalt
   , textToByteString
   , byteStringToText
+  , hashToBytes
   ) where
 
 import qualified Data.ByteString.Base64.URL as Base64
@@ -16,7 +17,10 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Crypto.Random as RNG
+import qualified Crypto.Hash as Hash
+import qualified Data.ByteArray as BA
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import SDJWT.Types
 
 -- | Base64url encode a ByteString (without padding).
 --
@@ -63,4 +67,14 @@ textToByteString = TE.encodeUtf8
 -- For safe decoding, use 'Data.Text.Encoding.decodeUtf8'' instead.
 byteStringToText :: BS.ByteString -> T.Text
 byteStringToText = TE.decodeUtf8
+
+-- | Hash bytes using the specified hash algorithm.
+--
+-- This function computes a cryptographic hash of the input ByteString
+-- using the specified hash algorithm (SHA-256, SHA-384, or SHA-512).
+-- Returns the hash digest as a ByteString.
+hashToBytes :: HashAlgorithm -> BS.ByteString -> BS.ByteString
+hashToBytes SHA256 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA256)
+hashToBytes SHA384 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA384)
+hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 

@@ -10,15 +10,19 @@ module SDJWT.Digest
   , parseHashAlgorithm
   , defaultHashAlgorithm
   , hashAlgorithmToText
+  , extractDigestsFromValue
   ) where
 
 import SDJWT.Types
-import SDJWT.Utils
-import qualified Crypto.Hash as Hash
-import qualified Data.ByteArray as BA
+import SDJWT.Utils (hashToBytes, base64urlEncode)
+import qualified Data.Aeson as Aeson
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Vector as V
 import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Maybe (mapMaybe)
 
 -- | Default hash algorithm (SHA-256 per RFC 9901).
 --
@@ -53,11 +57,6 @@ parseHashAlgorithm _ = Nothing
 -- to produce the final digest.
 --
 -- This follows the convention in JWS (RFC 7515) and JWE (RFC 7516).
--- Helper to compute hash and convert to ByteString
-hashToBytes :: HashAlgorithm -> BS.ByteString -> BS.ByteString
-hashToBytes SHA256 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA256)
-hashToBytes SHA384 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA384)
-hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 
 computeDigest :: HashAlgorithm -> EncodedDisclosure -> Digest
 computeDigest alg (EncodedDisclosure encoded) =
@@ -81,4 +80,35 @@ verifyDigest alg expectedDigest disclosure =
     computedDigest = computeDigest alg disclosure
   in
     computedDigest == expectedDigest
+
+-- | Recursively extract digests from JSON value (_sd arrays and array ellipsis objects).
+--
+-- This function extracts all digests from a JSON value by:
+-- 1. Looking for _sd arrays in objects and extracting string digests
+-- 2. Looking for {"...": "<digest>"} objects in arrays
+-- 3. Recursively processing nested structures
+--
+-- Used for extracting digests from SD-JWT payloads and disclosure values.
+extractDigestsFromValue :: Aeson.Value -> [Digest]
+extractDigestsFromValue (Aeson.Object obj) =
+  let topLevelDigests = case KeyMap.lookup "_sd" obj of
+        Just (Aeson.Array arr) ->
+          mapMaybe (\v -> case v of
+            Aeson.String s -> Just (Digest s)
+            _ -> Nothing
+          ) (V.toList arr)
+        _ -> []
+      -- Recursively extract from nested objects
+      nestedDigests = concatMap (extractDigestsFromValue . snd) (KeyMap.toList obj)
+  in topLevelDigests ++ nestedDigests
+extractDigestsFromValue (Aeson.Array arr) =
+  -- Check for array ellipsis objects {"...": "<digest>"}
+  concatMap (\elem -> case elem of
+    Aeson.Object obj ->
+      case KeyMap.lookup (Key.fromText "...") obj of
+        Just (Aeson.String digest) -> [Digest digest]
+        _ -> extractDigestsFromValue elem  -- Recursively check nested structures
+    _ -> extractDigestsFromValue elem  -- Recursively check nested structures
+  ) (V.toList arr)
+extractDigestsFromValue _ = []
 

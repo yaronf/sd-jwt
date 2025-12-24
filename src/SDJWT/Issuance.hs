@@ -78,7 +78,7 @@ module SDJWT.Issuance
   ) where
 
 import SDJWT.Types
-import SDJWT.Utils
+import SDJWT.Utils (generateSalt, hashToBytes, base64urlEncode)
 import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.JWT
@@ -90,8 +90,6 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.ByteString as BS
-import qualified Crypto.Hash as Hash
-import qualified Data.ByteArray as BA
 import Data.List (sortBy, partition)
 import Data.Ord (comparing)
 import Data.Either (partitionEithers)
@@ -325,12 +323,6 @@ addDecoyDigest hashAlg = do
   -- Base64url encode to create the digest
   let digestText = base64urlEncode hashBytes
   return $ Digest digestText
-
--- Helper function to hash bytes (reused from KeyBinding)
-hashToBytes :: HashAlgorithm -> BS.ByteString -> BS.ByteString
-hashToBytes SHA256 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA256)
-hashToBytes SHA384 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA384)
-hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 
 -- | Sort digests for deterministic ordering in _sd array.
 sortDigests :: [Digest] -> [Digest]

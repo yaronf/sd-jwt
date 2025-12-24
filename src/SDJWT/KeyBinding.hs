@@ -12,11 +12,9 @@ module SDJWT.KeyBinding
   ) where
 
 import SDJWT.Types
-import SDJWT.Utils
+import SDJWT.Utils (hashToBytes, textToByteString, base64urlEncode)
 import SDJWT.Serialization
 import SDJWT.JWT
-import qualified Crypto.Hash as Hash
-import qualified Data.ByteArray as BA
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -169,9 +167,4 @@ extractClaim claimName (Aeson.Object obj) =
     Nothing -> Left $ InvalidKeyBinding $ "Missing claim: " <> claimName
 extractClaim _ _ = Left $ InvalidKeyBinding "KB-JWT payload is not an object"
 
--- | Hash bytes using the specified algorithm.
-hashToBytes :: HashAlgorithm -> BS.ByteString -> BS.ByteString
-hashToBytes SHA256 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA256)
-hashToBytes SHA384 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA384)
-hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 

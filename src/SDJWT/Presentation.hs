@@ -12,7 +12,7 @@ module SDJWT.Presentation
 
 import SDJWT.Types
 import SDJWT.Disclosure
-import SDJWT.Digest
+import SDJWT.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm, parseHashAlgorithm)
 import SDJWT.Utils
 import SDJWT.KeyBinding
 import qualified Data.Text as T
@@ -324,28 +324,4 @@ extractDigestsFromJWTPayload jwt = do
       let digests = extractDigestsFromValue payloadJson
       return $ Set.fromList $ map unDigest digests
     _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
-
--- | Recursively extract digests from JSON value (_sd arrays and array ellipsis objects).
-extractDigestsFromValue :: Aeson.Value -> [Digest]
-extractDigestsFromValue (Aeson.Object obj) =
-  let topLevelDigests = case KeyMap.lookup "_sd" obj of
-        Just (Aeson.Array arr) ->
-          mapMaybe (\v -> case v of
-            Aeson.String s -> Just (Digest s)
-            _ -> Nothing
-          ) (V.toList arr)
-        _ -> []
-      -- Recursively extract from nested objects
-      nestedDigests = concatMap (extractDigestsFromValue . snd) (KeyMap.toList obj)
-  in topLevelDigests ++ nestedDigests
-extractDigestsFromValue (Aeson.Array arr) =
-  -- Check for array ellipsis objects {"...": "<digest>"}
-  concatMap (\elem -> case elem of
-    Aeson.Object obj ->
-      case KeyMap.lookup (Key.fromText "...") obj of
-        Just (Aeson.String digest) -> [Digest digest]
-        _ -> extractDigestsFromValue elem  -- Recursively check nested structures
-    _ -> extractDigestsFromValue elem  -- Recursively check nested structures
-  ) (V.toList arr)
-extractDigestsFromValue _ = []
 
