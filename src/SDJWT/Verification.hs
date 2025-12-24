@@ -12,6 +12,7 @@ module SDJWT.Verification
   , verifyDisclosures
   , processPayload
   , extractHashAlgorithm
+  , parsePayloadFromJWT
   ) where
 
 import SDJWT.Types

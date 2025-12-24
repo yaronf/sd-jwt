@@ -84,6 +84,17 @@ signJWTES256 privateKeyJWK payload = do
           let jwt = headerB64 <> "." <> payloadB64 <> "." <> sigB64
           return $ Right jwt
 
+-- | Decode a base64url-encoded coordinate from a JWK object.
+--
+-- Helper function to extract and decode a coordinate field (d, x, y) from an EC JWK.
+decodeCoordinate :: T.Text -> KeyMap.KeyMap Aeson.Value -> Either SDJWTError BS.ByteString
+decodeCoordinate fieldName obj =
+  case KeyMap.lookup (Key.fromText fieldName) obj of
+    Just (Aeson.String coordText) -> case base64urlDecode coordText of
+      Left err -> Left $ InvalidSignature $ "Failed to decode '" <> fieldName <> "' coordinate: " <> err
+      Right bs -> Right bs
+    _ -> Left $ InvalidSignature $ "Missing '" <> fieldName <> "' field in EC private key JWK"
+
 -- | Parse an EC private key from JWK JSON format.
 --
 -- Expected format: {"kty":"EC","crv":"P-256","d":"...","x":"...","y":"..."}
@@ -106,25 +117,13 @@ parseECPrivateKeyFromJWK jwkText = do
         _ -> Left $ InvalidSignature "Missing or invalid 'crv' field in JWK"
       
       -- Parse private key scalar (d)
-      dBS <- case KeyMap.lookup (Key.fromText "d") obj of
-        Just (Aeson.String dText) -> case base64urlDecode dText of
-          Left err -> Left $ InvalidSignature $ "Failed to decode 'd' coordinate: " <> err
-          Right bs -> Right bs
-        _ -> Left $ InvalidSignature "Missing 'd' field in EC private key JWK"
+      dBS <- decodeCoordinate "d" obj
       
       -- Parse x coordinate (validate it exists, but don't use it for signing)
-      _xBS <- case KeyMap.lookup (Key.fromText "x") obj of
-        Just (Aeson.String xText) -> case base64urlDecode xText of
-          Left err -> Left $ InvalidSignature $ "Failed to decode 'x' coordinate: " <> err
-          Right bs -> Right bs
-        _ -> Left $ InvalidSignature "Missing 'x' field in EC private key JWK"
+      _xBS <- decodeCoordinate "x" obj
       
       -- Parse y coordinate (validate it exists, but don't use it for signing)
-      _yBS <- case KeyMap.lookup (Key.fromText "y") obj of
-        Just (Aeson.String yText) -> case base64urlDecode yText of
-          Left err -> Left $ InvalidSignature $ "Failed to decode 'y' coordinate: " <> err
-          Right bs -> Right bs
-        _ -> Left $ InvalidSignature "Missing 'y' field in EC private key JWK"
+      _yBS <- decodeCoordinate "y" obj
       
       -- Convert private key scalar to Integer
       let dInt = bsToInteger dBS

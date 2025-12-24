@@ -12,12 +12,11 @@ module SDJWT.Presentation
 
 import SDJWT.Types
 import SDJWT.Disclosure
-import SDJWT.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm, parseHashAlgorithm)
-import SDJWT.Utils
+import SDJWT.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
+import SDJWT.Utils (splitJSONPointer, unescapeJSONPointer)
 import SDJWT.KeyBinding
+import SDJWT.Verification (parsePayloadFromJWT)
 import qualified Data.Text as T
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.Aeson as Aeson
@@ -146,19 +145,27 @@ buildDisclosureMap decoded encoded =
   in Map.fromList mappings
 
 -- | Partition claim names into top-level and nested paths (using JSON Pointer syntax).
+--
+-- Supports JSON Pointer escaping (RFC 6901):
+-- - "~1" represents a literal forward slash "/"
+-- - "~0" represents a literal tilde "~"
 partitionNestedPaths :: [T.Text] -> ([T.Text], [(T.Text, T.Text)])
 partitionNestedPaths claimNames =
   let (topLevel, nested) = partition (not . T.isInfixOf "/") claimNames
       nestedPaths = mapMaybe parseJSONPointerPath nested
-  in (topLevel, nestedPaths)
+      -- Unescape top-level claim names (they may contain ~0 or ~1)
+      unescapedTopLevel = map unescapeJSONPointer topLevel
+  in (unescapedTopLevel, nestedPaths)
   where
-    -- Parse a JSON Pointer path (parent/child)
+    -- Parse a JSON Pointer path, handling escaping
+    -- Returns Nothing if invalid, Just (parent, child) if valid nested path
     parseJSONPointerPath :: T.Text -> Maybe (T.Text, T.Text)
     parseJSONPointerPath path = do
-      let segments = T.splitOn "/" path
+      -- Split by "/" but handle escaped slashes
+      let segments = splitJSONPointer path
       case segments of
-        [parent, child] -> Just (parent, child)
-        _ -> Nothing  -- Only support 2-level nesting for now
+        [parent, child] -> Just (unescapeJSONPointer parent, unescapeJSONPointer child)
+        _ -> Nothing  -- Only support 2-level nesting (parent/child) for now
 
 -- | Collect all required claim names, including parent dependencies for recursive disclosures.
 collectRequiredClaims
@@ -212,32 +219,10 @@ filterDisclosuresByNames decoded encoded requiredNames =
 -- Helper function to extract _sd_alg from JWT payload, defaulting to SHA-256.
 extractHashAlgorithmFromJWT :: T.Text -> Either SDJWTError HashAlgorithm
 extractHashAlgorithmFromJWT jwt = do
-  -- Split JWT into parts (header.payload.signature)
-  let parts = T.splitOn "." jwt
-  case parts of
-    (_header : payloadPart : _signature) -> do
-      -- Decode base64url payload
-      payloadBytes <- case base64urlDecode payloadPart of
-        Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
-        Right bs -> Right bs
-      
-      -- Parse JSON payload
-      payloadJson <- case Aeson.eitherDecodeStrict payloadBytes of
-        Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
-        Right val -> Right val
-      
-      -- Extract hash algorithm from payload
-      let hashAlg = case payloadJson of
-            Aeson.Object obj ->
-              case KeyMap.lookup "_sd_alg" obj of
-                Just (Aeson.String algText) -> parseHashAlgorithm algText
-                _ -> Nothing
-            _ -> Nothing
-      
-      return $ case hashAlg of
-        Just alg -> alg
-        Nothing -> defaultHashAlgorithm
-    _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
+  sdPayload <- parsePayloadFromJWT jwt
+  return $ case sdAlg sdPayload of
+    Just alg -> alg
+    Nothing -> defaultHashAlgorithm
 
 -- | Validate disclosure dependencies per RFC 9901 Section 7.2, step 2.
 --
@@ -306,22 +291,7 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
 -- Helper function to extract all digests from the issuer-signed JWT payload.
 extractDigestsFromJWTPayload :: T.Text -> Either SDJWTError (Set.Set T.Text)
 extractDigestsFromJWTPayload jwt = do
-  -- Split JWT into parts
-  let parts = T.splitOn "." jwt
-  case parts of
-    (_header : payloadPart : _signature) -> do
-      -- Decode base64url payload
-      payloadBytes <- case base64urlDecode payloadPart of
-        Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
-        Right bs -> Right bs
-      
-      -- Parse JSON payload
-      payloadJson <- case Aeson.eitherDecodeStrict payloadBytes of
-        Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
-        Right val -> Right val
-      
-      -- Extract digests from _sd arrays recursively
-      let digests = extractDigestsFromValue payloadJson
-      return $ Set.fromList $ map unDigest digests
-    _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
+  sdPayload <- parsePayloadFromJWT jwt
+  let digests = extractDigestsFromValue (payloadValue sdPayload)
+  return $ Set.fromList $ map unDigest digests
 

@@ -78,7 +78,7 @@ module SDJWT.Issuance
   ) where
 
 import SDJWT.Types
-import SDJWT.Utils (generateSalt, hashToBytes, base64urlEncode)
+import SDJWT.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Digest
 import SDJWT.Disclosure
 import SDJWT.JWT
@@ -361,30 +361,6 @@ partitionNestedPaths claimNames =
       case segments of
         [parent, child] -> Just (unescapeJSONPointer parent, unescapeJSONPointer child)
         _ -> Nothing  -- Only support 2-level nesting (parent/child) for now
-    
-    -- Split JSON Pointer path by "/", respecting escapes
-    splitJSONPointer :: T.Text -> [T.Text]
-    splitJSONPointer path = go path [] ""
-      where
-        go remaining acc current
-          | T.null remaining = reverse (if T.null current then acc else current : acc)
-          | T.take 2 remaining == "~1" =
-              -- Escaped slash (must check before checking for unescaped "/")
-              go (T.drop 2 remaining) acc (current <> "/")
-          | T.take 2 remaining == "~0" =
-              -- Escaped tilde
-              go (T.drop 2 remaining) acc (current <> "~")
-          | T.head remaining == '/' =
-              -- Found unescaped slash (after checking escape sequences)
-              go (T.tail remaining) (if T.null current then acc else current : acc) ""
-          | otherwise =
-              -- Regular character
-              go (T.tail remaining) acc (T.snoc current (T.head remaining))
-    
-    -- Unescape JSON Pointer segment (convert ~1 to /, ~0 to ~)
-    -- Note: Order matters - must replace ~1 before ~0 to avoid double-replacement
-    unescapeJSONPointer :: T.Text -> T.Text
-    unescapeJSONPointer = T.replace "~1" "/" . T.replace "~0" "~"
 
 -- | Process nested structures (Section 6.2: structured SD-JWT).
 -- Creates _sd arrays within parent objects for sub-claims.

@@ -113,18 +113,10 @@ verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
     Left err -> return (Left err)
     Right kbPayload -> do
       -- Extract claims from verified payload
-      sdHashClaim <- case extractClaim "sd_hash" kbPayload of
-        Left err -> return (Left err)
-        Right claim -> return (Right claim)
-      nonceClaim <- case extractClaim "nonce" kbPayload of
-        Left err -> return (Left err)
-        Right claim -> return (Right claim)
-      audClaim <- case extractClaim "aud" kbPayload of
-        Left err -> return (Left err)
-        Right claim -> return (Right claim)
-      iatClaim <- case extractClaim "iat" kbPayload of
-        Left err -> return (Left err)
-        Right claim -> return (Right claim)
+      sdHashClaim <- return $ extractClaim "sd_hash" kbPayload
+      nonceClaim <- return $ extractClaim "nonce" kbPayload
+      audClaim <- return $ extractClaim "aud" kbPayload
+      iatClaim <- return $ extractClaim "iat" kbPayload
       
       case sdHashClaim of
         Left err -> return (Left err)

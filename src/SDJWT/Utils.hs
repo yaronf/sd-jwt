@@ -10,6 +10,8 @@ module SDJWT.Utils
   , textToByteString
   , byteStringToText
   , hashToBytes
+  , splitJSONPointer
+  , unescapeJSONPointer
   ) where
 
 import qualified Data.ByteString.Base64.URL as Base64
@@ -77,4 +79,43 @@ hashToBytes :: HashAlgorithm -> BS.ByteString -> BS.ByteString
 hashToBytes SHA256 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA256)
 hashToBytes SHA384 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA384)
 hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
+
+-- | Split JSON Pointer path by "/", respecting escapes (RFC 6901).
+--
+-- This function properly handles JSON Pointer escaping:
+-- - "~1" represents a literal forward slash "/"
+-- - "~0" represents a literal tilde "~"
+--
+-- Examples:
+-- - "a/b" → ["a", "b"]
+-- - "a~1b" → ["a/b"] (escaped slash)
+-- - "a~0b" → ["a~b"] (escaped tilde)
+-- - "a~1/b" → ["a/b", ""] (escaped slash followed by separator)
+splitJSONPointer :: T.Text -> [T.Text]
+splitJSONPointer path = go path [] ""
+  where
+    go remaining acc current
+      | T.null remaining = reverse (if T.null current then acc else current : acc)
+      | T.take 2 remaining == "~1" =
+          -- Escaped slash (must check before checking for unescaped "/")
+          go (T.drop 2 remaining) acc (current <> "/")
+      | T.take 2 remaining == "~0" =
+          -- Escaped tilde
+          go (T.drop 2 remaining) acc (current <> "~")
+      | T.head remaining == '/' =
+          -- Found unescaped slash (after checking escape sequences)
+          go (T.tail remaining) (if T.null current then acc else current : acc) ""
+      | otherwise =
+          -- Regular character
+          go (T.tail remaining) acc (T.snoc current (T.head remaining))
+
+-- | Unescape JSON Pointer segment (RFC 6901).
+--
+-- Converts escape sequences back to literal characters:
+-- - "~1" → "/"
+-- - "~0" → "~"
+--
+-- Note: Order matters - must replace ~1 before ~0 to avoid double-replacement.
+unescapeJSONPointer :: T.Text -> T.Text
+unescapeJSONPointer = T.replace "~1" "/" . T.replace "~0" "~"
 
