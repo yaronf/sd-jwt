@@ -5,7 +5,7 @@
 -- This module defines all the data types used throughout the SD-JWT library,
 -- including hash algorithms, disclosures, SD-JWT structures, and error types.
 -- These types correspond to the structures defined in RFC 9901.
-module SDJWT.Types
+module SDJWT.Internal.Types
   ( HashAlgorithm(..)
   , Salt(..)
   , Digest(..)

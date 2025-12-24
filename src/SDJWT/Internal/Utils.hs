@@ -1,9 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Utility functions for SD-JWT operations.
+-- | Utility functions for SD-JWT operations (low-level).
 --
 -- This module provides base64url encoding/decoding, salt generation,
 -- and text/ByteString conversions used throughout the SD-JWT library.
-module SDJWT.Utils
+--
+-- == Usage
+--
+-- This module contains low-level utilities that are typically used internally
+-- by other SD-JWT modules. Most users should use the higher-level APIs in:
+--
+-- * 'SDJWT.Issuer' - For issuers
+-- * 'SDJWT.Holder' - For holders  
+-- * 'SDJWT.Verifier' - For verifiers
+--
+-- These utilities may be useful for:
+-- * Advanced use cases requiring custom implementations
+-- * Library developers building on top of SD-JWT
+-- * Testing and debugging
+--
+-- @since 0.1.0.0
+module SDJWT.Internal.Utils
   ( base64urlEncode
   , base64urlDecode
   , generateSalt
@@ -22,7 +38,7 @@ import qualified Crypto.Random as RNG
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import SDJWT.Types (HashAlgorithm(..))
+import SDJWT.Internal.Types (HashAlgorithm(..))
 
 -- | Base64url encode a ByteString (without padding).
 --

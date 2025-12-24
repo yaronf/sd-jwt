@@ -4,7 +4,7 @@
 --
 -- This module provides functions for verifying SD-JWT presentations on the verifier side.
 -- It handles signature verification, disclosure validation, and payload processing.
-module SDJWT.Verification
+module SDJWT.Internal.Verification
   ( verifySDJWT
   , verifySDJWTSignature
   , verifySDJWTWithoutSignature
@@ -15,12 +15,12 @@ module SDJWT.Verification
   , parsePayloadFromJWT
   ) where
 
-import SDJWT.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..))
-import SDJWT.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
-import SDJWT.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
-import SDJWT.Utils (base64urlDecode)
-import SDJWT.KeyBinding (verifyKeyBindingJWT)
-import SDJWT.JWT (verifyJWT)
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..))
+import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
+import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
+import SDJWT.Internal.Utils (base64urlDecode)
+import SDJWT.Internal.KeyBinding (verifyKeyBindingJWT)
+import SDJWT.Internal.JWT (verifyJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -257,8 +257,27 @@ extractHolderKeyFromPayload presentation = do
 
 -- | Parse payload from JWT.
 --
+-- | Parse JWT payload from a JWT string (advanced/internal use).
+--
 -- Extracts and decodes the JWT payload (middle part) from a JWT string.
 -- This function properly decodes the base64url-encoded payload and parses it as JSON.
+--
+-- This function is exported for advanced use cases and internal library use.
+-- Most users should use 'verifySDJWT' or 'verifySDJWTWithoutSignature' instead,
+-- which handle payload parsing internally.
+--
+-- This function is used internally by:
+-- * 'SDJWT.Presentation' - To parse payloads when selecting disclosures
+-- * 'verifyDisclosures' - To extract digests from payloads
+-- * 'extractHashAlgorithm' - To extract hash algorithm from payloads
+--
+-- == Advanced/Internal Use
+--
+-- This function is primarily used internally by other modules (e.g., 'SDJWT.Internal.Presentation').
+-- Most users should use higher-level functions like 'verifySDJWT' instead.
+-- Only use this function directly if you need fine-grained control over JWT parsing.
+--
+-- @since 0.1.0.0
 parsePayloadFromJWT :: T.Text -> Either SDJWTError SDJWTPayload
 parsePayloadFromJWT jwt = do
   -- Split JWT into parts (header.payload.signature)

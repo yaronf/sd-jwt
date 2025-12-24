@@ -4,17 +4,17 @@
 -- This module provides functions for creating and verifying Key Binding JWTs
 -- (KB-JWT) as specified in RFC 9901 Section 7. Key Binding provides proof
 -- of possession of a key by the holder.
-module SDJWT.KeyBinding
+module SDJWT.Internal.KeyBinding
   ( createKeyBindingJWT
   , computeSDHash
   , verifyKeyBindingJWT
   , addKeyBindingToPresentation
   ) where
 
-import SDJWT.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
-import SDJWT.Utils (hashToBytes, textToByteString, base64urlEncode)
-import SDJWT.Serialization (serializePresentation)
-import SDJWT.JWT (signJWT, verifyJWT)
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
+import SDJWT.Internal.Utils (hashToBytes, textToByteString, base64urlEncode)
+import SDJWT.Internal.Serialization (serializePresentation)
+import SDJWT.Internal.JWT (signJWT, verifyJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap

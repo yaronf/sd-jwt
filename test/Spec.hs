@@ -2,17 +2,17 @@
 module Main (main) where
 
 import Test.Hspec
-import SDJWT.Types
-import SDJWT.Utils
-import SDJWT.Digest
-import SDJWT.Disclosure
-import SDJWT.Serialization
-import SDJWT.Issuance
-import SDJWT.Presentation
-import SDJWT.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
-import SDJWT.KeyBinding
-import SDJWT.JWT
-import SDJWT.JWT.EC (signJWTES256)
+import SDJWT.Internal.Types
+import SDJWT.Internal.Utils
+import SDJWT.Internal.Digest
+import SDJWT.Internal.Disclosure
+import SDJWT.Internal.Serialization
+import SDJWT.Internal.Issuance
+import SDJWT.Internal.Presentation
+import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
+import SDJWT.Internal.KeyBinding
+import SDJWT.Internal.JWT
+import SDJWT.Internal.JWT.EC (signJWTES256)
 import TestKeys
 import qualified Data.Vector as V
 import qualified Data.Aeson as Aeson
@@ -24,8 +24,18 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
 import Data.Int (Int64)
-import Data.Maybe (isJust, isNothing, mapMaybe)
+import Data.Maybe (isJust, mapMaybe)
 import Data.List (find)
+
+-- Helper functions to reduce duplication in tests
+
+-- | Decode a list of encoded disclosures, filtering out any that fail to decode.
+-- This is a common pattern in tests where we want to decode disclosures and work with them.
+decodeDisclosures :: [EncodedDisclosure] -> [Disclosure]
+decodeDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+  Right dec -> Just dec
+  Left _ -> Nothing
+  )
 
 main :: IO ()
 main = hspec $ do
@@ -445,7 +455,7 @@ main = hspec $ do
           Right (SDJWT parsedJwt parsedDisclosures) -> do
             parsedJwt `shouldBe` ""
             length parsedDisclosures `shouldBe` 0
-          Left err -> return ()  -- Empty JWT might be rejected by deserializeSDJWT validation
+          Left _ -> return ()  -- Empty JWT might be rejected by deserializeSDJWT validation
       
       it "rejects input without trailing tilde (parses as SD-JWT+KB)" $ do
         let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
@@ -493,7 +503,7 @@ main = hspec $ do
             parsedJwt `shouldBe` ""
             length parsedDisclosures `shouldBe` 0
             mbKbJwt `shouldBe` Nothing
-          Left err -> return ()  -- Empty JWT might be rejected by validation
+          Left _ -> return ()  -- Empty JWT might be rejected by validation
       
       it "handles JWT only (no tilde)" $ do
         let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
@@ -552,9 +562,9 @@ main = hspec $ do
         let arr = V.fromList [Aeson.String "DE", Aeson.String "FR", Aeson.String "US"]
         result <- processArrayForSelectiveDisclosure SHA256 arr [1]  -- Mark second element
         case result of
-          Right (modifiedArr, disclosures) -> do
+          Right (modifiedArr, sdDisclosures) -> do
             V.length modifiedArr `shouldBe` 3
-            length disclosures `shouldBe` 1
+            length sdDisclosures `shouldBe` 1
             -- Check that second element is replaced with {"...": "<digest>"}
             case modifiedArr V.!? 1 of
               Just (Aeson.Object obj) -> do
@@ -619,10 +629,7 @@ main = hspec $ do
             case selectDisclosuresByNames sdjwt ["address/street_address", "address/locality"] of
               Right presentation -> do
                 -- Decode selected disclosures
-                let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                      Right dec -> Just dec
-                      Left _ -> Nothing
-                      ) (selectedDisclosures presentation)
+                let decodedDisclosures = decodeDisclosures (selectedDisclosures presentation)
                 
                 -- Verify parent "address" disclosure is included
                 let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
@@ -678,10 +685,7 @@ main = hspec $ do
             case selectDisclosuresByNames sdjwt ["address/street_address", "address/locality"] of
               Right presentation -> do
                 -- Decode selected disclosures
-                let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                      Right dec -> Just dec
-                      Left _ -> Nothing
-                      ) (selectedDisclosures presentation)
+                let decodedDisclosures = decodeDisclosures (selectedDisclosures presentation)
                 
                 -- Verify parent "address" disclosure is NOT included (it's not recursively disclosable)
                 let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
@@ -766,9 +770,9 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality", "address/region", "address/country"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (sdPayload, sdDisclosures) -> do
             -- Verify payload structure
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 -- Verify address object exists and contains _sd array
                 case KeyMap.lookup (Key.fromText "address") payloadObj of
@@ -795,13 +799,10 @@ main = hspec $ do
               _ -> expectationFailure "payload should be an object"
             
             -- Verify 4 disclosures were created (one for each sub-claim)
-            length disclosures `shouldBe` 4
+            length sdDisclosures `shouldBe` 4
             
             -- Verify each disclosure can be decoded and contains correct claim name
-            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                  Right dec -> Just dec
-                  Left _ -> Nothing
-                  ) disclosures
+            let decodedDisclosures = decodeDisclosures sdDisclosures
             
             length decodedDisclosures `shouldBe` 4
             
@@ -830,8 +831,8 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality"] claims
         
         case result of
-          Right (payload, disclosures) -> do
-            case payloadValue payload of
+          Right (sdPayload, sdDisclosures) -> do
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 case KeyMap.lookup (Key.fromText "address") payloadObj of
                   Just (Aeson.Object addressObj) -> do
@@ -851,7 +852,7 @@ main = hspec $ do
               _ -> expectationFailure "payload should be an object"
             
             -- Should have 2 disclosures
-            length disclosures `shouldBe` 2
+            length sdDisclosures `shouldBe` 2
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "verifies nested structure disclosures can be verified" $ do
@@ -911,9 +912,9 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["address", "address/street_address", "address/locality", "address/region", "address/country"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (sdPayload, sdDisclosures) -> do
             -- Verify payload structure - address should NOT be in payload (it's selectively disclosable)
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 -- Address should not be in payload (it's in top-level _sd)
                 KeyMap.lookup (Key.fromText "address") payloadObj `shouldBe` Nothing
@@ -928,13 +929,10 @@ main = hspec $ do
               _ -> expectationFailure "payload should be an object"
             
             -- Should have 5 disclosures: 1 parent (address) + 4 children
-            length disclosures `shouldBe` 5
+            length sdDisclosures `shouldBe` 5
             
             -- Verify parent disclosure contains _sd array with child digests
-            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                  Right dec -> Just dec
-                  Left _ -> Nothing
-                  ) disclosures
+            let decodedDisclosures = decodeDisclosures sdDisclosures
             
             -- Find the address disclosure
             let addressDisclosure = find (\dec -> getDisclosureClaimName dec == Just "address") decodedDisclosures
@@ -999,7 +997,7 @@ main = hspec $ do
                       _ -> expectationFailure "address object should be reconstructed"
                   Left err -> expectationFailure $ "Verification failed: " ++ show err
               Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
-              Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
   
     describe "JSON Pointer Parsing (partitionNestedPaths)" $ do
       it "handles simple nested paths" $ do
@@ -1046,8 +1044,8 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality", "address/country"] claims
         case result of
-          Right (payload, disclosures) -> do
-            length disclosures `shouldBe` 3
+          Right (_, sdDisclosures) -> do
+            length sdDisclosures `shouldBe` 3
             -- All three should be selectively disclosable
           Left err -> expectationFailure $ "Failed: " ++ show err
     
@@ -1067,11 +1065,11 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["contact~1email"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (sdPayload, sdDisclosures) -> do
             -- Should have 1 disclosure
-            length disclosures `shouldBe` 1
+            length sdDisclosures `shouldBe` 1
             -- The literal key should be in top-level _sd, not nested
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 case KeyMap.lookup (Key.fromText "_sd") payloadObj of
                   Just (Aeson.Array sdArray) -> do
@@ -1097,14 +1095,11 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["user~0name"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (_, disclosures) -> do
             -- Should have 1 disclosure
             length disclosures `shouldBe` 1
             -- Verify the disclosure contains the correct claim name
-            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                  Right dec -> Just dec
-                  Left _ -> Nothing
-                  ) disclosures
+            let decodedDisclosures = decodeDisclosures disclosures
             case decodedDisclosures of
               [decoded] -> do
                 getDisclosureClaimName decoded `shouldBe` Just "user~name"  -- Unescaped
@@ -1127,12 +1122,12 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["contact~1email", "address/email"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (sdPayload, sdDisclosures) -> do
             -- Should have 2 disclosures: 1 top-level + 1 nested
-            length disclosures `shouldBe` 2
+            length sdDisclosures `shouldBe` 2
             
             -- Verify nested structure: address should contain _sd array
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 case KeyMap.lookup (Key.fromText "address") payloadObj of
                   Just (Aeson.Object addressObj) -> do
@@ -1167,11 +1162,11 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["parent/key~1with~1slash", "parent/key~0with~0tilde"] claims
         
         case result of
-          Right (payload, disclosures) -> do
+          Right (sdPayload, sdDisclosures) -> do
             -- Should have 2 disclosures for the nested children
-            length disclosures `shouldBe` 2
+            length sdDisclosures `shouldBe` 2
             -- Parent should contain _sd array with 2 digests
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object payloadObj -> do
                 case KeyMap.lookup (Key.fromText "parent") payloadObj of
                   Just (Aeson.Object parentObj) -> do
@@ -1198,13 +1193,10 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["parent/key~1with~1slashes", "parent/key~0with~0tildes"] claims
         
         case result of
-          Right (payload, disclosures) -> do
-            length disclosures `shouldBe` 2
+          Right (_, sdDisclosures) -> do
+            length sdDisclosures `shouldBe` 2
             -- Verify disclosures are for the correct nested children
-            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                  Right dec -> Just dec
-                  Left _ -> Nothing
-                  ) disclosures
+            let decodedDisclosures = decodeDisclosures sdDisclosures
             let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
             claimNames `shouldContain` ["key/with/slashes"]
             claimNames `shouldContain` ["key~with~tildes"]
@@ -1225,13 +1217,10 @@ main = hspec $ do
         result <- buildSDJWTPayload SHA256 ["parent~0/child"] claims
         
         case result of
-          Right (payload, disclosures) -> do
-            length disclosures `shouldBe` 1
+          Right (_, sdDisclosures) -> do
+            length sdDisclosures `shouldBe` 1
             -- Verify the disclosure is for child "child" within parent "parent~"
-            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
-                  Right dec -> Just dec
-                  Left _ -> Nothing
-                  ) disclosures
+            let decodedDisclosures = decodeDisclosures sdDisclosures
             case decodedDisclosures of
               [decoded] -> do
                 getDisclosureClaimName decoded `shouldBe` Just "child"
@@ -1267,15 +1256,6 @@ main = hspec $ do
         -- Contents: ["eluV5Og3gSNII8EYnsxA_A", "family_name", "Doe"]
         -- Expected SHA-256 Hash: TGf4oLbgwd5JQaHyKVQZU9UdGE0w5rtDsrZzfUaomLo
         
-        let saltText = "eluV5Og3gSNII8EYnsxA_A"
-        let saltBytes = case base64urlDecode saltText of
-              Left err -> error $ "Failed to decode salt: " ++ show err
-              Right bs -> bs
-        
-        let salt = Salt saltBytes
-        let claimName = "family_name"
-        let claimValue = Aeson.String "Doe"
-        
         -- Verify that the RFC example disclosure produces the expected digest
         let rfcDisclosure = EncodedDisclosure "WyJlbHVWNU9nM2dTTklJOEVZbnN4QV9BIiwgImZhbWlseV9uYW1lIiwgIkRvZSJd"
         let rfcDigest = computeDigest SHA256 rfcDisclosure
@@ -1294,14 +1274,6 @@ main = hspec $ do
         -- Disclosure: WyJsa2x4RjVqTVlsR1RQVW92TU5JdkNBIiwgIlVTIl0
         -- Contents: ["lklxF5jMYlGTPUovMNIvCA", "US"]
         -- Expected SHA-256 Hash: pFndjkZ_VCzmyTa6UjlZo3dh-ko8aIKQc9DlGzhaVYo
-        
-        let saltText = "lklxF5jMYlGTPUovMNIvCA"
-        let saltBytes = case base64urlDecode saltText of
-              Left err -> error $ "Failed to decode salt: " ++ show err
-              Right bs -> bs
-        
-        let salt = Salt saltBytes
-        let elementValue = Aeson.String "US"
         
         -- Verify that the RFC example disclosure produces the expected digest
         let rfcDisclosure = EncodedDisclosure "WyJsa2x4RjVqTVlsR1RQVW92TU5JdkNBIiwgIlVTIl0"
@@ -1598,7 +1570,7 @@ main = hspec $ do
             result <- verifySDJWT (publicKeyJWK wrongKeyPair) presentation
             case result of
               Left (InvalidSignature _) -> return ()  -- Expected - signature verification failed
-              Left err -> return ()  -- Any error is acceptable for wrong key
+              Left _ -> return ()  -- Any error is acceptable for wrong key
               Right _ -> expectationFailure "Verification should fail with wrong issuer key"
       
       it "extracts holder key from cnf claim and verifies KB-JWT" $ do
@@ -1686,10 +1658,10 @@ main = hspec $ do
       it "handles empty claims map" $ do
         result <- buildSDJWTPayload SHA256 [] Map.empty
         case result of
-          Right (payload, disclosures) -> do
-            length disclosures `shouldBe` 0
+          Right (sdPayload, sdDisclosures) -> do
+            length sdDisclosures `shouldBe` 0
             -- Payload should be empty or contain only _sd_alg
-            sdAlg payload `shouldBe` Just SHA256
+            sdAlg sdPayload `shouldBe` Just SHA256
           Left err -> expectationFailure $ "Should succeed with empty claims: " ++ show err
       
       it "handles claims map with no selective claims" $ do
@@ -1699,10 +1671,10 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 [] claims
         case result of
-          Right (payload, disclosures) -> do
-            length disclosures `shouldBe` 0
+          Right (sdPayload, sdDisclosures) -> do
+            length sdDisclosures `shouldBe` 0
             -- All claims should remain as regular claims
-            case payloadValue payload of
+            case payloadValue sdPayload of
               Aeson.Object obj -> do
                 KeyMap.lookup "sub" obj `shouldSatisfy` isJust
                 KeyMap.lookup "iss" obj `shouldSatisfy` isJust
@@ -1715,10 +1687,10 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["nonexistent_claim"] claims
         case result of
-          Right (payload, disclosures) -> do
+          Right (_, disclosures) -> do
             -- Should succeed but create no disclosure for nonexistent claim
             length disclosures `shouldBe` 0
-          Left err -> return ()  -- Or might return error, both acceptable
+          Left _ -> return ()  -- Or might return error, both acceptable
       
       it "handles nested path with missing parent" $ do
         let claims = Map.fromList
@@ -1728,7 +1700,7 @@ main = hspec $ do
         case result of
           Left (InvalidDisclosureFormat msg) -> do
             T.isInfixOf "Parent claim not found" msg `shouldBe` True
-          Left err -> return ()  -- Any error is acceptable
+          Left _ -> return ()  -- Any error is acceptable
           Right _ -> expectationFailure "Should fail when parent claim doesn't exist"
       
       it "handles nested path where parent is not an object" $ do
@@ -1739,7 +1711,7 @@ main = hspec $ do
         case result of
           Left (InvalidDisclosureFormat msg) -> do
             T.isInfixOf "not an object" msg `shouldBe` True
-          Left err -> return ()  -- Any error is acceptable
+          Left _ -> return ()  -- Any error is acceptable
           Right _ -> expectationFailure "Should fail when parent is not an object"
       
       it "handles nested path where child doesn't exist in parent" $ do
@@ -1750,11 +1722,11 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
         case result of
-          Right (payload, disclosures) -> do
+          Right (_, disclosures) -> do
             -- Should succeed but create no disclosure for nonexistent child
             -- The parent object will have an _sd array (possibly empty or with other children)
             length disclosures `shouldBe` 0  -- No disclosure for nonexistent child
-          Left err -> return ()  -- Or might return error, both acceptable
+          Left _ -> return ()  -- Or might return error, both acceptable
       
       it "handles recursive disclosure with missing parent" $ do
         let claims = Map.fromList
@@ -1764,7 +1736,7 @@ main = hspec $ do
         case result of
           Left (InvalidDisclosureFormat msg) -> do
             T.isInfixOf "Parent claim not found" msg `shouldBe` True
-          Left err -> return ()  -- Any error is acceptable
+          Left _ -> return ()  -- Any error is acceptable
           Right _ -> expectationFailure "Should fail when recursive parent doesn't exist"
       
       it "handles recursive disclosure where parent is not an object" $ do
@@ -1775,7 +1747,7 @@ main = hspec $ do
         case result of
           Left (InvalidDisclosureFormat msg) -> do
             T.isInfixOf "not an object" msg `shouldBe` True
-          Left err -> return ()  -- Any error is acceptable
+          Left _ -> return ()  -- Any error is acceptable
           Right _ -> expectationFailure "Should fail when recursive parent is not an object"
     
     describe "markArrayElementDisclosable edge cases" $ do
@@ -1814,7 +1786,7 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
+          Right (_, sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
             sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of
@@ -1837,7 +1809,7 @@ main = hspec $ do
         -- Mark array elements as selectively disclosable
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
+          Right (_, sdDisclosures) -> do
             -- Process array for selective disclosure
             let nationalitiesArr = case Map.lookup "nationalities" claims of
                   Just (Aeson.Array arr) -> arr
@@ -1849,7 +1821,7 @@ main = hspec $ do
                 let arrayDigest = computeDigest SHA256 (head arrayDisclosures)
                 let payloadWithArray = Aeson.object
                       [ ("_sd_alg", Aeson.String "sha-256")
-                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head disclosures)))])
+                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head sdDisclosures)))])
                       , ("nationalities", Aeson.Array $ V.fromList
                           [ Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- US (disclosed)
                           , Aeson.String "DE"  -- Not disclosed
@@ -1858,7 +1830,7 @@ main = hspec $ do
                 let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
                 let encodedPayload = base64urlEncode payloadBS
                 let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-                let sdjwt = SDJWT jwt (disclosures ++ arrayDisclosures)
+                let sdjwt = SDJWT jwt (sdDisclosures ++ arrayDisclosures)
                 
                 -- Select disclosures - this should extract digests from the array ellipsis object
                 case selectDisclosuresByNames sdjwt ["given_name"] of
@@ -1878,8 +1850,8 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
-            let givenNameDigest = computeDigest SHA256 (head disclosures)
+          Right (_, sdDisclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing objects without "..." key
             let payloadWithArray = Aeson.object
                   [ ("_sd_alg", Aeson.String "sha-256")
@@ -1892,7 +1864,7 @@ main = hspec $ do
             let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
             let encodedPayload = base64urlEncode payloadBS
             let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-            let sdjwt = SDJWT jwt disclosures
+            let sdjwt = SDJWT jwt sdDisclosures
             
             -- Select disclosures - should handle arrays with non-ellipsis objects gracefully
             case selectDisclosuresByNames sdjwt ["given_name"] of
@@ -1910,8 +1882,8 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
-            let givenNameDigest = computeDigest SHA256 (head disclosures)
+          Right (_, sdDisclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing ellipsis objects with non-string values
             let payloadWithArray = Aeson.object
                   [ ("_sd_alg", Aeson.String "sha-256")
@@ -1925,7 +1897,7 @@ main = hspec $ do
             let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
             let encodedPayload = base64urlEncode payloadBS
             let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-            let sdjwt = SDJWT jwt disclosures
+            let sdjwt = SDJWT jwt sdDisclosures
             
             -- Select disclosures - should handle non-string ellipsis values gracefully
             case selectDisclosuresByNames sdjwt ["given_name"] of
@@ -1943,8 +1915,8 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
-            let givenNameDigest = computeDigest SHA256 (head disclosures)
+          Right (_, sdDisclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing primitive elements
             let payloadWithArray = Aeson.object
                   [ ("_sd_alg", Aeson.String "sha-256")
@@ -1958,7 +1930,7 @@ main = hspec $ do
             let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
             let encodedPayload = base64urlEncode payloadBS
             let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-            let sdjwt = SDJWT jwt disclosures
+            let sdjwt = SDJWT jwt sdDisclosures
             
             -- Select disclosures - should handle primitive array elements gracefully
             case selectDisclosuresByNames sdjwt ["given_name"] of
@@ -1974,7 +1946,7 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, disclosures) -> do
+          Right (_, sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
             sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of
@@ -1983,7 +1955,7 @@ main = hspec $ do
                   Right presentation -> do
                     -- Should succeed but return no disclosures
                     length (selectedDisclosures presentation) `shouldBe` 0
-                  Left err -> return ()  -- Or might return error, both acceptable
+                  Left _ -> return ()  -- Or might return error, both acceptable
               Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
@@ -2535,7 +2507,7 @@ main = hspec $ do
           Left (InvalidSignature msg) -> do
             -- Should fail with invalid JWT format or signature verification error
             True `shouldBe` True  -- Any error is acceptable
-          Left err -> return ()  -- Any error is acceptable
+          Left _ -> return ()  -- Any error is acceptable
           Right _ -> expectationFailure "Expected signature verification to fail"
     
     describe "Invalid hash algorithm" $ do
@@ -2581,7 +2553,7 @@ main = hspec $ do
           Left (InvalidHashAlgorithm msg) -> do
             T.isInfixOf "Invalid hash algorithm" msg `shouldBe` True
             T.isInfixOf "sha-1" msg `shouldBe` True
-          Left err -> return ()  -- Any error is acceptable for unsupported algorithm
+          Left _ -> return ()  -- Any error is acceptable for unsupported algorithm
           Right _ -> return ()  -- Or it might default to SHA-256 (implementation dependent)
 
   describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do

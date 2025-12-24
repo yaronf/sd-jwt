@@ -1,33 +1,37 @@
 -- | SD-JWT: Selective Disclosure for JSON Web Tokens (RFC 9901)
 --
--- This module provides the main API for working with SD-JWTs.
+-- This module re-exports the persona-specific modules for convenient access.
+-- Most users should import the specific persona module they need instead.
 --
--- See individual modules for specific functionality:
+-- == Recommended Usage
 --
--- * 'SDJWT.Types' - Core data types
--- * 'SDJWT.Utils' - Utility functions (base64url, salt generation)
--- * 'SDJWT.Digest' - Hash computation and verification
--- * 'SDJWT.Disclosure' - Disclosure creation and parsing
--- * 'SDJWT.Issuance' - SD-JWT creation (issuer side)
--- * 'SDJWT.Presentation' - SD-JWT presentation (holder side)
--- * 'SDJWT.Verification' - SD-JWT verification (verifier side)
--- * 'SDJWT.Serialization' - Serialization/deserialization
+-- Import the persona-specific module for your role:
+--
+-- @
+-- import SDJWT.Issuer   -- For creating and issuing SD-JWTs
+-- import SDJWT.Holder   -- For receiving SD-JWTs and creating presentations
+-- import SDJWT.Verifier -- For verifying SD-JWT presentations
+-- @
+--
+-- == Advanced Usage
+--
+-- For library developers or advanced users who need low-level access,
+-- import specific Internal modules as needed:
+--
+-- @
+-- import SDJWT.Internal.Types
+-- import SDJWT.Internal.Serialization
+-- import SDJWT.Internal.Issuance
+-- -- etc.
+-- @
+--
+-- @since 0.1.0.0
 module SDJWT
-  ( module SDJWT.Types
-  , module SDJWT.Utils
-  , module SDJWT.Digest
-  , module SDJWT.Disclosure
-  , module SDJWT.Serialization
-  , module SDJWT.Issuance
-  , module SDJWT.Presentation
-  , module SDJWT.Verification
+  ( module SDJWT.Issuer
+  , module SDJWT.Holder
+  , module SDJWT.Verifier
   ) where
 
-import SDJWT.Types
-import SDJWT.Utils
-import SDJWT.Digest
-import SDJWT.Disclosure
-import SDJWT.Serialization
-import SDJWT.Issuance
-import SDJWT.Presentation
-import SDJWT.Verification
+import SDJWT.Issuer
+import SDJWT.Holder
+import SDJWT.Verifier

@@ -1,10 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Hash computation and verification for SD-JWT disclosures.
+-- | Hash computation and verification for SD-JWT disclosures (low-level).
 --
 -- This module provides functions for computing digests of disclosures
 -- and verifying that digests match disclosures. All three hash algorithms
 -- required by RFC 9901 are supported: SHA-256, SHA-384, and SHA-512.
-module SDJWT.Digest
+--
+-- == Usage
+--
+-- This module contains low-level hash and digest utilities that are typically
+-- used internally by other SD-JWT modules. Most users should use the higher-level
+-- APIs in:
+--
+-- * 'SDJWT.Issuer' - For issuers (handles digest computation internally)
+-- * 'SDJWT.Holder' - For holders (handles digest computation internally)
+-- * 'SDJWT.Verifier' - For verifiers (handles digest verification internally)
+--
+-- These utilities may be useful for:
+-- * Advanced use cases requiring custom digest computation
+-- * Library developers building on top of SD-JWT
+-- * Testing and debugging
+--
+-- @since 0.1.0.0
+module SDJWT.Internal.Digest
   ( computeDigest
   , verifyDigest
   , parseHashAlgorithm
@@ -13,8 +30,8 @@ module SDJWT.Digest
   , extractDigestsFromValue
   ) where
 
-import SDJWT.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..))
-import SDJWT.Utils (hashToBytes, base64urlEncode)
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..))
+import SDJWT.Internal.Utils (hashToBytes, base64urlEncode)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap

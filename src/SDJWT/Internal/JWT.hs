@@ -4,15 +4,15 @@
 -- This module provides functions for signing and verifying JWTs using the
 -- jose-jwt library. It handles the conversion between our Text-based JWK
 -- placeholders and the jose-jwt library's Jwk types.
-module SDJWT.JWT
+module SDJWT.Internal.JWT
   ( signJWT
   , verifyJWT
   , parseJWKFromText
   ) where
 
-import SDJWT.Types (SDJWTError(..))
-import SDJWT.Utils (base64urlDecode)
-import qualified SDJWT.JWT.EC as EC  -- Temporary EC signing support
+import SDJWT.Internal.Types (SDJWTError(..))
+import SDJWT.Internal.Utils (base64urlDecode)
+import qualified SDJWT.Internal.JWT.EC as EC  -- Temporary EC signing support
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
 import Jose.Jwk (Jwk)
 import qualified Jose.Jwa as Jose

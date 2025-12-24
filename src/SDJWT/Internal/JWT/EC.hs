@@ -5,14 +5,14 @@
 -- until jose-jwt adds native EC signing support. Once jose-jwt supports EC
 -- signing, this entire module can be removed.
 --
--- NOTE: This module is intentionally kept separate from SDJWT.JWT to make
+-- NOTE: This module is intentionally kept separate from SDJWT.Internal.JWT to make
 -- removal easy once jose-jwt adds EC signing support.
-module SDJWT.JWT.EC
+module SDJWT.Internal.JWT.EC
   ( signJWTES256
   ) where
 
-import SDJWT.Types (SDJWTError(..))
-import SDJWT.Utils (base64urlEncode, base64urlDecode)
+import SDJWT.Internal.Types (SDJWTError(..))
+import SDJWT.Internal.Utils (base64urlEncode, base64urlDecode)
 import Crypto.PubKey.ECC.ECDSA (PrivateKey(..), Signature(..), sign)
 import Crypto.PubKey.ECC.Types (getCurveByName, CurveName(..))
 import qualified Crypto.Hash.Algorithms as HashAlg
@@ -162,4 +162,3 @@ signatureToJWTFormat sig = do
 -- | Convert a ByteString to an Integer (big-endian).
 bsToInteger :: BS.ByteString -> Integer
 bsToInteger = BS.foldl' (\acc byte -> acc * 256 + fromIntegral byte) 0
-

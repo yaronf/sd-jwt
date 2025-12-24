@@ -1,11 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
--- | Disclosure creation, encoding, and decoding.
+-- | Disclosure creation, encoding, and decoding (low-level).
 --
 -- Disclosures are base64url-encoded JSON arrays that contain the cleartext
 -- values of selectively disclosable claims. This module provides functions
 -- to create disclosures for object properties and array elements, and to
 -- encode/decode them.
-module SDJWT.Disclosure
+--
+-- == Usage
+--
+-- This module contains low-level disclosure utilities that are typically
+-- used internally by other SD-JWT modules. Most users should use the higher-level
+-- APIs in:
+--
+-- * 'SDJWT.Issuer' - For issuers (handles disclosure creation internally)
+-- * 'SDJWT.Holder' - For holders (handles disclosure selection internally)
+-- * 'SDJWT.Verifier' - For verifiers (handles disclosure verification internally)
+--
+-- These utilities may be useful for:
+-- * Advanced use cases requiring custom disclosure handling
+-- * Library developers building on top of SD-JWT
+-- * Testing and debugging
+--
+-- @since 0.1.0.0
+module SDJWT.Internal.Disclosure
   ( createObjectDisclosure
   , createArrayDisclosure
   , decodeDisclosure
@@ -15,8 +32,8 @@ module SDJWT.Disclosure
   , getDisclosureValue
   ) where
 
-import SDJWT.Types (Salt(..), EncodedDisclosure(..), Disclosure(..), ObjectDisclosure(..), ArrayDisclosure(..), SDJWTError(..))
-import SDJWT.Utils (base64urlEncode, base64urlDecode)
+import SDJWT.Internal.Types (Salt(..), EncodedDisclosure(..), Disclosure(..), ObjectDisclosure(..), ArrayDisclosure(..), SDJWTError(..))
+import SDJWT.Internal.Utils (base64urlEncode, base64urlDecode)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL

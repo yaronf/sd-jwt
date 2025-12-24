@@ -3,7 +3,7 @@
 --
 -- This module provides functions to serialize and deserialize SD-JWTs
 -- to/from the tilde-separated format specified in RFC 9901.
-module SDJWT.Serialization
+module SDJWT.Internal.Serialization
   ( serializeSDJWT
   , deserializeSDJWT
   , serializePresentation
@@ -11,7 +11,7 @@ module SDJWT.Serialization
   , parseTildeSeparated
   ) where
 
-import SDJWT.Types (SDJWT(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..))
+import SDJWT.Internal.Types (SDJWT(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..))
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 

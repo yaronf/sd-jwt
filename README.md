@@ -31,11 +31,14 @@ cabal build
 
 ## Usage
 
-### Basic SD-JWT Creation
+### Recommended: Use Persona-Specific Modules
+
+The library provides three persona-specific modules for different use cases:
+
+#### For Issuers (Creating SD-JWTs)
 
 ```haskell
-import SDJWT.Issuance
-import SDJWT.Types
+import SDJWT.Issuer
 import qualified Data.Map.Strict as Map
 import qualified Data.Aeson as Aeson
 
@@ -46,8 +49,56 @@ let claims = Map.fromList
       , ("family_name", Aeson.String "Doe")
       ]
 
--- Mark claims as selectively disclosable
-result <- buildSDJWTPayload SHA256 ["given_name", "family_name"] claims
+-- Create SD-JWT with selective disclosure
+keyPair <- generateTestRSAKeyPair  -- From TestKeys module
+result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name", "family_name"] claims
+```
+
+#### For Holders (Creating Presentations)
+
+```haskell
+import SDJWT.Holder
+import qualified Data.Text as T
+
+-- Deserialize SD-JWT received from issuer
+case deserializeSDJWT sdjwtText of
+  Right sdjwt -> do
+    -- Select disclosures to include
+    case selectDisclosuresByNames sdjwt ["given_name"] of
+      Right presentation -> do
+        -- Optionally add key binding
+        result <- addKeyBinding presentation keyPair "verifier.example.com" "nonce" timestamp
+        -- Serialize and send to verifier
+        let serialized = serializePresentation presentation
+```
+
+#### For Verifiers (Verifying SD-JWTs)
+
+```haskell
+import SDJWT.Verifier
+import qualified Data.Text as T
+
+-- Deserialize presentation received from holder
+case deserializePresentation presentationText of
+  Right presentation -> do
+    -- Verify the SD-JWT
+    result <- verifySDJWT issuerPublicKey presentation
+    case result of
+      Right processedPayload -> do
+        -- Extract claims
+        let claims = processedClaims processedPayload
+```
+
+### Advanced Usage
+
+For library developers or advanced use cases requiring low-level access,
+import specific Internal modules as needed:
+
+```haskell
+import SDJWT.Internal.Types
+import SDJWT.Internal.Serialization
+import SDJWT.Internal.Issuance
+-- etc.
 ```
 
 ### Nested Structures

@@ -67,7 +67,7 @@
 -- @address@ disclosure contains an @_sd@ array with sub-claim digests.
 --
 -- See 'partitionNestedPaths' for detailed JSON Pointer parsing implementation.
-module SDJWT.Issuance
+module SDJWT.Internal.Issuance
   ( createSDJWT
   , createSDJWTFromClaims
   , markSelectivelyDisclosable
@@ -77,11 +77,11 @@ module SDJWT.Issuance
   , buildSDJWTPayload
   ) where
 
-import SDJWT.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWT(..), SDJWTError(..))
-import SDJWT.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
-import SDJWT.Digest (computeDigest, hashAlgorithmToText)
-import SDJWT.Disclosure (createObjectDisclosure, createArrayDisclosure)
-import SDJWT.JWT (signJWT)
+import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWT(..), SDJWTError(..))
+import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
+import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
+import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
+import SDJWT.Internal.JWT (signJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -117,6 +117,24 @@ createSDJWTFromClaims = buildSDJWTPayload
 -- 2. Creates a disclosure
 -- 3. Computes the digest
 -- 4. Returns the digest and encoded disclosure
+-- | Mark a single claim as selectively disclosable (advanced/low-level).
+--
+-- This is a low-level function that processes a single claim. Most users should
+-- use 'buildSDJWTPayload' or 'createSDJWT' instead, which handle multiple claims
+-- and the full SD-JWT creation process.
+--
+-- This function:
+-- 1. Generates a salt for the claim
+-- 2. Creates an object disclosure
+-- 3. Computes the digest
+-- 4. Returns the digest and encoded disclosure
+--
+-- == Advanced Use
+--
+-- Only use this function if you need fine-grained control over individual claim
+-- processing, such as custom disclosure creation logic or testing.
+--
+-- @since 0.1.0.0
 markSelectivelyDisclosable
   :: HashAlgorithm
   -> T.Text  -- ^ Claim name
@@ -154,11 +172,21 @@ markArrayElementDisclosable hashAlg elementValue = do
       let digest = computeDigest hashAlg encodedDisclosure
       return (Right (digest, encodedDisclosure))
 
--- | Process an array and mark specific elements as selectively disclosable.
+-- | Process an array and mark specific elements as selectively disclosable (advanced/low-level).
+--
+-- This is a low-level function for processing arrays. Most users should use
+-- 'buildSDJWTPayload' or 'createSDJWT', which handle arrays automatically.
 --
 -- Takes an array and a list of indices to mark as selectively disclosable.
 -- Returns the modified array with digests replacing selected elements,
 -- along with all disclosures created.
+--
+-- == Advanced Use
+--
+-- Only use this function if you need fine-grained control over array processing,
+-- such as custom array handling logic or testing.
+--
+-- @since 0.1.0.0
 processArrayForSelectiveDisclosure
   :: HashAlgorithm
   -> V.Vector Aeson.Value  -- ^ Original array
@@ -308,6 +336,17 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 --
 -- According to RFC 9901 Section 4.2.5, decoy digests should be created by
 -- hashing over a cryptographically secure random number, then base64url encoding.
+--
+-- == Advanced Use
+--
+-- Decoy digests are an advanced feature used to hide the number of selectively
+-- disclosable claims. Most users don't need to call this function directly,
+-- as 'buildSDJWTPayload' handles decoy digest generation automatically when needed.
+--
+-- Only use this function if you need fine-grained control over decoy generation,
+-- such as custom privacy-preserving logic or testing.
+--
+-- @since 0.1.0.0
 addDecoyDigest
   :: HashAlgorithm
   -> IO Digest

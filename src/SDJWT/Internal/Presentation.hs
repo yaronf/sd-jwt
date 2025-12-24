@@ -3,19 +3,19 @@
 --
 -- This module provides functions for creating SD-JWT presentations on the holder side.
 -- The holder selects which disclosures to include when presenting to a verifier.
-module SDJWT.Presentation
+module SDJWT.Internal.Presentation
   ( createPresentation
   , selectDisclosures
   , selectDisclosuresByNames
   , addKeyBinding
   ) where
 
-import SDJWT.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))
-import SDJWT.Disclosure (decodeDisclosure, getDisclosureClaimName, getDisclosureValue)
-import SDJWT.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
-import SDJWT.Utils (splitJSONPointer, unescapeJSONPointer)
-import SDJWT.KeyBinding (addKeyBindingToPresentation)
-import SDJWT.Verification (parsePayloadFromJWT)
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))
+import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureClaimName, getDisclosureValue)
+import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
+import SDJWT.Internal.Utils (splitJSONPointer, unescapeJSONPointer)
+import SDJWT.Internal.KeyBinding (addKeyBindingToPresentation)
+import SDJWT.Internal.Verification (parsePayloadFromJWT)
 import qualified Data.Text as T
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
