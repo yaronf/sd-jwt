@@ -6,8 +6,8 @@
 -- It handles signature verification, disclosure validation, and payload processing.
 module SDJWT.Verification
   ( verifySDJWT
-  , verifySDJWTWithoutSignature
   , verifySDJWTSignature
+  , verifySDJWTWithoutSignature
   , verifyKeyBinding
   , verifyDisclosures
   , processPayload
@@ -15,12 +15,12 @@ module SDJWT.Verification
   , parsePayloadFromJWT
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..))
 import SDJWT.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
-import SDJWT.Disclosure
-import SDJWT.Utils
-import SDJWT.KeyBinding
-import SDJWT.JWT
+import SDJWT.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
+import SDJWT.Utils (base64urlDecode)
+import SDJWT.KeyBinding (verifyKeyBindingJWT)
+import SDJWT.JWT (verifyJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -303,7 +303,7 @@ extractDigestsFromRecursiveDisclosures
   :: HashAlgorithm
   -> [EncodedDisclosure]
   -> [Digest]
-extractDigestsFromRecursiveDisclosures hashAlg disclosures =
+extractDigestsFromRecursiveDisclosures _hashAlg disclosures =
   concatMap (\encDisclosure -> do
     case decodeDisclosure encDisclosure of
       Left _ -> []  -- Skip invalid disclosures
@@ -359,7 +359,7 @@ replaceDigestsWithValues
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Aeson.Value  -- Original payload
   -> Map.Map T.Text Aeson.Value
-replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap payloadValue =
+replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap _payloadValue =
   -- Process object claims: replace digests in _sd arrays with values (including nested _sd arrays)
   let disclosedPairs = Map.elems objectDisclosureMap  -- [(claimName, claimValue)]
       disclosedClaims = Map.fromList disclosedPairs
@@ -385,9 +385,9 @@ processSDArraysInValue
 processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
   -- Check if this object has an _sd array
   case KeyMap.lookup "_sd" obj of
-    Just (Aeson.Array arr) -> do
+    Just (Aeson.Array arr) ->
       -- Extract claims from _sd array digests
-      let disclosedClaims = mapMaybe (\elem -> case elem of
+      let disclosedClaims = mapMaybe (\el -> case el of
             Aeson.String digest -> 
               -- Look up the claim name and value for this digest
               Map.lookup digest objectDisclosureMap
@@ -395,20 +395,24 @@ processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
             ) (V.toList arr)
       
       -- Build new object: remove _sd, add disclosed claims, keep other fields
-      let objWithoutSD = KeyMap.delete "_sd" obj
-      let objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
-            KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
+          objWithoutSD = KeyMap.delete "_sd" obj
+          objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
+                KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
       
       -- Recursively process nested objects (including the newly added claims)
-      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
-      Aeson.Object processedObj
-    Nothing -> do
+          processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
+      in Aeson.Object processedObj
+    Just _ ->
+      -- _sd exists but is not an array, skip processing
+      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj
+      in Aeson.Object processedObj
+    Nothing ->
       -- No _sd array, just recursively process nested objects
       let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj
-      Aeson.Object processedObj
+      in Aeson.Object processedObj
 processSDArraysInValue (Aeson.Array arr) objectDisclosureMap =
   -- Recursively process array elements
-  Aeson.Array $ V.map (\elem -> processSDArraysInValue elem objectDisclosureMap) arr
+  Aeson.Array $ V.map (\el -> processSDArraysInValue el objectDisclosureMap) arr
 processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
@@ -426,9 +430,9 @@ processValueForArrays
   -> Aeson.Value
 processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
   -- Process each element in the array
-  let processedElements = V.map (\elem -> processValueForArrays elem arrayDisclosureMap) arr
+  let processedElements = V.map (\el -> processValueForArrays el arrayDisclosureMap) arr
       -- Replace {"...": "<digest>"} objects with actual values
-      replacedElements = V.map (\elem -> case elem of
+      replacedElements = V.map (\el -> case el of
         Aeson.Object obj ->
           -- Check if this is a {"...": "<digest>"} object
           case KeyMap.lookup (Key.fromText "...") obj of
@@ -436,9 +440,9 @@ processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
               -- Look up the value for this digest
               case Map.lookup digest arrayDisclosureMap of
                 Just value -> value
-                Nothing -> elem  -- Digest not found, keep original
-            _ -> elem  -- Not an ellipsis object, keep as is
-        _ -> elem  -- Not an object, keep as is
+                Nothing -> el  -- Digest not found, keep original
+            _ -> el  -- Not an ellipsis object, keep as is
+        _ -> el  -- Not an object, keep as is
         ) processedElements
   in Aeson.Array replacedElements
 processValueForArrays (Aeson.Object obj) arrayDisclosureMap =

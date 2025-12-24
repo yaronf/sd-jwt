@@ -11,7 +11,7 @@ module SDJWT.Serialization
   , parseTildeSeparated
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (SDJWT(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..))
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 

@@ -9,7 +9,7 @@ import SDJWT.Disclosure
 import SDJWT.Serialization
 import SDJWT.Issuance
 import SDJWT.Presentation
-import SDJWT.Verification
+import SDJWT.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
 import SDJWT.KeyBinding
 import SDJWT.JWT
 import SDJWT.JWT.EC (signJWTES256)

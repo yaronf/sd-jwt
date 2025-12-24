@@ -15,8 +15,8 @@ module SDJWT.Disclosure
   , getDisclosureValue
   ) where
 
-import SDJWT.Types
-import SDJWT.Utils
+import SDJWT.Types (Salt(..), EncodedDisclosure(..), Disclosure(..), ObjectDisclosure(..), ArrayDisclosure(..), SDJWTError(..))
+import SDJWT.Utils (base64urlEncode, base64urlDecode)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL

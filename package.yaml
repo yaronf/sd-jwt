@@ -31,19 +31,29 @@ dependencies:
 - jose-jwt >= 0.9
 - base64-bytestring >= 1.2
 - containers >= 0.6
-- unordered-containers >= 0.2
 - vector >= 0.13
 
 ghc-options:
-- -Wall
-- -Wcompat
-- -Widentities
-- -Wincomplete-record-updates
-- -Wincomplete-uni-patterns
-- -Wmissing-export-lists
-- -Wmissing-home-modules
-- -Wpartial-fields
-- -Wredundant-constraints
+- -Wall                    # Enable all standard warnings
+- -Wcompat                 # Warn about compatibility issues
+- -Widentities             # Warn about redundant identity functions
+- -Wincomplete-record-updates # Warn about incomplete record updates
+- -Wincomplete-uni-patterns # Warn about incomplete pattern matches
+- -Wmissing-export-lists   # Warn about missing export lists
+- -Wmissing-home-modules   # Warn about missing home modules
+- -Wpartial-fields         # Warn about partial record fields
+- -Wredundant-constraints  # Warn about redundant constraints
+- -Wunused-packages        # Warn about unused packages
+- -Wmissing-deriving-strategies # Warn about missing deriving strategies
+- -Wno-missing-import-lists   # Disable: (..) imports are acceptable for constructors
+- -Wunused-type-patterns   # Warn about unused type patterns
+- -Wunused-record-wildcards # Warn about unused record wildcards
+- -Wredundant-record-wildcards # Warn about redundant record wildcards
+- -Wtype-defaults          # Warn about type defaulting
+- -Wunused-do-bind         # Warn about unused do bindings
+- -Wunused-foralls          # Warn about unused foralls
+- -Wdeprecations            # Warn about deprecated functions
+- -Wnoncanonical-monad-instances # Warn about non-canonical monad instances
 
 library:
   source-dirs: src

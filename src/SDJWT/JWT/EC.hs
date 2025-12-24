@@ -11,7 +11,7 @@ module SDJWT.JWT.EC
   ( signJWTES256
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (SDJWTError(..))
 import SDJWT.Utils (base64urlEncode, base64urlDecode)
 import Crypto.PubKey.ECC.ECDSA (PrivateKey(..), Signature(..), sign)
 import Crypto.PubKey.ECC.Types (getCurveByName, CurveName(..))

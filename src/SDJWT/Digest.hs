@@ -13,13 +13,12 @@ module SDJWT.Digest
   , extractDigestsFromValue
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..))
 import SDJWT.Utils (hashToBytes, base64urlEncode)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Vector as V
-import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Maybe (mapMaybe)
@@ -103,12 +102,12 @@ extractDigestsFromValue (Aeson.Object obj) =
   in topLevelDigests ++ nestedDigests
 extractDigestsFromValue (Aeson.Array arr) =
   -- Check for array ellipsis objects {"...": "<digest>"}
-  concatMap (\elem -> case elem of
+  concatMap (\el -> case el of
     Aeson.Object obj ->
       case KeyMap.lookup (Key.fromText "...") obj of
         Just (Aeson.String digest) -> [Digest digest]
-        _ -> extractDigestsFromValue elem  -- Recursively check nested structures
-    _ -> extractDigestsFromValue elem  -- Recursively check nested structures
+        _ -> extractDigestsFromValue el  -- Recursively check nested structures
+    _ -> extractDigestsFromValue el  -- Recursively check nested structures
   ) (V.toList arr)
 extractDigestsFromValue _ = []
 

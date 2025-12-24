@@ -11,15 +11,14 @@ module SDJWT.KeyBinding
   , addKeyBindingToPresentation
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
 import SDJWT.Utils (hashToBytes, textToByteString, base64urlEncode)
-import SDJWT.Serialization
-import SDJWT.JWT
+import SDJWT.Serialization (serializePresentation)
+import SDJWT.JWT (signJWT, verifyJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
-import qualified Data.ByteString as BS
 import Data.Int (Int64)
 
 -- | Create a Key Binding JWT.

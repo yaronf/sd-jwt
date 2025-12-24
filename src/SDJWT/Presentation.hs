@@ -10,11 +10,11 @@ module SDJWT.Presentation
   , addKeyBinding
   ) where
 
-import SDJWT.Types
-import SDJWT.Disclosure
+import SDJWT.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))
+import SDJWT.Disclosure (decodeDisclosure, getDisclosureClaimName, getDisclosureValue)
 import SDJWT.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
 import SDJWT.Utils (splitJSONPointer, unescapeJSONPointer)
-import SDJWT.KeyBinding
+import SDJWT.KeyBinding (addKeyBindingToPresentation)
 import SDJWT.Verification (parsePayloadFromJWT)
 import qualified Data.Text as T
 import qualified Data.Set as Set

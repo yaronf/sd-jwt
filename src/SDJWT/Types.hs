@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 -- | Core data types for SD-JWT (Selective Disclosure for JSON Web Tokens).
 --
 -- This module defines all the data types used throughout the SD-JWT library,
@@ -34,21 +35,21 @@ data HashAlgorithm
   = SHA256  -- ^ SHA-256 (default, required)
   | SHA384  -- ^ SHA-384
   | SHA512  -- ^ SHA-512
-  deriving (Eq, Show, Read, Generic)
+  deriving stock (Eq, Show, Read, Generic)
 
 -- | Salt value (cryptographically secure random).
 --
 -- Salts are used when creating disclosures to prevent brute-force attacks.
 -- RFC 9901 recommends 128 bits (16 bytes) of entropy.
 newtype Salt = Salt { unSalt :: ByteString }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Digest (base64url-encoded hash).
 --
 -- A digest is the base64url-encoded hash of a disclosure. Digests replace
 -- claim values in the SD-JWT payload to enable selective disclosure.
 newtype Digest = Digest { unDigest :: Text }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Disclosure for object properties: [salt, claim_name, claim_value]
 data ObjectDisclosure = ObjectDisclosure
@@ -56,30 +57,30 @@ data ObjectDisclosure = ObjectDisclosure
   , disclosureName :: Text
   , disclosureValue :: Value
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Disclosure for array elements: [salt, claim_value]
 data ArrayDisclosure = ArrayDisclosure
   { arraySalt :: Salt
   , arrayValue :: Value
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Unified disclosure type
 data Disclosure
   = DisclosureObject ObjectDisclosure
   | DisclosureArray ArrayDisclosure
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Encoded disclosure (base64url string)
 newtype EncodedDisclosure = EncodedDisclosure { unEncodedDisclosure :: Text }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Key Binding information from cnf claim
 newtype KeyBindingInfo = KeyBindingInfo
   { kbPublicKey :: Text  -- TODO: Use proper JWK type from jose-jwt
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | SD-JWT payload structure
 -- Note: This is a simplified representation. The actual payload
@@ -88,14 +89,14 @@ data SDJWTPayload = SDJWTPayload
   { sdAlg :: Maybe HashAlgorithm  -- ^ _sd_alg claim
   , payloadValue :: Value  -- ^ The actual JSON payload
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Complete SD-JWT structure (as issued)
 data SDJWT = SDJWT
   { issuerSignedJWT :: Text  -- ^ The signed JWT (compact serialization)
   , disclosures :: [EncodedDisclosure]  -- ^ All disclosures
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | SD-JWT presentation (with selected disclosures)
 data SDJWTPresentation = SDJWTPresentation
@@ -103,13 +104,13 @@ data SDJWTPresentation = SDJWTPresentation
   , selectedDisclosures :: [EncodedDisclosure]
   , keyBindingJWT :: Maybe Text  -- ^ KB-JWT if present
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | Processed SD-JWT payload (after verification)
 newtype ProcessedSDJWTPayload = ProcessedSDJWTPayload
   { processedClaims :: Map Text Value
   }
-  deriving (Eq, Show, Generic)
+  deriving stock (Eq, Show, Generic)
 
 -- | SD-JWT errors
 data SDJWTError
@@ -125,5 +126,5 @@ data SDJWTError
   | JSONParseError Text
   | SerializationError Text
   | VerificationError Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 

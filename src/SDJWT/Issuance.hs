@@ -77,11 +77,11 @@ module SDJWT.Issuance
   , buildSDJWTPayload
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWT(..), SDJWTError(..))
 import SDJWT.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
-import SDJWT.Digest
-import SDJWT.Disclosure
-import SDJWT.JWT
+import SDJWT.Digest (computeDigest, hashAlgorithmToText)
+import SDJWT.Disclosure (createObjectDisclosure, createArrayDisclosure)
+import SDJWT.JWT (signJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -89,7 +89,6 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import qualified Data.ByteString as BS
 import Data.List (sortBy, partition)
 import Data.Ord (comparing)
 import Data.Either (partitionEithers)

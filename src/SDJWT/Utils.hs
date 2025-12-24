@@ -22,7 +22,7 @@ import qualified Crypto.Random as RNG
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import SDJWT.Types
+import SDJWT.Types (HashAlgorithm(..))
 
 -- | Base64url encode a ByteString (without padding).
 --

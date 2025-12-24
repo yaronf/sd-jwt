@@ -10,7 +10,7 @@ module SDJWT.JWT
   , parseJWKFromText
   ) where
 
-import SDJWT.Types
+import SDJWT.Types (SDJWTError(..))
 import SDJWT.Utils (base64urlDecode)
 import qualified SDJWT.JWT.EC as EC  -- Temporary EC signing support
 import Jose.Jwt (encode, decode, JwtEncoding(..), Payload(..), Jwt(..), JwtContent(..))
