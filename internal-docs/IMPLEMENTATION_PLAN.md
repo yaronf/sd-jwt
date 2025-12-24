@@ -312,7 +312,7 @@ processPayload :: HashAlgorithm -> SDJWTPayload -> [EncodedDisclosure] -> Either
 6. Reconstruct processed payload
    - Replace digests in _sd arrays with claim values
    - Replace {"...": "<digest>"} objects in arrays with actual values
-   - **TODO**: Currently array element processing is not implemented (see Verification.hs:278)
+   - ✅ Array element processing implemented (see Verification.hs:processValueForArrays)
 
 ## Phase 6: Key Binding Support
 

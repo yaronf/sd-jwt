@@ -29,6 +29,7 @@ import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BSL
 import Data.Maybe (mapMaybe)
 import Data.Either (partitionEithers)
+import Control.Monad (when)
 import Data.Text.Encoding (decodeUtf8)
 
 -- | Complete SD-JWT verification.
@@ -159,9 +160,8 @@ verifyDisclosures hashAlg presentation = do
   -- Check for duplicates (compare by text representation)
   let disclosureTexts = map unDigest disclosureDigests
   let disclosureSet = Set.fromList disclosureTexts
-  if Set.size disclosureSet /= length disclosureTexts
-    then Left $ DuplicateDisclosure "Duplicate disclosures found"
-    else return ()
+  when (Set.size disclosureSet /= length disclosureTexts) $
+    Left $ DuplicateDisclosure "Duplicate disclosures found"
   
   -- Verify each disclosure digest exists in payload or recursive disclosures
   let missingDigests = filter (\d -> unDigest d `Set.notMember` allValidDigests) disclosureDigests

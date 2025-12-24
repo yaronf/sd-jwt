@@ -350,6 +350,20 @@ main = hspec $ do
         let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
         let sdjwt = SDJWT jwt []
         serializeSDJWT sdjwt `shouldBe` "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test~"
+      
+      it "serializes SD-JWT with single disclosure" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let disclosure = EncodedDisclosure "disclosure1"
+        let sdjwt = SDJWT jwt [disclosure]
+        serializeSDJWT sdjwt `shouldBe` "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test~disclosure1~"
+      
+      it "serializes SD-JWT with multiple disclosures" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let disclosure1 = EncodedDisclosure "disclosure1"
+        let disclosure2 = EncodedDisclosure "disclosure2"
+        let disclosure3 = EncodedDisclosure "disclosure3"
+        let sdjwt = SDJWT jwt [disclosure1, disclosure2, disclosure3]
+        serializeSDJWT sdjwt `shouldBe` "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test~disclosure1~disclosure2~disclosure3~"
     
     describe "parseTildeSeparated" $ do
       it "parses SD-JWT format" $ do
@@ -1226,7 +1240,6 @@ main = hspec $ do
 
   -- RFC Example Tests (Section 5.1 - Issuance)
   -- NOTE: These tests verify that RFC example disclosures produce expected digests.
-  -- TODO: Add complete issuance flow test (create full SD-JWT matching RFC Section 5.1)
   describe "SDJWT.Issuance (RFC Examples)" $ do
     describe "RFC Section 5.1 - given_name disclosure" $ do
       it "verifies RFC example disclosure produces expected digest" $ do
@@ -1668,7 +1681,6 @@ main = hspec $ do
   
   -- RFC Example Tests (Section 5.2 - Presentation/Verification)
   -- NOTE: These tests verify presentation verification with selected disclosures.
-  -- TODO: Add complete SD-JWT+KB flow test matching RFC Section 5.2 example
   describe "SDJWT.Issuance (Error Paths and Edge Cases)" $ do
     describe "buildSDJWTPayload error handling" $ do
       it "handles empty claims map" $ do
@@ -1812,6 +1824,147 @@ main = hspec $ do
                     length (selectedDisclosures presentation) `shouldBe` 0
                   Left err -> expectationFailure $ "Should succeed with empty list: " ++ show err
               Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "extracts digests from arrays with ellipsis objects" $ do
+        -- Test that selectDisclosuresByNames correctly extracts digests from arrays
+        -- containing {"...": "<digest>"} objects via extractDigestsFromJWTPayload
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              , ("nationalities", Aeson.Array $ V.fromList [Aeson.String "US", Aeson.String "DE"])
+              ]
+        -- Mark array elements as selectively disclosable
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            -- Process array for selective disclosure
+            let nationalitiesArr = case Map.lookup "nationalities" claims of
+                  Just (Aeson.Array arr) -> arr
+                  _ -> V.empty
+            arrayResult <- processArrayForSelectiveDisclosure SHA256 nationalitiesArr [0]  -- Mark first element
+            case arrayResult of
+              Right (modifiedArr, arrayDisclosures) -> do
+                -- Create payload with modified array containing ellipsis object
+                let arrayDigest = computeDigest SHA256 (head arrayDisclosures)
+                let payloadWithArray = Aeson.object
+                      [ ("_sd_alg", Aeson.String "sha-256")
+                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head disclosures)))])
+                      , ("nationalities", Aeson.Array $ V.fromList
+                          [ Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- US (disclosed)
+                          , Aeson.String "DE"  -- Not disclosed
+                          ])
+                      ]
+                let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
+                let encodedPayload = base64urlEncode payloadBS
+                let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+                let sdjwt = SDJWT jwt (disclosures ++ arrayDisclosures)
+                
+                -- Select disclosures - this should extract digests from the array ellipsis object
+                case selectDisclosuresByNames sdjwt ["given_name"] of
+                  Right presentation -> do
+                    -- Should succeed - extractDigestsFromValue should extract digest from array
+                    length (selectedDisclosures presentation) `shouldBe` 1
+                  Left err -> expectationFailure $ "Should extract digests from arrays: " ++ show err
+              Left err -> expectationFailure $ "Failed to process array: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles arrays with objects that don't have ellipsis key" $ do
+        -- Test that extractDigestsFromValue correctly handles array elements that are objects
+        -- but don't have the "..." key (should recursively process them)
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head disclosures)
+            -- Create payload with array containing objects without "..." key
+            let payloadWithArray = Aeson.object
+                  [ ("_sd_alg", Aeson.String "sha-256")
+                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  , ("items", Aeson.Array $ V.fromList
+                      [ Aeson.object [("name", Aeson.String "item1"), ("value", Aeson.Number 10)]  -- Object without "..."
+                      , Aeson.object [("name", Aeson.String "item2"), ("value", Aeson.Number 20)]  -- Object without "..."
+                      ])
+                  ]
+            let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let sdjwt = SDJWT jwt disclosures
+            
+            -- Select disclosures - should handle arrays with non-ellipsis objects gracefully
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should handle arrays with non-ellipsis objects: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles arrays with ellipsis objects where value is not a string" $ do
+        -- Test that extractDigestsFromValue correctly handles ellipsis objects where
+        -- the "..." value is not a string (should recursively process them)
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head disclosures)
+            -- Create payload with array containing ellipsis objects with non-string values
+            let payloadWithArray = Aeson.object
+                  [ ("_sd_alg", Aeson.String "sha-256")
+                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  , ("items", Aeson.Array $ V.fromList
+                      [ Aeson.object [("...", Aeson.Number 123)]  -- Non-string value
+                      , Aeson.object [("...", Aeson.Bool True)]  -- Non-string value
+                      , Aeson.object [("...", Aeson.Null)]  -- Non-string value
+                      ])
+                  ]
+            let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let sdjwt = SDJWT jwt disclosures
+            
+            -- Select disclosures - should handle non-string ellipsis values gracefully
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should handle non-string ellipsis values: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles arrays with primitive (non-object) elements" $ do
+        -- Test that extractDigestsFromValue correctly handles arrays with primitive elements
+        -- (should recursively process them, though they won't contain digests)
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            let givenNameDigest = computeDigest SHA256 (head disclosures)
+            -- Create payload with array containing primitive elements
+            let payloadWithArray = Aeson.object
+                  [ ("_sd_alg", Aeson.String "sha-256")
+                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  , ("items", Aeson.Array $ V.fromList
+                      [ Aeson.String "item1"  -- Primitive string
+                      , Aeson.Number 42  -- Primitive number
+                      , Aeson.Bool True  -- Primitive bool
+                      ])
+                  ]
+            let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let sdjwt = SDJWT jwt disclosures
+            
+            -- Select disclosures - should handle primitive array elements gracefully
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should handle primitive array elements: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "handles claim name that doesn't exist in disclosures" $ do
@@ -2583,6 +2736,26 @@ main = hspec $ do
             presentationJWT updatedPresentation `shouldBe` jwt
             selectedDisclosures updatedPresentation `shouldBe` [disclosure]
           Left err -> expectationFailure $ "Failed to add key binding with Ed25519 key: " ++ show err
+      
+      it "adds key binding using exported addKeyBinding function" $ do
+        -- Test the exported addKeyBinding function from Presentation module
+        -- This ensures the exported API works correctly
+        keyPair <- generateTestRSAKeyPair
+        
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "test_disclosure"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        
+        -- Use the exported addKeyBinding function (not addKeyBindingToPresentation)
+        result <- addKeyBinding SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
+        case result of
+          Right updatedPresentation -> do
+            -- Verify key binding was added
+            keyBindingJWT updatedPresentation `shouldSatisfy` isJust
+            -- Verify other fields unchanged
+            presentationJWT updatedPresentation `shouldBe` jwt
+            selectedDisclosures updatedPresentation `shouldBe` [disclosure]
+          Left err -> expectationFailure $ "Failed to add key binding via exported function: " ++ show err
       
       it "adds key binding to a presentation with EC P-256 key (ES256)" $ do
         -- Generate test EC key pair
