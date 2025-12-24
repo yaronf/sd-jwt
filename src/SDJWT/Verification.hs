@@ -6,6 +6,7 @@
 -- It handles signature verification, disclosure validation, and payload processing.
 module SDJWT.Verification
   ( verifySDJWT
+  , verifySDJWTWithoutSignature
   , verifySDJWTSignature
   , verifyKeyBinding
   , verifyDisclosures
@@ -36,31 +37,40 @@ import Data.Text.Encoding (decodeUtf8)
 --
 -- This function performs all verification steps:
 -- 1. Parses the presentation
--- 2. Verifies issuer signature (if issuer key provided)
+-- 2. Verifies issuer signature (required)
 -- 3. Extracts hash algorithm
 -- 4. Verifies disclosures match digests
 -- 5. Verifies key binding (if present)
 -- 6. Processes payload to reconstruct claims
 --
 -- Returns the processed payload with all disclosed claims.
+--
+-- For testing or debugging purposes where signature verification should be skipped,
+-- use 'verifySDJWTWithoutSignature' instead.
 verifySDJWT
-  :: Maybe T.Text  -- ^ Issuer public key (JWK as Text, placeholder for now)
+  :: T.Text  -- ^ Issuer public key (JWK as Text)
   -> SDJWTPresentation
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
-verifySDJWT mbIssuerKey presentation = do
-  -- Verify issuer signature if key provided
-  case mbIssuerKey of
-    Just issuerKey -> do
-      -- Verify JWT signature using verifySDJWTSignature
-      verifyResult <- verifySDJWTSignature issuerKey presentation
-      case verifyResult of
-        Left err -> return (Left err)
-        Right () -> do
-          -- Signature verified, continue to next steps
-          verifySDJWTAfterSignature presentation
-    Nothing -> do
-      -- No issuer key, skip signature verification and continue
-      verifySDJWTAfterSignature presentation
+verifySDJWT issuerKey presentation = do
+  -- Verify issuer signature (required)
+  verifyResult <- verifySDJWTSignature issuerKey presentation
+  case verifyResult of
+    Left err -> return (Left err)
+    Right () -> verifySDJWTAfterSignature presentation
+
+-- | SD-JWT verification without signature verification.
+--
+-- This function performs verification steps 3-6 of 'verifySDJWT' but skips
+-- signature verification. This is useful for testing or debugging, but should
+-- NOT be used in production as it does not verify the authenticity of the JWT.
+--
+-- WARNING: This function does not verify the issuer signature. Only use this
+-- function when signature verification is not required (e.g., in tests or
+-- when verifying locally-generated JWTs).
+verifySDJWTWithoutSignature
+  :: SDJWTPresentation
+  -> IO (Either SDJWTError ProcessedSDJWTPayload)
+verifySDJWTWithoutSignature = verifySDJWTAfterSignature
 
 -- | Continue SD-JWT verification after signature verification (if performed).
 verifySDJWTAfterSignature

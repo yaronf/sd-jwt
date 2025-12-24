@@ -642,7 +642,7 @@ main = hspec $ do
                   Nothing -> expectationFailure "address disclosure should be present"
                 
                 -- Verify presentation can be verified
-                verificationResult <- verifySDJWT Nothing presentation
+                verificationResult <- verifySDJWTWithoutSignature presentation
                 case verificationResult of
                   Right processedPayload -> do
                     -- Verify address object is reconstructed correctly
@@ -876,7 +876,7 @@ main = hspec $ do
             case selectDisclosuresByNames sdjwt ["street_address", "locality"] of
               Right presentation -> do
                 -- Verify presentation (without issuer key for now - signature verification skipped)
-                verificationResult <- verifySDJWT Nothing presentation
+                verificationResult <- verifySDJWTWithoutSignature presentation
                 
                 case verificationResult of
                   Right processedPayload -> do
@@ -986,7 +986,7 @@ main = hspec $ do
             case selectDisclosuresByNames sdjwt ["address", "street_address", "locality"] of
               Right presentation -> do
                 -- Verify presentation (without issuer key for now - signature verification skipped)
-                verificationResult <- verifySDJWT Nothing presentation
+                verificationResult <- verifySDJWTWithoutSignature presentation
                 
                 case verificationResult of
                   Right processedPayload -> do
@@ -1552,7 +1552,7 @@ main = hspec $ do
       it "performs complete verification" $ do
         let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJfc2RfYWxnIjoic2hhLTI1NiIsIl9zZCI6W119.test"
         let presentation = SDJWTPresentation jwt [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Right _processed -> return ()  -- Success
           Left err -> expectationFailure $ "Verification failed: " ++ show err
@@ -1573,7 +1573,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify with issuer key (should verify signature and continue)
-            result <- verifySDJWT (Just (publicKeyJWK keyPair)) presentation
+            result <- verifySDJWT (publicKeyJWK keyPair) presentation
             case result of
               Right _processed -> return ()  -- Success - signature verified and verification completed
               Left err -> expectationFailure $ "Verification with issuer key failed: " ++ show err
@@ -1595,7 +1595,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify with wrong issuer key (should fail signature verification)
-            result <- verifySDJWT (Just (publicKeyJWK wrongKeyPair)) presentation
+            result <- verifySDJWT (publicKeyJWK wrongKeyPair) presentation
             case result of
               Left (InvalidSignature _) -> return ()  -- Expected - signature verification failed
               Left err -> return ()  -- Any error is acceptable for wrong key
@@ -1640,7 +1640,7 @@ main = hspec $ do
                 let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
                 
                 -- Verify SD-JWT - should automatically extract holder key from cnf and verify KB-JWT
-                result <- verifySDJWT (Just (publicKeyJWK issuerKeyPair)) presentation
+                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation
                 case result of
                   Right _processed -> return ()  -- Success - holder key extracted from cnf and KB-JWT verified
                   Left err -> expectationFailure $ "Verification with KB-JWT failed: " ++ show err
@@ -1672,7 +1672,7 @@ main = hspec $ do
                 let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
                 
                 -- Verify should fail - cnf claim missing
-                result <- verifySDJWT (Just (publicKeyJWK issuerKeyPair)) presentation
+                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation
                 case result of
                   Left (InvalidKeyBinding msg) -> do
                     T.isInfixOf "Missing cnf claim" msg `shouldBe` True
@@ -2010,7 +2010,7 @@ main = hspec $ do
     describe "verifySDJWT error handling" $ do
       it "handles presentation with empty JWT" $ do
         let presentation = SDJWTPresentation "" [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left (JSONParseError _) -> return ()  -- Also acceptable
@@ -2019,7 +2019,7 @@ main = hspec $ do
       
       it "handles presentation with invalid JWT format (only one part)" $ do
         let presentation = SDJWTPresentation "only-one-part" [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left (JSONParseError _) -> return ()  -- Also acceptable
@@ -2028,7 +2028,7 @@ main = hspec $ do
       
       it "handles presentation with invalid JWT format (only two parts)" $ do
         let presentation = SDJWTPresentation "header.payload" [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left (JSONParseError _) -> return ()  -- Also acceptable
@@ -2040,7 +2040,7 @@ main = hspec $ do
         let invalidPayload = "not-valid-base64url"
         let invalidJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", invalidPayload, ".signature"]
         let presentation = SDJWTPresentation invalidJWT [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (JSONParseError _) -> return ()  -- Expected error
           Left _ -> return ()  -- Any error is acceptable
@@ -2051,7 +2051,7 @@ main = hspec $ do
         let stringPayload = base64urlEncode "\"just-a-string\""
         let invalidJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", stringPayload, ".signature"]
         let presentation = SDJWTPresentation invalidJWT [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (JSONParseError _) -> return ()  -- Expected error
           Left _ -> return ()  -- Any error is acceptable
@@ -2071,7 +2071,7 @@ main = hspec $ do
         let encodedPayload = base64urlEncode payloadBS
         let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
         let presentation = SDJWTPresentation mockJWT [invalidDisclosure] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
           Left (MissingDisclosure _) -> return ()  -- Also acceptable (digest won't match)
@@ -2088,7 +2088,7 @@ main = hspec $ do
         let encodedPayload = base64urlEncode payloadBS
         let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
         let presentation = SDJWTPresentation mockJWT [] Nothing
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         -- Should succeed (non-string values in _sd are just ignored)
         case result of
           Right processed -> do
@@ -2117,7 +2117,7 @@ main = hspec $ do
         
         -- Verify should succeed - non-string values are ignored during processing
         -- The function should handle mixed types gracefully
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         -- Should process successfully, ignoring non-string values in _sd array
         case result of
           Right _ -> return ()  -- Success - non-string values were ignored
@@ -2170,7 +2170,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT selectedDisclosures Nothing
         
         -- Verify the presentation
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Right processed -> do
             -- Verify that the processed claims contain the disclosed values
@@ -2227,7 +2227,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [arrayDisclosure] Nothing
         
         -- Verify the presentation
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Right processed -> do
             let claims = processedClaims processed
@@ -2275,7 +2275,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [disclosure] Nothing
         
         -- Verify should fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (MissingDisclosure msg) -> do
             T.isInfixOf "Disclosure digest not found" msg `shouldBe` True
@@ -2304,7 +2304,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [arrayDisclosure] Nothing
         
         -- Verify should fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (MissingDisclosure msg) -> do
             T.isInfixOf "Disclosure digest not found" msg `shouldBe` True
@@ -2333,7 +2333,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [disclosure, disclosure] Nothing
         
         -- Verify should fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (DuplicateDisclosure msg) -> do
             T.isInfixOf "Duplicate disclosures" msg `shouldBe` True
@@ -2375,7 +2375,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [invalidDisclosure] Nothing
         
         -- Verify should fail - invalid disclosure won't match payload digest
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (MissingDisclosure _) -> return ()  -- Expected - invalid disclosure doesn't match
           Left err -> expectationFailure $ "Expected MissingDisclosure for invalid disclosure, got: " ++ show err
@@ -2402,7 +2402,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [invalidDisclosure] Nothing
         
         -- Verify should fail during processPayload when trying to decode disclosure
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidDisclosureFormat msg) -> do
             T.isInfixOf "must have 2 or 3 elements" msg `shouldBe` True
@@ -2417,7 +2417,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation invalidJWT [] Nothing
         
         -- Verify should fail - parsePayloadFromJWT will fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidSignature msg) -> do
             T.isInfixOf "Invalid JWT format" msg `shouldBe` True
@@ -2434,7 +2434,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation invalidJWT [] Nothing
         
         -- Verify should fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (JSONParseError msg) -> do
             T.isInfixOf "Failed to decode JWT payload" msg `shouldBe` True
@@ -2450,7 +2450,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation invalidJWT [] Nothing
         
         -- Verify should fail
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (JSONParseError msg) -> do
             T.isInfixOf "Failed to parse JWT payload" msg `shouldBe` True
@@ -2555,7 +2555,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [] Nothing
         
         -- Verify should succeed (defaults to SHA-256)
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Right _processed -> return ()  -- Success
           Left err -> expectationFailure $ "Verification should succeed with default SHA-256: " ++ show err
@@ -2576,7 +2576,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation mockJWT [] Nothing
         
         -- Verify should fail or handle gracefully
-        result <- verifySDJWT Nothing presentation
+        result <- verifySDJWTWithoutSignature presentation
         case result of
           Left (InvalidHashAlgorithm msg) -> do
             T.isInfixOf "Invalid hash algorithm" msg `shouldBe` True
