@@ -37,6 +37,8 @@ The library provides three persona-specific modules for different use cases:
 
 #### For Issuers (Creating SD-JWTs)
 
+⚠️ **Security Warning**: When using Elliptic Curve (EC) keys (ES256 algorithm), be aware that the underlying `jose` library's EC signing implementation may be vulnerable to timing attacks. This affects signing only, not verification. For applications where timing attacks are a concern, consider using RSA (RS256) or Ed25519 (EdDSA) keys instead.
+
 ```haskell
 import SDJWT.Issuer
 import qualified Data.Map.Strict as Map

@@ -15,13 +15,14 @@ RFC 8725bis provides updated guidance on securely implementing and deploying JSO
 
 **Our Implementation**:
 - ✅ Algorithm extracted from header and validated explicitly
-- ✅ Algorithm explicitly passed to `jose-jwt` decode function (not trusted from header)
-- ✅ Only supported algorithms accepted (RS256, EdDSA, ES256)
+- ✅ Algorithm from header is NOT trusted - validated against key type before verification (RFC 8725bis requirement)
+- ✅ Algorithm mismatch detection: Header algorithm must match key type algorithm
+- ✅ Only supported algorithms accepted (RS256, EdDSA, ES256) via `toJwsAlg` whitelist
 - ✅ Unsupported algorithms rejected with clear error message
-- ✅ Case-sensitive comparison (`expectedAlg /= "RS256"`)
-- ✅ Explicit rejection of "none" algorithm (unsecured JWT attack prevention)
+- ✅ Case-sensitive comparison (via typed `JWA.Alg` values)
+- ✅ "none" algorithm rejection: jose library uses typed algorithms, "none" is not a valid `JWA.Alg` value
 
-**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 152-194)
+**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 229-257)
 
 **Status**: ✅ **COMPLIANT**
 
@@ -32,12 +33,12 @@ RFC 8725bis provides updated guidance on securely implementing and deploying JSO
 - Verifiers MUST require signature verification
 
 **Our Implementation**:
-- ✅ Explicitly rejects "none" algorithm: `if expectedAlg == "none"` check before algorithm whitelist
-- ✅ Explicitly rejects unsecured JWTs: `Unsecured _ -> return $ Left $ InvalidSignature "Unsecured JWT rejected"`
-- ✅ Only accepts JWS (signed JWTs)
-- ✅ Two-layer protection: algorithm check rejects "none", and JWT content check rejects Unsecured
+- ✅ "none" algorithm rejection: jose library uses typed `JWA.Alg` values - "none" is not a valid algorithm type
+- ✅ `Compact.decodeCompact` with `JWS.CompactJWS` type ensures only JWS (signed) tokens can be decoded
+- ✅ Unsecured JWTs cannot be created with jose library (requires valid algorithm)
+- ✅ Algorithm validation ensures only signed tokens with valid algorithms are accepted
 
-**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 180-181, 210)
+**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 219, 231-236, 247)
 
 **Status**: ✅ **COMPLIANT**
 
@@ -48,11 +49,12 @@ RFC 8725bis provides updated guidance on securely implementing and deploying JSO
 - Verifiers MUST NOT accept JWE when expecting JWS
 
 **Our Implementation**:
-- ✅ Explicitly rejects JWE: `Jwe _ -> return $ Left $ InvalidSignature "JWE (encrypted JWT) not supported"`
-- ✅ Only accepts JWS format
-- ✅ Clear error message distinguishes between formats
+- ✅ JWE rejection: Uses `Compact.decodeCompact` with `JWS.CompactJWS` type - only JWS can be decoded
+- ✅ Type system prevents JWE: JWE tokens cannot be decoded as `JWS.CompactJWS`
+- ✅ Only accepts JWS format (signed tokens)
+- ✅ Clear error message if JWE is attempted: decode will fail with type error
 
-**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (line 209)
+**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (line 219)
 
 **Status**: ✅ **COMPLIANT**
 
@@ -84,7 +86,7 @@ RFC 8725bis provides updated guidance on securely implementing and deploying JSO
 - ✅ Extracts algorithm before verification
 - ✅ Validates algorithm field exists and is a string
 
-**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 154-220)
+**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 219-257)
 
 **Status**: ✅ **COMPLIANT**
 
@@ -100,7 +102,7 @@ RFC 8725bis provides updated guidance on securely implementing and deploying JSO
 - ✅ Validates key type (kty field)
 - ✅ Validates key-specific fields (e.g., crv for EC/OKP keys)
 
-**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 138-144), `detectKeyAlgorithm` (lines 29-59)
+**Code Location**: `SDJWT.Internal.JWT.verifyJWT` (lines 210-216), `detectKeyAlgorithm` (lines 36-66)
 
 **Status**: ✅ **COMPLIANT**
 

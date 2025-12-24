@@ -309,7 +309,7 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 -- | Create a complete SD-JWT (signed).
 --
 -- This function creates an SD-JWT and signs it using the issuer's key.
--- Creates a complete SD-JWT with signed JWT using jose-jwt.
+-- Creates a complete SD-JWT with signed JWT using jose.
 createSDJWT
   :: HashAlgorithm
   -> T.Text  -- ^ Issuer private key JWK (JSON format)
@@ -321,7 +321,7 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
   case result of
     Left err -> return (Left err)
     Right (payload, sdDisclosures) -> do
-      -- Sign the JWT using jose-jwt
+      -- Sign the JWT using jose
       signedJWTResult <- signJWT issuerPrivateKeyJWK (payloadValue payload)
       case signedJWTResult of
         Left err -> return (Left err)

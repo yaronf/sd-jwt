@@ -12,7 +12,6 @@ import SDJWT.Internal.Presentation
 import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
 import SDJWT.Internal.KeyBinding
 import SDJWT.Internal.JWT
-import SDJWT.Internal.JWT.EC (signJWTES256)
 import TestKeys
 import qualified Data.Vector as V
 import qualified Data.Aeson as Aeson
@@ -2543,7 +2542,7 @@ main = hspec $ do
         -- CRITICAL SECURITY TEST: This test verifies that signature verification
         -- properly rejects JWTs signed with wrong keys.
         --
-        -- NOTE: jose-jwt's decode function correctly rejects wrong keys when:
+        -- NOTE: jose's decode function correctly rejects wrong keys when:
         -- 1. The algorithm is explicitly extracted from the JWT header
         -- 2. The algorithm is explicitly passed to decode (e.g., JwsEncoding Jose.RS256)
         -- 3. The correct public key is provided
@@ -2571,12 +2570,12 @@ main = hspec $ do
             case result of
               Left (InvalidSignature _) -> return ()  -- Success - signature verification failed as expected
               Left err -> do
-                -- jose-jwt might return different error types, which is acceptable
+                -- jose might return different error types, which is acceptable
                 -- The important thing is that verification fails
                 return ()  -- Accept any error
               Right _ -> do
                 -- CRITICAL SECURITY ISSUE: If verification passes with wrong key, this is a major vulnerability
-                -- This should never happen - if it does, there's a serious bug in jose-jwt or our code
+                -- This should never happen - if it does, there's a serious bug in jose or our code
                 expectationFailure "CRITICAL SECURITY BUG: JWT verification passed with wrong key! This should never happen."
       
       it "fails when JWT signature is missing" $ do
@@ -2914,7 +2913,7 @@ main = hspec $ do
           Left err -> expectationFailure $ "Failed to add key binding with Ed25519 key: " ++ show err
 
   describe "SDJWT.JWT.EC" $ do
-    describe "signJWTES256" $ do
+    describe "signJWT (ES256)" $ do
       it "signs a JWT with EC P-256 key" $ do
         -- Generate test EC key pair
         keyPair <- generateTestECKeyPair
@@ -2923,7 +2922,7 @@ main = hspec $ do
         let payload = Aeson.object [("sub", Aeson.String "user_123"), ("iat", Aeson.Number 1234567890)]
         
         -- Sign the JWT using EC module directly
-        result <- signJWTES256 (privateKeyJWK keyPair) payload
+        result <- signJWT (privateKeyJWK keyPair) payload
         case result of
           Left err -> expectationFailure $ "Failed to sign JWT with EC key: " ++ show err
           Right signedJWT -> do
@@ -2931,7 +2930,7 @@ main = hspec $ do
             let parts = T.splitOn "." signedJWT
             length parts `shouldBe` 3
             
-            -- Verify we can decode and verify with jose-jwt
+            -- Verify we can decode and verify with jose
             verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
             case verifyResult of
               Left err -> expectationFailure $ "Failed to verify EC-signed JWT: " ++ show err
@@ -2947,29 +2946,37 @@ main = hspec $ do
         let invalidJWK = "not a valid JSON"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 invalidJWK payload
+        result <- signJWT invalidJWK payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
           Right _ -> expectationFailure "Should fail with invalid JWK format"
       
-      it "fails with non-EC key type" $ do
-        -- Use RSA key (should fail)
+      it "succeeds with RSA key (signJWT supports all key types)" $ do
+        -- Use RSA key - signJWT now supports all key types (RSA, Ed25519, EC)
+        -- It will automatically detect the key type and use the appropriate algorithm
         rsaKeyPair <- generateTestRSAKeyPair
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 (privateKeyJWK rsaKeyPair) payload
+        result <- signJWT (privateKeyJWK rsaKeyPair) payload
         case result of
-          Left (InvalidSignature _) -> return ()  -- Expected error
-          Left err -> expectationFailure $ "Unexpected error type: " ++ show err
-          Right _ -> expectationFailure "Should fail with non-EC key"
+          Left err -> expectationFailure $ "signJWT should succeed with RSA key: " ++ show err
+          Right signedJWT -> do
+            -- Verify it signed successfully with RSA (RS256)
+            let parts = T.splitOn "." signedJWT
+            length parts `shouldBe` 3
+            -- Verify we can verify it
+            verifyResult <- verifyJWT (publicKeyJWK rsaKeyPair) signedJWT Nothing
+            case verifyResult of
+              Left err -> expectationFailure $ "Failed to verify RSA-signed JWT: " ++ show err
+              Right _ -> return ()  -- Success
       
       it "fails with unsupported EC curve" $ do
         -- Create JWK with unsupported curve (P-384 instead of P-256)
         let unsupportedCurveJWK = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 unsupportedCurveJWK payload
+        result <- signJWT unsupportedCurveJWK payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -2980,7 +2987,7 @@ main = hspec $ do
         let missingD = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 missingD payload
+        result <- signJWT missingD payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -2991,7 +2998,7 @@ main = hspec $ do
         let missingX = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 missingX payload
+        result <- signJWT missingX payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -3002,7 +3009,7 @@ main = hspec $ do
         let missingY = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 missingY payload
+        result <- signJWT missingY payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -3013,7 +3020,7 @@ main = hspec $ do
         let invalidBase64 = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"!!!invalid!!!\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
-        result <- signJWTES256 invalidBase64 payload
+        result <- signJWT invalidBase64 payload
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -3026,8 +3033,8 @@ main = hspec $ do
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         -- Sign twice
-        result1 <- signJWTES256 (privateKeyJWK keyPair) payload
-        result2 <- signJWTES256 (privateKeyJWK keyPair) payload
+        result1 <- signJWT (privateKeyJWK keyPair) payload
+        result2 <- signJWT (privateKeyJWK keyPair) payload
         
         case (result1, result2) of
           (Right jwt1, Right jwt2) -> do

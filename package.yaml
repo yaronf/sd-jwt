@@ -26,9 +26,10 @@ dependencies:
 - aeson >= 2.0
 - bytestring >= 0.11
 - text >= 2.0
-- cryptonite >= 0.30  # TODO: Migrate to crypton when jose-jwt supports it (cryptonite is deprecated)
-- memory >= 0.18
-- jose-jwt >= 0.9
+- cryptonite >= 0.30  # Still needed for hashing and random number generation
+- memory >= 0.18  # Required by cryptonite
+- jose >= 0.10  # JWT/JWS library with EC signing support and native typ header support (replaces jose-jwt)
+- lens >= 4.16  # Required by jose for header manipulation
 - base64-bytestring >= 1.2
 - containers >= 0.6
 - vector >= 0.13
@@ -73,7 +74,6 @@ library:
     - SDJWT.Internal.Verification
     - SDJWT.Internal.KeyBinding
     - SDJWT.Internal.JWT
-    - SDJWT.Internal.JWT.EC  # Temporary EC signing support - can be removed once jose-jwt adds EC signing
     # Main module - convenience re-export of persona modules
     - SDJWT           # Re-exports Issuer, Holder, Verifier
 

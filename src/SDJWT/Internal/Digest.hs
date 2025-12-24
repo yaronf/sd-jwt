@@ -38,7 +38,6 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.ByteString as BS
 import Data.Maybe (mapMaybe)
 
 -- | Default hash algorithm (SHA-256 per RFC 9901).
@@ -100,8 +99,6 @@ computeDigest alg (EncodedDisclosure encoded) =
 --
 -- SECURITY: Uses constant-time comparison to prevent timing attacks.
 -- This is critical for cryptographic verification operations.
---
--- @since 0.1.0.0
 verifyDigest :: HashAlgorithm -> Digest -> EncodedDisclosure -> Bool
 verifyDigest alg expectedDigest disclosure =
   let

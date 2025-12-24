@@ -585,6 +585,7 @@ dependencies:
    - ✅ **Memory Safety**: Reviewed - no sensitive data exposed in error messages
    - ✅ **Dependency Review**: Reviewed dependencies - all secure, no known vulnerabilities
    - ✅ **Security Documentation**: Created SECURITY_REVIEW.md documenting findings and fixes
+   - ✅ **EC Signing Warning**: Added security warning to Issuer-facing documentation about EC signing timing attack vulnerability
 
 11. **Week 11**: User documentation - ⏳ PENDING
    - **README**: Comprehensive usage guide with examples
@@ -611,6 +612,7 @@ dependencies:
 4. **Input Validation**: Validate all inputs (disclosures, digests, etc.)
 5. **Constant-Time Operations**: Use constant-time comparisons where applicable
 6. **Memory Safety**: Avoid exposing sensitive data unnecessarily
+7. **EC Signing Timing Attack**: Documented warning in Issuer-facing API about potential timing attack vulnerability in EC (ES256) signing (affects signing only, not verification). Users concerned about timing attacks should use RSA (RS256) or Ed25519 (EdDSA) keys instead.
 
 ## Phase 9: Code Cleanup and Refactoring
 
@@ -674,6 +676,7 @@ dependencies:
   - ✅ Advanced/internal functions clearly marked
   - ✅ Usage examples in persona modules
   - ✅ Module usage patterns documented in main SDJWT module
+  - ✅ Security warnings added (EC signing timing attack warning in Issuer module)
   - ⏳ Additional usage examples could be added (optional enhancement)
 
 - [x] **Code Comments** ✅ COMPLETE
@@ -727,18 +730,20 @@ dependencies:
 
 ### 11.1 Documentation Structure
 
-- [ ] **README.md**
-  - Project overview and purpose
-  - Quick start guide
-  - Installation instructions
-  - Basic usage examples
-  - Link to full documentation
+- [x] **README.md** ✅ MOSTLY COMPLETE
+  - ✅ Project overview and purpose
+  - ✅ Quick start guide
+  - ✅ Installation instructions
+  - ✅ Basic usage examples
+  - ✅ Security warning for EC signing timing attack
+  - ⏳ Link to full documentation (optional enhancement)
 
-- [ ] **API Documentation**
-  - Complete Haddock documentation
-  - All public APIs documented
-  - Usage examples for each module
-  - Type signatures and descriptions
+- [x] **API Documentation** ✅ MOSTLY COMPLETE
+  - ✅ Complete Haddock documentation
+  - ✅ All public APIs documented
+  - ✅ Usage examples for each module
+  - ✅ Type signatures and descriptions
+  - ✅ Security warnings in Issuer module documentation (EC signing timing attack)
 
 - [ ] **Tutorial Guide**
   - Step-by-step issuance example

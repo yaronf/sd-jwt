@@ -78,7 +78,7 @@ newtype EncodedDisclosure = EncodedDisclosure { unEncodedDisclosure :: Text }
 
 -- | Key Binding information from cnf claim
 newtype KeyBindingInfo = KeyBindingInfo
-  { kbPublicKey :: Text  -- TODO: Use proper JWK type from jose-jwt
+  { kbPublicKey :: Text  -- TODO: Use proper JWK type from jose
   }
   deriving stock (Eq, Show, Generic)
 

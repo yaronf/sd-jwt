@@ -14,13 +14,9 @@ module SDJWT.Internal.KeyBinding
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
 import SDJWT.Internal.Utils (hashToBytes, textToByteString, base64urlEncode, constantTimeEq, base64urlDecode)
 import SDJWT.Internal.Serialization (serializePresentation)
-import SDJWT.Internal.JWT (signJWT, signJWTWithTyp, verifyJWT)
-import qualified Data.ByteString as BS
+import SDJWT.Internal.JWT (signJWTWithTyp, verifyJWT)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KeyMap
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
 import Data.Int (Int64)

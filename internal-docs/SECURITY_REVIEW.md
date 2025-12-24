@@ -38,12 +38,13 @@ This document summarizes the security review conducted for the SD-JWT library im
   - Proper hash computation over bytes (RFC requires US-ASCII; UTF-8 encoding is equivalent for ASCII-only base64url strings)
 
 - **Signature Verification**: ✅ Secure (RFC 8725bis Compliant)
-  - Uses jose-jwt library for JWT signature verification
-  - Explicitly specifies algorithm to prevent algorithm confusion attacks (RFC 8725bis)
-  - Rejects "none" algorithm (unsecured JWTs) - RFC 8725bis requirement
-  - Rejects JWE (encrypted) - only JWS (signed) supported
-  - Algorithm whitelist enforcement (RS256, EdDSA, ES256)
-  - Case-sensitive algorithm comparison
+  - Uses jose library for JWT signature verification (migrated from jose-jwt)
+  - **RFC 8725bis Compliance**: Algorithm extracted from header but NOT trusted - validated against key type
+  - Explicit algorithm validation: Algorithm from header must match key type (prevents algorithm confusion attacks)
+  - Algorithm whitelist enforcement (RS256, EdDSA, ES256) - only these algorithms accepted
+  - "none" algorithm rejection: jose library uses typed algorithms (JWA.Alg), "none" is not a valid JWA.Alg value
+  - JWE rejection: Uses `Compact.decodeCompact` with `JWS.CompactJWS` type - only JWS (signed) supported, JWE cannot be decoded
+  - Case-sensitive algorithm comparison (via typed JWA.Alg values)
 
 - **JWT Header Validation**: ✅ Implemented (RFC 9901 Compliant)
   - **KB-JWT typ validation**: ✅ REQUIRED (RFC 9901 Section 4.3)
@@ -122,9 +123,10 @@ This document summarizes the security review conducted for the SD-JWT library im
   - Migration path documented in code comments
   - No known critical vulnerabilities
 
-- **jose-jwt** (>= 0.9): ✅ JWT library
-  - Handles JWT signing/verification
+- **jose** (>= 0.10): ✅ JWT/JWS library (replaced jose-jwt)
+  - Handles JWT signing/verification with native typ header support
   - Well-tested library
+  - Supports EC signing (ES256) with timing attack caveat (acceptable per user decision)
   - No known critical vulnerabilities
 
 - **aeson** (>= 2.0): ✅ JSON library
