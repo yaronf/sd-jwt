@@ -12,11 +12,15 @@ module SDJWT.Internal.KeyBinding
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
-import SDJWT.Internal.Utils (hashToBytes, textToByteString, base64urlEncode)
+import SDJWT.Internal.Utils (hashToBytes, textToByteString, base64urlEncode, constantTimeEq, base64urlDecode)
 import SDJWT.Internal.Serialization (serializePresentation)
-import SDJWT.Internal.JWT (signJWT, verifyJWT)
+import SDJWT.Internal.JWT (signJWT, signJWTWithTyp, verifyJWT)
+import qualified Data.ByteString as BS
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
 import Data.Int (Int64)
@@ -58,8 +62,10 @@ createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentatio
         , ("sd_hash", Aeson.String (unDigest sdHash))
         ]
   
-  -- Sign the KB-JWT using jose-jwt with holder's private key
-  signJWT holderPrivateKey kbPayload
+  -- Sign the KB-JWT with typ: "kb+jwt" header (RFC 9901 Section 4.3 requirement)
+  -- Currently only EC P-256 keys are supported for KB-JWT with typ header.
+  -- RSA and EdDSA support requires manual signing implementation.
+  signJWTWithTyp "kb+jwt" holderPrivateKey kbPayload
 
 -- | Compute sd_hash for key binding.
 --
@@ -67,7 +73,10 @@ createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentatio
 -- (without the KB-JWT part). This hash is included in the KB-JWT to bind
 -- it to the specific presentation.
 --
--- The hash is computed over the US-ASCII bytes of the presentation string.
+-- The hash is computed over the US-ASCII bytes of the presentation string
+-- (per RFC 9901). Since the serialized presentation contains only ASCII
+-- characters (base64url-encoded strings and tilde separators), UTF-8 encoding
+-- produces identical bytes to US-ASCII.
 computeSDHash
   :: HashAlgorithm
   -> SDJWTPresentation
@@ -77,7 +86,7 @@ computeSDHash hashAlg presentation =
   -- Create a presentation without KB-JWT for serialization
   let presentationWithoutKB = presentation { keyBindingJWT = Nothing }
       presentationText = serializePresentation presentationWithoutKB
-      -- Convert to US-ASCII bytes
+      -- Convert to bytes (UTF-8 is equivalent to US-ASCII for ASCII-only strings)
       presentationBytes = textToByteString presentationText
       -- Compute hash
       hashBytes = hashToBytes hashAlg presentationBytes
@@ -106,30 +115,62 @@ verifyKeyBindingJWT
   -> SDJWTPresentation
   -> IO (Either SDJWTError ())
 verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
-  -- Verify KB-JWT signature using jose-jwt
-  verifiedPayloadResult <- verifyJWT holderPublicKey kbJWT
-  case verifiedPayloadResult of
-    Left err -> return (Left err)
-    Right kbPayload -> do
-      -- Extract claims from verified payload
-      sdHashClaim <- return $ extractClaim "sd_hash" kbPayload
-      nonceClaim <- return $ extractClaim "nonce" kbPayload
-      audClaim <- return $ extractClaim "aud" kbPayload
-      iatClaim <- return $ extractClaim "iat" kbPayload
+  -- RFC 9901 Section 4.3: Validate KB-JWT header first
+  -- typ: REQUIRED. MUST be kb+jwt
+  let kbParts = T.splitOn "." kbJWT
+  case kbParts of
+    (headerPart : _payloadPart : _signaturePart) -> do
+      -- Decode and validate header
+      headerBytes <- case base64urlDecode headerPart of
+        Left err -> return $ Left $ InvalidKeyBinding $ "Failed to decode KB-JWT header: " <> err
+        Right bs -> return $ Right bs
       
-      case sdHashClaim of
-        Left err -> return (Left err)
-        Right (Aeson.String hashText) -> do
-          -- Verify sd_hash matches presentation
-          let computedHash = computeSDHash hashAlg presentation
-          if hashText == unDigest computedHash
-            then do
-              -- Verify nonce, audience, iat are present (basic validation)
-              case (nonceClaim, audClaim, iatClaim) of
-                (Right (Aeson.String _), Right (Aeson.String _), Right (Aeson.Number _)) -> return (Right ())
-                _ -> return $ Left $ InvalidKeyBinding "Missing required claims (nonce, aud, iat)"
-            else return $ Left $ InvalidKeyBinding "sd_hash mismatch"
-        Right _ -> return $ Left $ InvalidKeyBinding "Invalid sd_hash claim format"
+      case headerBytes of
+        Left err -> return $ Left err
+        Right hBytes -> do
+          headerJson <- case Aeson.eitherDecodeStrict hBytes of
+            Left err -> return $ Left $ InvalidKeyBinding $ "Failed to parse KB-JWT header: " <> T.pack err
+            Right val -> return $ Right val
+          
+          case headerJson of
+            Left err -> return $ Left err
+            Right (Aeson.Object hObj) -> do
+              -- RFC 9901 Section 4.3: typ MUST be "kb+jwt"
+              case KeyMap.lookup "typ" hObj of
+                Just (Aeson.String "kb+jwt") -> do
+                  -- typ is correct, continue with signature verification
+                  -- Note: For KB-JWT, typ is already validated above, so we pass Nothing (liberal mode)
+                  -- (KB-JWT typ validation is handled separately, not through verifyJWT's typ check)
+                  verifiedPayloadResult <- verifyJWT holderPublicKey kbJWT Nothing
+                  case verifiedPayloadResult of
+                    Left err -> return (Left err)
+                    Right kbPayload -> do
+                      -- Extract claims from verified payload
+                      sdHashClaim <- return $ extractClaim "sd_hash" kbPayload
+                      nonceClaim <- return $ extractClaim "nonce" kbPayload
+                      audClaim <- return $ extractClaim "aud" kbPayload
+                      iatClaim <- return $ extractClaim "iat" kbPayload
+                      
+                      case sdHashClaim of
+                        Left err -> return (Left err)
+                        Right (Aeson.String hashText) -> do
+                          -- Verify sd_hash matches presentation using constant-time comparison
+                          -- SECURITY: Constant-time comparison prevents timing attacks
+                          let computedHash = computeSDHash hashAlg presentation
+                              expectedBytes = textToByteString hashText
+                              computedBytes = textToByteString (unDigest computedHash)
+                          if constantTimeEq expectedBytes computedBytes
+                            then do
+                              -- Verify nonce, audience, iat are present (basic validation)
+                              case (nonceClaim, audClaim, iatClaim) of
+                                (Right (Aeson.String _), Right (Aeson.String _), Right (Aeson.Number _)) -> return (Right ())
+                                _ -> return $ Left $ InvalidKeyBinding "Missing required claims (nonce, aud, iat)"
+                            else return $ Left $ InvalidKeyBinding "sd_hash mismatch"
+                        Right _ -> return $ Left $ InvalidKeyBinding "Invalid sd_hash claim format"
+                Just (Aeson.String typValue) -> return $ Left $ InvalidKeyBinding $ "Invalid KB-JWT typ: expected 'kb+jwt', got '" <> typValue <> "' (RFC 9901 Section 4.3)"
+                _ -> return $ Left $ InvalidKeyBinding "Missing 'typ' header in KB-JWT (RFC 9901 Section 4.3 requires typ: 'kb+jwt')"
+            Right _ -> return $ Left $ InvalidKeyBinding "Invalid KB-JWT header format: expected object"
+    _ -> return $ Left $ InvalidKeyBinding "Invalid KB-JWT format: expected header.payload.signature"
 
 -- | Add key binding to a presentation.
 --

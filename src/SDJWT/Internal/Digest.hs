@@ -31,13 +31,14 @@ module SDJWT.Internal.Digest
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..))
-import SDJWT.Internal.Utils (hashToBytes, base64urlEncode)
+import SDJWT.Internal.Utils (hashToBytes, base64urlEncode, constantTimeEq, textToByteString)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString as BS
 import Data.Maybe (mapMaybe)
 
 -- | Default hash algorithm (SHA-256 per RFC 9901).
@@ -69,15 +70,20 @@ parseHashAlgorithm _ = Nothing
 -- | Compute digest of a disclosure.
 --
 -- The digest is computed over the US-ASCII bytes of the base64url-encoded
--- disclosure string. The bytes of the hash output are then base64url encoded
--- to produce the final digest.
+-- disclosure string (per RFC 9901). The bytes of the hash output are then
+-- base64url encoded to produce the final digest.
 --
 -- This follows the convention in JWS (RFC 7515) and JWE (RFC 7516).
+--
+-- Note: RFC 9901 requires US-ASCII encoding. Since base64url strings contain
+-- only ASCII characters (A-Z, a-z, 0-9, -, _), UTF-8 encoding produces
+-- identical bytes to US-ASCII for these strings.
 
 computeDigest :: HashAlgorithm -> EncodedDisclosure -> Digest
 computeDigest alg (EncodedDisclosure encoded) =
   let
-    -- Convert the base64url-encoded disclosure to US-ASCII bytes
+    -- Convert the base64url-encoded disclosure to bytes
+    -- UTF-8 encoding is equivalent to US-ASCII for base64url strings (ASCII-only)
     disclosureBytes = TE.encodeUtf8 encoded
     -- Compute hash
     hashBytes = hashToBytes alg disclosureBytes
@@ -89,13 +95,22 @@ computeDigest alg (EncodedDisclosure encoded) =
 -- | Verify that a digest matches a disclosure.
 --
 -- Computes the digest of the disclosure using the specified hash algorithm
--- and compares it to the expected digest. Returns 'True' if they match.
+-- and compares it to the expected digest using constant-time comparison.
+-- Returns 'True' if they match.
+--
+-- SECURITY: Uses constant-time comparison to prevent timing attacks.
+-- This is critical for cryptographic verification operations.
+--
+-- @since 0.1.0.0
 verifyDigest :: HashAlgorithm -> Digest -> EncodedDisclosure -> Bool
 verifyDigest alg expectedDigest disclosure =
   let
     computedDigest = computeDigest alg disclosure
+    -- Convert digests to ByteString for constant-time comparison
+    expectedBytes = textToByteString (unDigest expectedDigest)
+    computedBytes = textToByteString (unDigest computedDigest)
   in
-    computedDigest == expectedDigest
+    constantTimeEq expectedBytes computedBytes
 
 -- | Recursively extract digests from JSON value (_sd arrays and array ellipsis objects).
 --

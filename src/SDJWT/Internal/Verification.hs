@@ -51,10 +51,11 @@ import Data.Text.Encoding (decodeUtf8)
 verifySDJWT
   :: T.Text  -- ^ Issuer public key (JWK as Text)
   -> SDJWTPresentation
+  -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
-verifySDJWT issuerKey presentation = do
+verifySDJWT issuerKey presentation requiredTyp = do
   -- Verify issuer signature (required)
-  verifyResult <- verifySDJWTSignature issuerKey presentation
+  verifyResult <- verifySDJWTSignature issuerKey presentation requiredTyp
   case verifyResult of
     Left err -> return (Left err)
     Right () -> verifySDJWTAfterSignature presentation
@@ -116,13 +117,19 @@ verifySDJWTAfterSignature presentation = do
 -- | Verify SD-JWT issuer signature.
 --
 -- Verifies the signature on the issuer-signed JWT using the issuer's public key.
+--
+-- Parameters:
+-- - issuerKey: Issuer public key (JWK as Text)
+-- - presentation: SD-JWT presentation to verify
+-- - requiredTyp: If Nothing, allow any typ or none (liberal). If Just typValue, require typ to be exactly that value.
 verifySDJWTSignature
   :: T.Text  -- ^ Issuer public key (JWK as Text)
   -> SDJWTPresentation
+  -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError ())
-verifySDJWTSignature issuerKey presentation = do
+verifySDJWTSignature issuerKey presentation requiredTyp = do
   -- Verify JWT signature using verifyJWT
-  verifiedPayloadResult <- verifyJWT issuerKey (presentationJWT presentation)
+  verifiedPayloadResult <- verifyJWT issuerKey (presentationJWT presentation) requiredTyp
   case verifiedPayloadResult of
     Left err -> return (Left err)
     Right _ -> return (Right ())

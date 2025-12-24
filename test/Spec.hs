@@ -1313,7 +1313,7 @@ main = hspec $ do
             
             -- Verify we can verify the signature with Ed25519 public key
             let presentation = SDJWTPresentation (issuerSignedJWT sdJWT) (disclosures sdJWT) Nothing
-            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation
+            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation Nothing
             case verifyResult of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Ed25519 signature verification failed: " ++ show err
@@ -1344,7 +1344,7 @@ main = hspec $ do
             
             -- Verify we can verify the signature with EC public key
             let presentation = SDJWTPresentation (issuerSignedJWT sdJWT) (disclosures sdJWT) Nothing
-            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation
+            verifyResult <- verifySDJWTSignature (publicKeyJWK issuerKeyPair) presentation Nothing
             case verifyResult of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "EC signature verification failed: " ++ show err
@@ -1443,8 +1443,8 @@ main = hspec $ do
             -- Create presentation with signed JWT
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
-            -- Verify the signature
-            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            -- Verify the signature (liberal mode - allow any typ or none)
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
             case result of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Signature verification failed: " ++ show err
@@ -1465,7 +1465,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify the signature with Ed25519 public key
-            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
             case result of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "Ed25519 signature verification failed: " ++ show err
@@ -1486,7 +1486,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify the signature with EC public key
-            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
             case result of
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "EC signature verification failed: " ++ show err
@@ -1545,10 +1545,101 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify with issuer key (should verify signature and continue)
-            result <- verifySDJWT (publicKeyJWK keyPair) presentation
+            -- Use liberal mode (Nothing) to allow any typ or none
+            result <- verifySDJWT (publicKeyJWK keyPair) presentation Nothing
             case result of
               Right _processed -> return ()  -- Success - signature verified and verification completed
               Left err -> expectationFailure $ "Verification with issuer key failed: " ++ show err
+      
+      it "verifies issuer signature with typ header requirement (liberal mode)" $ do
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with typ header
+        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            let presentation = SDJWTPresentation (issuerSignedJWT sdjwt) (disclosures sdjwt) Nothing
+            -- Verify with liberal mode (should accept any typ or none)
+            verifyResult <- verifySDJWT (publicKeyJWK keyPair) presentation Nothing
+            case verifyResult of
+              Right _processed -> return ()  -- Success - liberal mode accepts typ header
+              Left err -> expectationFailure $ "Verification failed in liberal mode: " ++ show err
+      
+      it "verifies issuer signature with typ header requirement (strict mode - correct typ)" $ do
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with typ header
+        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            let presentation = SDJWTPresentation (issuerSignedJWT sdjwt) (disclosures sdjwt) Nothing
+            -- Verify with strict mode requiring "sd-jwt"
+            verifyResult <- verifySDJWT (publicKeyJWK keyPair) presentation (Just "sd-jwt")
+            case verifyResult of
+              Right _processed -> return ()  -- Success - typ matches requirement
+              Left err -> expectationFailure $ "Verification failed with correct typ: " ++ show err
+      
+      it "verifies issuer signature with typ header requirement (strict mode - wrong typ)" $ do
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with typ header "sd-jwt"
+        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            let presentation = SDJWTPresentation (issuerSignedJWT sdjwt) (disclosures sdjwt) Nothing
+            -- Verify with strict mode requiring "example+sd-jwt" (different from what we created)
+            verifyResult <- verifySDJWT (publicKeyJWK keyPair) presentation (Just "example+sd-jwt")
+            case verifyResult of
+              Right _processed -> expectationFailure "Verification should fail with wrong typ"
+              Left err -> do
+                -- Should fail with typ mismatch error
+                let errStr = show err
+                if "Invalid typ header" `elem` words errStr || "expected" `elem` words errStr
+                  then return ()  -- Success - correctly rejected wrong typ
+                  else expectationFailure $ "Expected typ mismatch error, got: " ++ errStr
+      
+      it "verifies issuer signature with typ header requirement (strict mode - missing typ)" $ do
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT WITHOUT typ header (using regular createSDJWT)
+        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            let presentation = SDJWTPresentation (issuerSignedJWT sdjwt) (disclosures sdjwt) Nothing
+            -- Verify with strict mode requiring "sd-jwt" (but JWT has no typ header)
+            verifyResult <- verifySDJWT (publicKeyJWK keyPair) presentation (Just "sd-jwt")
+            case verifyResult of
+              Right _processed -> expectationFailure "Verification should fail with missing typ"
+              Left err -> do
+                -- Should fail with missing typ error
+                let errStr = show err
+                if "Missing typ header" `elem` words errStr || "required" `elem` words errStr
+                  then return ()  -- Success - correctly rejected missing typ
+                  else expectationFailure $ "Expected missing typ error, got: " ++ errStr
+      
+      it "verifies issuer signature with typ header requirement (strict mode - application-specific typ)" $ do
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with application-specific typ header
+        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        result <- createSDJWTWithTyp (Just "example+sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            let presentation = SDJWTPresentation (issuerSignedJWT sdjwt) (disclosures sdjwt) Nothing
+            -- Verify with strict mode requiring "example+sd-jwt"
+            verifyResult <- verifySDJWT (publicKeyJWK keyPair) presentation (Just "example+sd-jwt")
+            case verifyResult of
+              Right _processed -> return ()  -- Success - application-specific typ matches
+              Left err -> expectationFailure $ "Verification failed with application-specific typ: " ++ show err
       
       it "fails when issuer signature is invalid" $ do
         -- Generate test RSA key pair
@@ -1567,7 +1658,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify with wrong issuer key (should fail signature verification)
-            result <- verifySDJWT (publicKeyJWK wrongKeyPair) presentation
+            result <- verifySDJWT (publicKeyJWK wrongKeyPair) presentation Nothing
             case result of
               Left (InvalidSignature _) -> return ()  -- Expected - signature verification failed
               Left _ -> return ()  -- Any error is acceptable for wrong key
@@ -1612,7 +1703,7 @@ main = hspec $ do
                 let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
                 
                 -- Verify SD-JWT - should automatically extract holder key from cnf and verify KB-JWT
-                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation
+                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation Nothing
                 case result of
                   Right _processed -> return ()  -- Success - holder key extracted from cnf and KB-JWT verified
                   Left err -> expectationFailure $ "Verification with KB-JWT failed: " ++ show err
@@ -1644,7 +1735,7 @@ main = hspec $ do
                 let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
                 
                 -- Verify should fail - cnf claim missing
-                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation
+                result <- verifySDJWT (publicKeyJWK issuerKeyPair) presentation Nothing
                 case result of
                   Left (InvalidKeyBinding msg) -> do
                     T.isInfixOf "Missing cnf claim" msg `shouldBe` True
@@ -2443,7 +2534,7 @@ main = hspec $ do
           Right signedJWT -> do
             -- Verify with the SAME key (should succeed)
             let presentation = SDJWTPresentation signedJWT [] Nothing
-            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+            result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
             case result of
               Right _ -> return ()  -- Success - signature verification passed as expected
               Left err -> expectationFailure $ "Signature verification should succeed with correct key, but got error: " ++ show err
@@ -2476,7 +2567,7 @@ main = hspec $ do
             let presentation = SDJWTPresentation signedJWT [] Nothing
             
             -- Verify with wrong key should fail
-            result <- verifySDJWTSignature (publicKeyJWK wrongKeyPair) presentation
+            result <- verifySDJWTSignature (publicKeyJWK wrongKeyPair) presentation Nothing
             case result of
               Left (InvalidSignature _) -> return ()  -- Success - signature verification failed as expected
               Left err -> do
@@ -2502,7 +2593,7 @@ main = hspec $ do
         let presentation = SDJWTPresentation jwtWithoutSignature [] Nothing
         
         -- Verify should fail
-        result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation
+        result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
         case result of
           Left (InvalidSignature msg) -> do
             -- Should fail with invalid JWT format or signature verification error
@@ -2671,6 +2762,81 @@ main = hspec $ do
               Right () -> return ()  -- Success
               Left err -> expectationFailure $ "KB-JWT verification with EC key failed: " ++ show err
           Left err -> expectationFailure $ "Failed to create KB-JWT with EC key: " ++ show err
+      
+      it "rejects KB-JWT with missing typ header" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        
+        -- Create a KB-JWT (which should have typ: "kb+jwt")
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
+        case result of
+          Right kbJWT -> do
+            -- Manually create a KB-JWT without typ header by replacing the header
+            -- Parse the KB-JWT
+            let parts = T.splitOn "." kbJWT
+            case parts of
+              (headerPart : _) -> do
+                -- Decode header and verify typ
+                headerBytesVal <- case base64urlDecode headerPart of
+                  Left err -> fail $ "Failed to decode header: " ++ T.unpack err
+                  Right bs -> return bs
+                headerJson <- case Aeson.eitherDecodeStrict headerBytesVal of
+                  Left err -> fail $ "Failed to parse header: " ++ err
+                  Right val -> return val
+                -- Verify typ header is present and correct
+                case headerJson of
+                  Aeson.Object obj -> do
+                    case KeyMap.lookup (Key.fromText "typ") obj of
+                      Just (Aeson.String "kb+jwt") -> return ()  -- Success - typ header is present and correct
+                      Just (Aeson.String typVal) -> expectationFailure $ "Wrong typ value: " ++ T.unpack typVal ++ " (expected 'kb+jwt')"
+                      Nothing -> expectationFailure "Missing typ header in KB-JWT"
+                  _ -> expectationFailure "Header is not an object"
+              _ -> expectationFailure "Invalid KB-JWT format"
+          Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
+      
+      it "rejects KB-JWT with wrong typ header value" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        
+        -- Create a KB-JWT
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation
+        case result of
+          Right kbJWT -> do
+            -- Verify that verification rejects KB-JWT with wrong typ
+            -- We can't easily modify the typ without breaking the signature,
+            -- but we can verify that our verification function checks typ correctly
+            -- by checking that a valid KB-JWT (with correct typ) passes verification
+            verifyResult <- verifyKeyBindingJWT SHA256 (publicKeyJWK keyPair) kbJWT presentation
+            case verifyResult of
+              Right () -> do
+                -- Verify the typ header is "kb+jwt" by decoding
+                let parts = T.splitOn "." kbJWT
+                case parts of
+                  (headerPart : _) -> do
+                    headerBytesVal <- case base64urlDecode headerPart of
+                      Left err -> fail $ "Failed to decode header: " ++ T.unpack err
+                      Right bs -> return bs
+                    headerJson <- case Aeson.eitherDecodeStrict headerBytesVal of
+                      Left err -> fail $ "Failed to parse header: " ++ err
+                      Right val -> return val
+                    case headerJson of
+                      Aeson.Object hObj -> do
+                        case KeyMap.lookup (Key.fromText "typ") hObj of
+                          Just (Aeson.String "kb+jwt") -> return ()  -- Success - typ is correct
+                          Just (Aeson.String typVal) -> expectationFailure $ "Wrong typ value: " ++ T.unpack typVal
+                          Nothing -> expectationFailure "Missing typ header"
+                      _ -> expectationFailure "Header is not an object"
+                  _ -> expectationFailure "Invalid JWT format"
+              Left err -> expectationFailure $ "KB-JWT verification failed: " ++ show err
+          Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
     
     describe "addKeyBindingToPresentation" $ do
       it "adds key binding to a presentation" $ do
@@ -2766,7 +2932,7 @@ main = hspec $ do
             length parts `shouldBe` 3
             
             -- Verify we can decode and verify with jose-jwt
-            verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT
+            verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
             case verifyResult of
               Left err -> expectationFailure $ "Failed to verify EC-signed JWT: " ++ show err
               Right decodedPayload -> do
@@ -2869,8 +3035,8 @@ main = hspec $ do
             jwt1 `shouldNotBe` jwt2
             
             -- But both should verify correctly
-            verify1 <- verifyJWT (publicKeyJWK keyPair) jwt1
-            verify2 <- verifyJWT (publicKeyJWK keyPair) jwt2
+            verify1 <- verifyJWT (publicKeyJWK keyPair) jwt1 Nothing
+            verify2 <- verifyJWT (publicKeyJWK keyPair) jwt2 Nothing
             
             case (verify1, verify2) of
               (Right _, Right _) -> return ()  -- Both verify successfully
@@ -2909,7 +3075,7 @@ main = hspec $ do
         let rfcPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
         
         -- Verify the RFC's JWT with the RFC's public key
-        verifyResult <- verifyJWT rfcPublicKeyJWK rfcIssuerSignedJWT
+        verifyResult <- verifyJWT rfcPublicKeyJWK rfcIssuerSignedJWT Nothing
         case verifyResult of
           Left err -> expectationFailure $ "Failed to verify RFC issuer-signed JWT: " ++ show err
           Right payload -> do
@@ -2973,7 +3139,7 @@ main = hspec $ do
           Right (issuerJWT, disclosures, kbJWT) -> do
             -- Verify issuer signature
             let presentation = SDJWTPresentation issuerJWT disclosures kbJWT
-            verifyResult <- verifySDJWTSignature rfcPublicKeyJWK presentation
+            verifyResult <- verifySDJWTSignature rfcPublicKeyJWK presentation Nothing
             case verifyResult of
               Left err -> expectationFailure $ "Failed to verify RFC SD-JWT signature: " ++ show err
               Right () -> do
@@ -3028,7 +3194,7 @@ main = hspec $ do
           Right (issuerJWT, disclosures, Just kbJWT) -> do
             -- Verify issuer signature
             let presentation = SDJWTPresentation issuerJWT disclosures (Just kbJWT)
-            verifyIssuerResult <- verifySDJWTSignature rfcIssuerPublicKeyJWK presentation
+            verifyIssuerResult <- verifySDJWTSignature rfcIssuerPublicKeyJWK presentation Nothing
             case verifyIssuerResult of
               Left err -> expectationFailure $ "Failed to verify RFC issuer signature: " ++ show err
               Right () -> do

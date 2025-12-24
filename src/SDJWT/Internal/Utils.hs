@@ -28,6 +28,7 @@ module SDJWT.Internal.Utils
   , hashToBytes
   , splitJSONPointer
   , unescapeJSONPointer
+  , constantTimeEq
   ) where
 
 import qualified Data.ByteString.Base64.URL as Base64
@@ -134,4 +135,22 @@ splitJSONPointer path = go path [] ""
 -- Note: Order matters - must replace ~1 before ~0 to avoid double-replacement.
 unescapeJSONPointer :: T.Text -> T.Text
 unescapeJSONPointer = T.replace "~1" "/" . T.replace "~0" "~"
+
+-- | Constant-time equality comparison for ByteStrings.
+--
+-- This function performs a constant-time comparison to prevent timing attacks.
+-- It compares two ByteStrings byte-by-byte and always takes the same amount
+-- of time regardless of where the first difference occurs.
+--
+-- SECURITY: Use this function when comparing cryptographic values like digests,
+-- hashes, or other sensitive data that could be exploited via timing attacks.
+--
+-- Implementation uses cryptonite's 'BA.constEq' which provides constant-time
+-- comparison for ByteArray instances. ByteString is a ByteArray instance.
+--
+-- @since 0.1.0.0
+constantTimeEq :: BS.ByteString -> BS.ByteString -> Bool
+constantTimeEq a b
+  | BS.length a /= BS.length b = False
+  | otherwise = BA.constEq a b
 

@@ -69,6 +69,7 @@
 -- See 'partitionNestedPaths' for detailed JSON Pointer parsing implementation.
 module SDJWT.Internal.Issuance
   ( createSDJWT
+  , createSDJWTWithTyp
   , createSDJWTFromClaims
   , markSelectivelyDisclosable
   , markArrayElementDisclosable
@@ -81,7 +82,7 @@ import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDis
 import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
 import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
-import SDJWT.Internal.JWT (signJWT)
+import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -322,6 +323,44 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
     Right (payload, sdDisclosures) -> do
       -- Sign the JWT using jose-jwt
       signedJWTResult <- signJWT issuerPrivateKeyJWK (payloadValue payload)
+      case signedJWTResult of
+        Left err -> return (Left err)
+        Right signedJWT -> return $ Right $ SDJWT
+          { issuerSignedJWT = signedJWT
+          , disclosures = sdDisclosures
+          }
+
+-- | Create an SD-JWT with optional typ header (RFC 9901 Section 9.11).
+--
+-- This function is similar to 'createSDJWT' but allows specifying a typ header
+-- for the issuer-signed JWT. RFC 9901 Section 9.11 recommends explicit typing
+-- to prevent confusion attacks. The typ value should be "sd-jwt" or follow the
+-- format "example+sd-jwt" (without the "application/" prefix).
+--
+-- Parameters:
+-- - mbTyp: Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt")
+-- - hashAlg: Hash algorithm for digests
+-- - issuerPrivateKeyJWK: Issuer private key JWK (JSON format)
+-- - selectiveClaimNames: Claim names to mark as selectively disclosable
+-- - claims: Original claims set
+--
+-- Returns the created SD-JWT or an error.
+--
+-- @since 0.1.0.0
+createSDJWTWithTyp
+  :: Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
+  -> HashAlgorithm
+  -> T.Text  -- ^ Issuer private key JWK (JSON format)
+  -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
+  -> IO (Either SDJWTError SDJWT)
+createSDJWTWithTyp mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
+  result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
+  case result of
+    Left err -> return (Left err)
+    Right (payload, sdDisclosures) -> do
+      -- Sign the JWT with optional typ header
+      signedJWTResult <- signJWTWithOptionalTyp mbTyp issuerPrivateKeyJWK (payloadValue payload)
       case signedJWTResult of
         Left err -> return (Left err)
         Right signedJWT -> return $ Right $ SDJWT

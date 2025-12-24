@@ -9,6 +9,8 @@
 -- removal easy once jose-jwt adds EC signing support.
 module SDJWT.Internal.JWT.EC
   ( signJWTES256
+  , parseECPrivateKeyFromJWK
+  , signatureToJWTFormat
   ) where
 
 import SDJWT.Internal.Types (SDJWTError(..))
