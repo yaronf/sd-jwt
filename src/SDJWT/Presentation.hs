@@ -12,8 +12,12 @@ module SDJWT.Presentation
 
 import SDJWT.Types
 import SDJWT.Disclosure
+import SDJWT.Digest
+import SDJWT.Utils
 import SDJWT.KeyBinding
 import qualified Data.Text as T
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.Aeson as Aeson
@@ -21,7 +25,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Key as Key
 import qualified Data.Vector as V
 import Data.Int (Int64)
-import Data.Maybe (mapMaybe, isJust)
+import Data.Maybe (mapMaybe)
 import Data.List (partition)
 
 -- | Create a presentation with selected disclosures.
@@ -56,7 +60,10 @@ selectDisclosuresByNames
   :: SDJWT
   -> [T.Text]  -- ^ Claim names to include in presentation (supports JSON Pointer syntax for nested paths)
   -> Either SDJWTError SDJWTPresentation
-selectDisclosuresByNames sdjwt@(SDJWT _ allDisclosures) claimNames = do
+selectDisclosuresByNames sdjwt@(SDJWT issuerJWT allDisclosures) claimNames = do
+  -- Extract hash algorithm from JWT payload (RFC 9901 Section 7.2 requires this for validation)
+  hashAlg <- extractHashAlgorithmFromJWT issuerJWT
+  
   -- Decode all disclosures to check their claim names and detect recursive disclosures
   decodedDisclosures <- mapM decodeDisclosure allDisclosures
   
@@ -72,8 +79,11 @@ selectDisclosuresByNames sdjwt@(SDJWT _ allDisclosures) claimNames = do
   -- Filter disclosures that match the required claim names
   let selectedDisclos = filterDisclosuresByNames decodedDisclosures allDisclosures requiredClaimNames
   
-  -- Validate disclosure dependencies (ensure all required parent disclosures are present)
-  validateDisclosureDependencies selectedDisclos disclosureMap
+  -- Validate disclosure dependencies per RFC 9901 Section 7.2, step 2b:
+  -- Verify that each selected Disclosure satisfies one of:
+  -- a. The hash is contained in the Issuer-signed JWT claims
+  -- b. The hash is contained in the claim value of another selected Disclosure
+  validateDisclosureDependencies hashAlg selectedDisclos issuerJWT
   
   -- Create presentation
   return $ createPresentation sdjwt selectedDisclos
@@ -197,19 +207,77 @@ filterDisclosuresByNames decoded encoded requiredNames =
         ) matches
   in map snd filtered
 
--- | Validate that all required parent disclosures are present for nested claims.
+-- | Extract hash algorithm from JWT payload.
+--
+-- Helper function to extract _sd_alg from JWT payload, defaulting to SHA-256.
+extractHashAlgorithmFromJWT :: T.Text -> Either SDJWTError HashAlgorithm
+extractHashAlgorithmFromJWT jwt = do
+  -- Split JWT into parts (header.payload.signature)
+  let parts = T.splitOn "." jwt
+  case parts of
+    (_header : payloadPart : _signature) -> do
+      -- Decode base64url payload
+      payloadBytes <- case base64urlDecode payloadPart of
+        Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
+        Right bs -> Right bs
+      
+      -- Parse JSON payload
+      payloadJson <- case Aeson.eitherDecodeStrict payloadBytes of
+        Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
+        Right val -> Right val
+      
+      -- Extract hash algorithm from payload
+      let hashAlg = case payloadJson of
+            Aeson.Object obj ->
+              case KeyMap.lookup "_sd_alg" obj of
+                Just (Aeson.String algText) -> parseHashAlgorithm algText
+                _ -> Nothing
+            _ -> Nothing
+      
+      return $ case hashAlg of
+        Just alg -> alg
+        Nothing -> defaultHashAlgorithm
+    _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
+
+-- | Validate disclosure dependencies per RFC 9901 Section 7.2, step 2.
+--
+-- Verifies that each selected Disclosure satisfies one of:
+-- a. The hash of the Disclosure is contained in the Issuer-signed JWT claims
+-- b. The hash of the Disclosure is contained in the claim value of another selected Disclosure
+--
+-- This implements the Holder's validation requirement before presenting to Verifier.
 validateDisclosureDependencies
-  :: [EncodedDisclosure]
-  -> Map.Map T.Text (Disclosure, EncodedDisclosure)
+  :: HashAlgorithm
+  -> [EncodedDisclosure]
+  -> T.Text  -- ^ Issuer-signed JWT
   -> Either SDJWTError ()
-validateDisclosureDependencies selectedDisclos disclosureMap = do
-  -- Decode selected disclosures
+validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
+  -- Extract digests from issuer-signed JWT payload (condition a)
+  issuerDigests <- extractDigestsFromJWTPayload issuerJWT
+  
+  -- Compute digests for all selected disclosures (as Text for comparison)
+  let selectedDigests = Set.fromList $ map (unDigest . computeDigest hashAlg) selectedDisclos
+  
+  -- Build set of all valid digests (from JWT payload + recursive disclosures)
+  -- This is used to verify condition (a): disclosure digest is in issuer-signed JWT
+  let allValidDigests = Set.union issuerDigests selectedDigests
+  
+  -- RFC 9901 Section 7.2, step 2: Verify each selected Disclosure satisfies one of:
+  -- a. The hash is contained in the Issuer-signed JWT claims
+  -- b. The hash is contained in the claim value of another selected Disclosure
+  
+  -- First, verify condition (a): each selected disclosure's digest must be in issuer JWT or another disclosure
+  mapM_ (\encDisclosure -> do
+    let disclosureDigestText = unDigest $ computeDigest hashAlg encDisclosure
+    if disclosureDigestText `Set.member` allValidDigests
+      then return ()  -- Condition (a) or (b) satisfied ✓
+      else Left $ MissingDisclosure $ "Disclosure digest not found in issuer-signed JWT or other selected disclosures: " <> disclosureDigestText
+    ) selectedDisclos
+  
+  -- Second, verify condition (b) for recursive disclosures: child digests must be in selected disclosures
   decodedSelected <- mapM decodeDisclosure selectedDisclos
   
-  -- Build set of selected claim names
-  let selectedNames = Set.fromList $ mapMaybe getDisclosureClaimName decodedSelected
-  
-  -- Check each selected disclosure for nested structure dependencies
+  -- Check each selected disclosure for recursive structure (condition b)
   mapM_ (\disclosure -> do
     case getDisclosureValue disclosure of
       Aeson.Object obj ->
@@ -217,17 +285,67 @@ validateDisclosureDependencies selectedDisclos disclosureMap = do
           Just (Aeson.Array sdArray) -> do
             -- This is a recursive disclosure - extract child digests
             let childDigests = mapMaybe (\v -> case v of
-                  Aeson.String s -> Just (Digest s)
+                  Aeson.String s -> Just s  -- Keep as Text for comparison
                   _ -> Nothing
                   ) (V.toList sdArray)
             
-            -- For each child digest, verify the corresponding disclosure is present
-            -- Note: We can't directly map digests to claim names without computing digests,
-            -- so we'll do a best-effort check here. Full validation happens during verification.
-            return ()
-          _ -> return ()
-      _ -> return ()
+            -- RFC 9901 Section 7.2, step 2b: Verify each child digest is in another selected disclosure
+            mapM_ (\childDigestText -> do
+              if childDigestText `Set.member` selectedDigests
+                then return ()  -- Child digest matches a selected disclosure ✓
+                else Left $ MissingDisclosure $ "Child digest from recursive disclosure not found in selected disclosures: " <> childDigestText
+              ) childDigests
+          _ -> return ()  -- Not a recursive disclosure
+      _ -> return ()  -- Not an object disclosure
     ) decodedSelected
   
   return ()
+
+-- | Extract digests from JWT payload (_sd arrays and array ellipsis objects).
+--
+-- Helper function to extract all digests from the issuer-signed JWT payload.
+extractDigestsFromJWTPayload :: T.Text -> Either SDJWTError (Set.Set T.Text)
+extractDigestsFromJWTPayload jwt = do
+  -- Split JWT into parts
+  let parts = T.splitOn "." jwt
+  case parts of
+    (_header : payloadPart : _signature) -> do
+      -- Decode base64url payload
+      payloadBytes <- case base64urlDecode payloadPart of
+        Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
+        Right bs -> Right bs
+      
+      -- Parse JSON payload
+      payloadJson <- case Aeson.eitherDecodeStrict payloadBytes of
+        Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
+        Right val -> Right val
+      
+      -- Extract digests from _sd arrays recursively
+      let digests = extractDigestsFromValue payloadJson
+      return $ Set.fromList $ map unDigest digests
+    _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
+
+-- | Recursively extract digests from JSON value (_sd arrays and array ellipsis objects).
+extractDigestsFromValue :: Aeson.Value -> [Digest]
+extractDigestsFromValue (Aeson.Object obj) =
+  let topLevelDigests = case KeyMap.lookup "_sd" obj of
+        Just (Aeson.Array arr) ->
+          mapMaybe (\v -> case v of
+            Aeson.String s -> Just (Digest s)
+            _ -> Nothing
+          ) (V.toList arr)
+        _ -> []
+      -- Recursively extract from nested objects
+      nestedDigests = concatMap (extractDigestsFromValue . snd) (KeyMap.toList obj)
+  in topLevelDigests ++ nestedDigests
+extractDigestsFromValue (Aeson.Array arr) =
+  -- Check for array ellipsis objects {"...": "<digest>"}
+  concatMap (\elem -> case elem of
+    Aeson.Object obj ->
+      case KeyMap.lookup (Key.fromText "...") obj of
+        Just (Aeson.String digest) -> [Digest digest]
+        _ -> extractDigestsFromValue elem  -- Recursively check nested structures
+    _ -> extractDigestsFromValue elem  -- Recursively check nested structures
+  ) (V.toList arr)
+extractDigestsFromValue _ = []
 

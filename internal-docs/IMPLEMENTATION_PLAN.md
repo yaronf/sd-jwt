@@ -633,6 +633,7 @@ dependencies:
   - Consistent naming conventions
   - Follow Haskell best practices
   - Add type signatures where missing
+  - **More aggressive linter**: Enable stricter GHC warnings and fix all warnings (unused locals, unused imports, shadowed bindings, etc.)
 
 ### 9.2 Test Coverage Analysis
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 -- | SD-JWT verification: Verifying SD-JWT presentations.
 --
 -- This module provides functions for verifying SD-JWT presentations on the verifier side.
@@ -25,9 +26,10 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as Set
+import qualified Data.ByteString.Lazy as BSL
 import Data.Maybe (mapMaybe)
 import Data.Either (partitionEithers)
-import qualified Data.Text as T
+import Data.Text.Encoding (decodeUtf8)
 
 -- | Complete SD-JWT verification.
 --
@@ -45,19 +47,25 @@ verifySDJWT
   -> SDJWTPresentation
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
 verifySDJWT mbIssuerKey presentation = do
-  -- Parse the JWT to extract payload
-  -- TODO: Use jose-jwt to parse and verify signature when JWK parsing is implemented
-  -- For now, we'll extract payload manually and skip signature verification if no key provided
-  
   -- Verify issuer signature if key provided
   case mbIssuerKey of
-    Just _issuerKey -> do
-      -- TODO: Verify JWT signature using verifyJWT
-      -- Example: verifyResult <- verifyJWT issuerKey (presentationJWT presentation)
-      -- For now, skip signature verification
-      return ()
-    Nothing -> return ()
-  
+    Just issuerKey -> do
+      -- Verify JWT signature using verifySDJWTSignature
+      verifyResult <- verifySDJWTSignature issuerKey presentation
+      case verifyResult of
+        Left err -> return (Left err)
+        Right () -> do
+          -- Signature verified, continue to next steps
+          verifySDJWTAfterSignature presentation
+    Nothing -> do
+      -- No issuer key, skip signature verification and continue
+      verifySDJWTAfterSignature presentation
+
+-- | Continue SD-JWT verification after signature verification (if performed).
+verifySDJWTAfterSignature
+  :: SDJWTPresentation
+  -> IO (Either SDJWTError ProcessedSDJWTPayload)
+verifySDJWTAfterSignature presentation = do
   -- Extract hash algorithm from payload
   hashAlg <- case extractHashAlgorithmFromPresentation presentation of
     Left err -> return (Left err)
@@ -73,19 +81,20 @@ verifySDJWT mbIssuerKey presentation = do
           -- Verify key binding if present
           case keyBindingJWT presentation of
             Just kbJWT -> do
-              -- Note: KB-JWT signature verification requires holder's public key
-              -- For now, we skip KB-JWT verification if no holder key is provided
-              -- In a full implementation, the holder's public key would come from
-              -- the cnf claim in the SD-JWT payload
-              -- TODO: Extract holder public key from cnf claim and verify KB-JWT
-              kbVerifyResult <- verifyKeyBindingJWT alg "" kbJWT presentation
-              case kbVerifyResult of
+              -- Extract holder public key from cnf claim in SD-JWT payload
+              holderKeyResult <- extractHolderKeyFromPayload presentation
+              case holderKeyResult of
                 Left err -> return (Left err)
-                Right () -> do
-                  -- Process payload to reconstruct claims
-                  case processPayloadFromPresentation alg presentation of
+                Right holderKey -> do
+                  -- Verify KB-JWT using holder's public key from cnf claim
+                  kbVerifyResult <- verifyKeyBindingJWT alg holderKey kbJWT presentation
+                  case kbVerifyResult of
                     Left err -> return (Left err)
-                    Right processed -> return (Right processed)
+                    Right () -> do
+                      -- Process payload to reconstruct claims
+                      case processPayloadFromPresentation alg presentation of
+                        Left err -> return (Left err)
+                        Right processed -> return (Right processed)
             Nothing -> do
               -- Process payload to reconstruct claims
               case processPayloadFromPresentation alg presentation of
@@ -203,6 +212,38 @@ extractHashAlgorithmFromPresentation presentation = do
     Just alg -> return alg
     Nothing -> return defaultHashAlgorithm
 
+-- | Extract holder public key from cnf claim in SD-JWT payload.
+--
+-- The cnf claim (RFC 7800) contains the holder's public key, typically
+-- in the format: {"cnf": {"jwk": {...}}}
+-- This function extracts the JWK as a JSON string.
+extractHolderKeyFromPayload
+  :: SDJWTPresentation
+  -> IO (Either SDJWTError T.Text)
+extractHolderKeyFromPayload presentation = do
+  sdPayload <- case parsePayloadFromJWT (presentationJWT presentation) of
+    Left err -> return (Left err)
+    Right payload -> return (Right payload)
+  
+  case sdPayload of
+    Left err -> return (Left err)
+    Right payload -> do
+      -- Extract cnf claim from payload
+      case payloadValue payload of
+        Aeson.Object obj ->
+          case KeyMap.lookup "cnf" obj of
+            Just (Aeson.Object cnfObj) ->
+              -- Extract jwk from cnf object (RFC 7800 jwk confirmation method)
+              case KeyMap.lookup "jwk" cnfObj of
+                Just jwkValue -> do
+                  -- Encode JWK as JSON string
+                  let jwkJson = Aeson.encode jwkValue
+                  return $ Right $ decodeUtf8 $ BSL.toStrict jwkJson
+                Nothing -> return $ Left $ InvalidKeyBinding "Missing jwk in cnf claim"
+            Just _ -> return $ Left $ InvalidKeyBinding "cnf claim is not an object"
+            Nothing -> return $ Left $ InvalidKeyBinding "Missing cnf claim in SD-JWT payload"
+        _ -> return $ Left $ InvalidKeyBinding "SD-JWT payload is not an object"
+
 -- | Parse payload from JWT.
 --
 -- Extracts and decodes the JWT payload (middle part) from a JWT string.
@@ -253,7 +294,7 @@ extractDigestsFromSDArray :: Aeson.Value -> [Digest]
 extractDigestsFromSDArray (Aeson.Object obj) =
   let topLevelDigests = case KeyMap.lookup "_sd" obj of
         Just (Aeson.Array arr) ->
-          mapMaybe (\v -> case v of
+          mapMaybe (\case
             Aeson.String s -> Just (Digest s)
             _ -> Nothing
           ) (V.toList arr)

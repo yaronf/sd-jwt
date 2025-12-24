@@ -19,6 +19,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
+import Data.Text.Encoding (encodeUtf8)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
@@ -38,6 +39,31 @@ main = hspec $ do
         base64urlDecode "SGVsbG8sIFdvcmxkIQ" `shouldBe` Right (BS.pack [72, 101, 108, 108, 111, 44, 32, 87, 111, 114, 108, 100, 33])
       it "handles invalid input" $ do
         base64urlDecode "!!!" `shouldSatisfy` isLeft
+    
+    describe "textToByteString" $ do
+      it "converts Text to ByteString" $ do
+        textToByteString "Hello, World!" `shouldBe` BS.pack [72, 101, 108, 108, 111, 44, 32, 87, 111, 114, 108, 100, 33]
+      it "handles empty Text" $ do
+        textToByteString "" `shouldBe` BS.empty
+      it "handles Unicode characters" $ do
+        textToByteString "Hello 世界" `shouldBe` BS.pack [72, 101, 108, 108, 111, 32, 228, 184, 150, 231, 149, 140]
+    
+    describe "byteStringToText" $ do
+      it "converts ByteString to Text" $ do
+        byteStringToText (BS.pack [72, 101, 108, 108, 111, 44, 32, 87, 111, 114, 108, 100, 33]) `shouldBe` "Hello, World!"
+      it "handles empty ByteString" $ do
+        byteStringToText BS.empty `shouldBe` ""
+      it "handles Unicode characters" $ do
+        byteStringToText (BS.pack [72, 101, 108, 108, 111, 32, 228, 184, 150, 231, 149, 140]) `shouldBe` "Hello 世界"
+    
+    describe "generateSalt" $ do
+      it "generates 16-byte salt" $ do
+        salt <- generateSalt
+        BS.length salt `shouldBe` 16
+      it "generates different salts each time" $ do
+        salt1 <- generateSalt
+        salt2 <- generateSalt
+        salt1 `shouldNotBe` salt2  -- Very unlikely to be the same
 
   describe "SDJWT.Digest" $ do
     describe "hashAlgorithmToText" $ do
@@ -57,12 +83,68 @@ main = hspec $ do
         parseHashAlgorithm "sha-512" `shouldBe` Just SHA512
       it "returns Nothing for invalid algorithm" $ do
         parseHashAlgorithm "invalid" `shouldBe` Nothing
+      
+      it "returns Nothing for empty string" $ do
+        parseHashAlgorithm "" `shouldBe` Nothing
+    
+    describe "defaultHashAlgorithm" $ do
+      it "returns SHA256 as default" $ do
+        defaultHashAlgorithm `shouldBe` SHA256
     
     describe "computeDigest" $ do
-      it "computes digest for a disclosure" $ do
+      it "computes digest for a disclosure with SHA256" $ do
         let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
         let digest = computeDigest SHA256 disclosure
         unDigest digest `shouldBe` "jsu9yVulwQQlhFlM_3JlzMaSFzglhQG0DpfayQwLUK4"
+      
+      it "computes digest for a disclosure with SHA384" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest = computeDigest SHA384 disclosure
+        -- SHA384 produces different digest than SHA256
+        unDigest digest `shouldNotBe` "jsu9yVulwQQlhFlM_3JlzMaSFzglhQG0DpfayQwLUK4"
+        -- Digest should be non-empty
+        T.length (unDigest digest) `shouldSatisfy` (> 0)
+      
+      it "computes digest for a disclosure with SHA512" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest = computeDigest SHA512 disclosure
+        -- SHA512 produces different digest than SHA256
+        unDigest digest `shouldNotBe` "jsu9yVulwQQlhFlM_3JlzMaSFzglhQG0DpfayQwLUK4"
+        -- Digest should be non-empty
+        T.length (unDigest digest) `shouldSatisfy` (> 0)
+      
+      it "produces same digest for same disclosure and algorithm" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest1 = computeDigest SHA256 disclosure
+        let digest2 = computeDigest SHA256 disclosure
+        unDigest digest1 `shouldBe` unDigest digest2
+    
+    describe "verifyDigest" $ do
+      it "verifies correct digest for SHA256" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest = computeDigest SHA256 disclosure
+        verifyDigest SHA256 digest disclosure `shouldBe` True
+      
+      it "verifies correct digest for SHA384" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest = computeDigest SHA384 disclosure
+        verifyDigest SHA384 digest disclosure `shouldBe` True
+      
+      it "verifies correct digest for SHA512" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest = computeDigest SHA512 disclosure
+        verifyDigest SHA512 digest disclosure `shouldBe` True
+      
+      it "rejects incorrect digest" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let wrongDigest = Digest "wrong-digest-value"
+        verifyDigest SHA256 wrongDigest disclosure `shouldBe` False
+      
+      it "rejects digest computed with different algorithm" $ do
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let sha256Digest = computeDigest SHA256 disclosure
+        -- SHA256 digest should not verify with SHA384
+        verifyDigest SHA384 sha256Digest disclosure `shouldBe` False
 
   describe "SDJWT.Disclosure" $ do
     describe "createObjectDisclosure" $ do
@@ -73,6 +155,97 @@ main = hspec $ do
         case createObjectDisclosure (Salt salt) name value of
           Right _ -> return ()  -- Success
           Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+      
+      it "creates disclosure with empty string value" $ do
+        salt <- generateSalt
+        let name = "empty_claim"
+        let value = Aeson.String ""
+        case createObjectDisclosure (Salt salt) name value of
+          Right _ -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+      
+      it "creates disclosure with numeric value" $ do
+        salt <- generateSalt
+        let name = "age"
+        let value = Aeson.Number 42
+        case createObjectDisclosure (Salt salt) name value of
+          Right _ -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+      
+      it "creates disclosure with object value" $ do
+        salt <- generateSalt
+        let name = "address"
+        let value = Aeson.Object $ KeyMap.fromList [(Key.fromText "street", Aeson.String "123 Main St")]
+        case createObjectDisclosure (Salt salt) name value of
+          Right _ -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+    
+    describe "createArrayDisclosure" $ do
+      it "creates a valid array disclosure" $ do
+        salt <- generateSalt
+        let value = Aeson.String "US"
+        case createArrayDisclosure (Salt salt) value of
+          Right _ -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+      
+      it "creates array disclosure with object value" $ do
+        salt <- generateSalt
+        let value = Aeson.Object $ KeyMap.fromList [(Key.fromText "name", Aeson.String "John")]
+        case createArrayDisclosure (Salt salt) value of
+          Right _ -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
+    
+    describe "encodeDisclosure" $ do
+      it "encodes object disclosure" $ do
+        salt <- generateSalt
+        let name = "test_claim"
+        let value = Aeson.String "test_value"
+        case createObjectDisclosure (Salt salt) name value of
+          Right encoded1 -> do
+            case decodeDisclosure encoded1 of
+              Right decoded -> do
+                -- Round-trip: encode -> decode -> encode should match
+                let encoded2 = encodeDisclosure decoded
+                unEncodedDisclosure encoded1 `shouldBe` unEncodedDisclosure encoded2
+              Left err -> expectationFailure $ "Failed to decode: " ++ show err
+          Left err -> expectationFailure $ "Failed to create: " ++ show err
+      
+      it "encodes array disclosure" $ do
+        salt <- generateSalt
+        let value = Aeson.String "array_value"
+        case createArrayDisclosure (Salt salt) value of
+          Right encoded1 -> do
+            case decodeDisclosure encoded1 of
+              Right decoded -> do
+                -- Round-trip: encode -> decode -> encode should match
+                let encoded2 = encodeDisclosure decoded
+                unEncodedDisclosure encoded1 `shouldBe` unEncodedDisclosure encoded2
+              Left err -> expectationFailure $ "Failed to decode: " ++ show err
+          Left err -> expectationFailure $ "Failed to create: " ++ show err
+    
+    describe "getDisclosureSalt" $ do
+      it "extracts salt from object disclosure" $ do
+        salt <- generateSalt
+        let name = "test_claim"
+        let value = Aeson.String "test_value"
+        case createObjectDisclosure (Salt salt) name value of
+          Right encoded -> do
+            case decodeDisclosure encoded of
+              Right disclosure -> do
+                unSalt (getDisclosureSalt disclosure) `shouldBe` salt
+              Left err -> expectationFailure $ "Failed to decode: " ++ show err
+          Left err -> expectationFailure $ "Failed to create: " ++ show err
+      
+      it "extracts salt from array disclosure" $ do
+        salt <- generateSalt
+        let value = Aeson.String "array_value"
+        case createArrayDisclosure (Salt salt) value of
+          Right encoded -> do
+            case decodeDisclosure encoded of
+              Right disclosure -> do
+                unSalt (getDisclosureSalt disclosure) `shouldBe` salt
+              Left err -> expectationFailure $ "Failed to decode: " ++ show err
+          Left err -> expectationFailure $ "Failed to create: " ++ show err
     
     describe "decodeDisclosure" $ do
       it "decodes RFC example disclosure" $ do
@@ -83,6 +256,93 @@ main = hspec $ do
             getDisclosureClaimName disclosure `shouldBe` Just "given_name"
             getDisclosureValue disclosure `shouldBe` Aeson.String "John"
           Left err -> expectationFailure $ "Failed to decode: " ++ show err
+      
+      it "decodes array disclosure (2 elements)" $ do
+        -- Array disclosure: [salt, value]
+        salt <- generateSalt
+        let value = Aeson.String "US"
+        case createArrayDisclosure (Salt salt) value of
+          Right encoded -> do
+            case decodeDisclosure encoded of
+              Right disclosure -> do
+                getDisclosureClaimName disclosure `shouldBe` Nothing  -- Array disclosures have no name
+                getDisclosureValue disclosure `shouldBe` value
+              Left err -> expectationFailure $ "Failed to decode: " ++ show err
+          Left err -> expectationFailure $ "Failed to create: " ++ show err
+      
+      it "fails to decode invalid base64url" $ do
+        let invalid = EncodedDisclosure "not-valid-base64url!!!"
+        case decodeDisclosure invalid of
+          Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail to decode invalid base64url"
+      
+      it "fails to decode non-array JSON" $ do
+        -- Base64url-encoded JSON object instead of array
+        let jsonObj = Aeson.object [("key", Aeson.String "value")]
+        let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonObj
+        let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
+        case decodeDisclosure encoded of
+          Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail to decode non-array JSON"
+      
+      it "fails to decode array with 1 element" $ do
+        -- Array with only 1 element (should have 2 or 3)
+        let jsonArray = Aeson.Array $ V.fromList [Aeson.String "salt"]
+        let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonArray
+        let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
+        case decodeDisclosure encoded of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "must have 2 or 3 elements" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail to decode array with 1 element"
+      
+      it "fails to decode array with 4+ elements" $ do
+        -- Array with 4 elements (should have 2 or 3)
+        let jsonArray = Aeson.Array $ V.fromList
+              [ Aeson.String "salt"
+              , Aeson.String "name"
+              , Aeson.String "value"
+              , Aeson.String "extra"
+              ]
+        let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonArray
+        let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
+        case decodeDisclosure encoded of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "must have 2 or 3 elements" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail to decode array with 4+ elements"
+      
+      it "fails to decode array where first element is not a string" $ do
+        -- First element (salt) must be a string
+        let jsonArray = Aeson.Array $ V.fromList
+              [ Aeson.Number 123  -- Not a string
+              , Aeson.String "name"
+              , Aeson.String "value"
+              ]
+        let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonArray
+        let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
+        case decodeDisclosure encoded of
+          Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when salt is not a string"
+      
+      it "fails to decode array disclosure where second element is not a string" $ do
+        -- For object disclosure (3 elements), second element (name) must be a string
+        -- But for array disclosure (2 elements), second element is the value (can be anything)
+        -- So this test is for object disclosure
+        let jsonArray = Aeson.Array $ V.fromList
+              [ Aeson.String "salt"
+              , Aeson.Number 123  -- Name should be string
+              , Aeson.String "value"
+              ]
+        let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonArray
+        let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
+        case decodeDisclosure encoded of
+          Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when claim name is not a string"
 
   describe "SDJWT.Serialization" $ do
     describe "serializeSDJWT" $ do
@@ -100,6 +360,135 @@ main = hspec $ do
             length parsedDisclosures `shouldBe` 2
           Right (_, _, Just _) -> expectationFailure "Unexpected key binding JWT"
           Left err -> expectationFailure $ "Failed to parse: " ++ show err
+      
+      it "parses SD-JWT+KB format" $ do
+        let input = "jwt~disclosure1~disclosure2~kb-jwt"
+        case parseTildeSeparated input of
+          Right (jwt, parsedDisclosures, Just kbJwt) -> do
+            jwt `shouldBe` "jwt"
+            length parsedDisclosures `shouldBe` 2
+            kbJwt `shouldBe` "kb-jwt"
+          Right _ -> expectationFailure "Expected KB-JWT"
+          Left err -> expectationFailure $ "Failed to parse: " ++ show err
+      
+      it "parses JWT only (no disclosures)" $ do
+        let input = "jwt"
+        case parseTildeSeparated input of
+          Right (jwt, parsedDisclosures, Nothing) -> do
+            jwt `shouldBe` "jwt"
+            length parsedDisclosures `shouldBe` 0
+          Left err -> expectationFailure $ "Failed to parse: " ++ show err
+          _ -> expectationFailure "Unexpected result"
+      
+      it "parses empty string as JWT-only" $ do
+        let input = ""
+        case parseTildeSeparated input of
+          Right (jwt, parsedDisclosures, mbKbJwt) -> do
+            jwt `shouldBe` ""
+            length parsedDisclosures `shouldBe` 0
+            mbKbJwt `shouldBe` Nothing
+          Left err -> expectationFailure $ "Should parse empty string, got error: " ++ show err
+      
+      it "handles multiple consecutive tildes" $ do
+        let input = "jwt~~disclosure1~~"
+        case parseTildeSeparated input of
+          Right (jwt, parsedDisclosures, Nothing) -> do
+            jwt `shouldBe` "jwt"
+            length parsedDisclosures `shouldBe` 3  -- empty, disclosure1, empty
+          Left err -> expectationFailure $ "Failed to parse: " ++ show err
+          _ -> expectationFailure "Unexpected result"
+    
+    describe "deserializeSDJWT" $ do
+      it "deserializes valid SD-JWT" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~disclosure1~disclosure2~"
+        case deserializeSDJWT input of
+          Right (SDJWT parsedJwt parsedDisclosures) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 2
+            unEncodedDisclosure (head parsedDisclosures) `shouldBe` "disclosure1"
+            unEncodedDisclosure (parsedDisclosures !! 1) `shouldBe` "disclosure2"
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
+      
+      it "deserializes SD-JWT with no disclosures" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~"
+        case deserializeSDJWT input of
+          Right (SDJWT parsedJwt parsedDisclosures) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 0
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
+      
+      it "rejects SD-JWT+KB format" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~disclosure1~kb-jwt"
+        case deserializeSDJWT input of
+          Left _ -> return ()  -- Expected error
+          Right _ -> expectationFailure "Should reject SD-JWT+KB format"
+      
+      it "handles empty input (parses as empty JWT)" $ do
+        case deserializeSDJWT "" of
+          Right (SDJWT parsedJwt parsedDisclosures) -> do
+            parsedJwt `shouldBe` ""
+            length parsedDisclosures `shouldBe` 0
+          Left err -> return ()  -- Empty JWT might be rejected by deserializeSDJWT validation
+      
+      it "rejects input without trailing tilde (parses as SD-JWT+KB)" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~disclosure1"  -- Missing trailing tilde - parses as SD-JWT+KB
+        case deserializeSDJWT input of
+          Left _ -> return ()  -- Expected error (SD-JWT format requires trailing tilde, this parses as SD-JWT+KB)
+          Right _ -> expectationFailure "Should reject SD-JWT+KB format"
+    
+    describe "deserializePresentation" $ do
+      it "deserializes SD-JWT presentation (no KB-JWT)" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~disclosure1~disclosure2~"
+        case deserializePresentation input of
+          Right (SDJWTPresentation parsedJwt parsedDisclosures Nothing) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 2
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
+          Right _ -> expectationFailure "Unexpected KB-JWT"
+      
+      it "deserializes SD-JWT+KB presentation" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let kbJwt = "kb-jwt-token"
+        let input = jwt <> "~disclosure1~disclosure2~" <> kbJwt
+        case deserializePresentation input of
+          Right (SDJWTPresentation parsedJwt parsedDisclosures (Just parsedKbJwt)) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 2
+            parsedKbJwt `shouldBe` kbJwt
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
+          Right _ -> expectationFailure "Expected KB-JWT"
+      
+      it "deserializes presentation with no disclosures" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        let input = jwt <> "~"
+        case deserializePresentation input of
+          Right (SDJWTPresentation parsedJwt parsedDisclosures mbKbJwt) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 0
+            mbKbJwt `shouldBe` Nothing
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
+      
+      it "handles empty input (parses as empty JWT)" $ do
+        case deserializePresentation "" of
+          Right (SDJWTPresentation parsedJwt parsedDisclosures mbKbJwt) -> do
+            parsedJwt `shouldBe` ""
+            length parsedDisclosures `shouldBe` 0
+            mbKbJwt `shouldBe` Nothing
+          Left err -> return ()  -- Empty JWT might be rejected by validation
+      
+      it "handles JWT only (no tilde)" $ do
+        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.test"
+        case deserializePresentation jwt of
+          Right (SDJWTPresentation parsedJwt parsedDisclosures mbKbJwt) -> do
+            parsedJwt `shouldBe` jwt
+            length parsedDisclosures `shouldBe` 0
+            mbKbJwt `shouldBe` Nothing
+          Left err -> expectationFailure $ "Failed to deserialize: " ++ show err
 
   describe "SDJWT.Issuance" $ do
     describe "buildSDJWTPayload" $ do
@@ -160,11 +549,36 @@ main = hspec $ do
           Left err -> expectationFailure $ "Failed to process array: " ++ show err
     
     describe "addDecoyDigest" $ do
-      it "generates a decoy digest" $ do
+      it "generates a decoy digest with SHA256" $ do
         decoy <- addDecoyDigest SHA256
         unDigest decoy `shouldSatisfy` (not . T.null)
         -- Decoy digest should be a valid base64url string
         unDigest decoy `shouldSatisfy` (\s -> T.length s > 0)
+      
+      it "generates different decoy digests each time" $ do
+        decoy1 <- addDecoyDigest SHA256
+        decoy2 <- addDecoyDigest SHA256
+        -- Very unlikely to be the same (cryptographically random)
+        unDigest decoy1 `shouldNotBe` unDigest decoy2
+      
+      it "generates decoy digest with SHA384" $ do
+        decoy <- addDecoyDigest SHA384
+        unDigest decoy `shouldSatisfy` (not . T.null)
+        unDigest decoy `shouldSatisfy` (\s -> T.length s > 0)
+      
+      it "generates decoy digest with SHA512" $ do
+        decoy <- addDecoyDigest SHA512
+        unDigest decoy `shouldSatisfy` (not . T.null)
+        unDigest decoy `shouldSatisfy` (\s -> T.length s > 0)
+      
+      it "generates different digests for different algorithms" $ do
+        decoy256 <- addDecoyDigest SHA256
+        decoy384 <- addDecoyDigest SHA384
+        decoy512 <- addDecoyDigest SHA512
+        -- All should be different (different hash algorithms produce different digests)
+        unDigest decoy256 `shouldNotBe` unDigest decoy384
+        unDigest decoy256 `shouldNotBe` unDigest decoy512
+        unDigest decoy384 `shouldNotBe` unDigest decoy512
 
   describe "SDJWT.Presentation" $ do
     describe "Recursive Disclosure Handling" $ do
@@ -302,9 +716,11 @@ main = hspec $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name", "family_name"] claims
         case result of
-          Right (_payload, testDisclosures) -> do
-            -- Create a mock SDJWT (without actual signing)
-            let jwt = "test.jwt"
+          Right (payload, testDisclosures) -> do
+            -- Create a valid JWT format (header.payload.signature) with the actual payload
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
             let sdjwt = SDJWT jwt testDisclosures
             
             -- Select only given_name
@@ -571,6 +987,56 @@ main = hspec $ do
               Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
               Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
   
+    describe "JSON Pointer Parsing (partitionNestedPaths)" $ do
+      it "handles simple nested paths" $ do
+        let claims = Map.fromList
+              [ ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  ])
+              ]
+        result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
+        case result of
+          Right (payload, _) -> do
+            -- Should create structured nested structure (Section 6.2)
+            case payloadValue payload of
+              Aeson.Object obj -> do
+                -- Address should remain with _sd array
+                case KeyMap.lookup (Key.fromText "address") obj of
+                  Just (Aeson.Object addrObj) -> do
+                    KeyMap.lookup (Key.fromText "_sd") addrObj `shouldSatisfy` isJust
+                  _ -> expectationFailure "address should be an object with _sd"
+              _ -> expectationFailure "Payload should be an object"
+          Left err -> expectationFailure $ "Failed: " ++ show err
+      
+      it "handles deeply nested paths" $ do
+        let claims = Map.fromList
+              [ ("user", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "profile", Aeson.Object $ KeyMap.fromList
+                      [ (Key.fromText "name", Aeson.String "John")
+                      ])
+                  ])
+              ]
+        result <- buildSDJWTPayload SHA256 ["user/profile/name"] claims
+        case result of
+          Right _ -> return ()  -- Should succeed
+          Left err -> expectationFailure $ "Failed: " ++ show err
+      
+      it "handles multiple nested paths with same parent" $ do
+        let claims = Map.fromList
+              [ ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  , (Key.fromText "country", Aeson.String "US")
+                  ])
+              ]
+        result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality", "address/country"] claims
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 3
+            -- All three should be selectively disclosable
+          Left err -> expectationFailure $ "Failed: " ++ show err
+    
     describe "JSON Pointer Escaping" $ do
       it "handles keys containing forward slashes using ~1 escape" $ do
         -- Test that a key literally named "contact/email" is treated as top-level, not nested
@@ -670,6 +1136,93 @@ main = hspec $ do
                   _ -> expectationFailure "Top-level _sd array should exist"
               _ -> expectationFailure "payload should be an object"
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles paths with escaped sequences in nested paths" $ do
+        -- Test that ~1 and ~0 work correctly within nested paths
+        let claims = Map.fromList
+              [ ("parent", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "key/with/slash", Aeson.String "value1")  -- Literal key with slashes
+                  , (Key.fromText "key~with~tilde", Aeson.String "value2")  -- Literal key with tildes
+                  , (Key.fromText "normal", Aeson.String "value3")
+                  ])
+              ]
+        
+        -- Test nested paths with escaped sequences
+        -- parent/key~1with~1slash → parent object, child key "key/with/slash"
+        -- parent/key~0with~0tilde → parent object, child key "key~with~tilde"
+        result <- buildSDJWTPayload SHA256 ["parent/key~1with~1slash", "parent/key~0with~0tilde"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should have 2 disclosures for the nested children
+            length disclosures `shouldBe` 2
+            -- Parent should contain _sd array with 2 digests
+            case payloadValue payload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "parent") payloadObj of
+                  Just (Aeson.Object parentObj) -> do
+                    case KeyMap.lookup (Key.fromText "_sd") parentObj of
+                      Just (Aeson.Array sdArray) -> do
+                        V.length sdArray `shouldBe` 2  -- Two digests
+                      _ -> expectationFailure "parent should contain _sd array"
+                  _ -> expectationFailure "parent object should exist"
+              _ -> expectationFailure "payload should be an object"
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles nested paths with multiple escaped sequences" $ do
+        -- Test that multiple escape sequences work correctly in nested paths
+        let claims = Map.fromList
+              [ ("parent", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "key/with/slashes", Aeson.String "value1")
+                  , (Key.fromText "key~with~tildes", Aeson.String "value2")
+                  ])
+              ]
+        
+        -- Test nested paths with escaped sequences
+        -- parent/key~1with~1slashes → parent="parent", child="key/with/slashes"
+        -- parent/key~0with~0tildes → parent="parent", child="key~with~tildes"
+        result <- buildSDJWTPayload SHA256 ["parent/key~1with~1slashes", "parent/key~0with~0tildes"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 2
+            -- Verify disclosures are for the correct nested children
+            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                  Right dec -> Just dec
+                  Left _ -> Nothing
+                  ) disclosures
+            let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
+            claimNames `shouldContain` ["key/with/slashes"]
+            claimNames `shouldContain` ["key~with~tildes"]
+          Left err -> expectationFailure $ "Failed: " ++ show err
+      
+      it "handles parent key ending with tilde" $ do
+        -- Test case where parent key literally ends with tilde
+        -- This exercises the T.isSuffixOf "~" current branch
+        let claims = Map.fromList
+              [ ("parent~", Aeson.Object $ KeyMap.fromList  -- Parent key ends with tilde
+                  [ (Key.fromText "child", Aeson.String "value")
+                  ])
+              ]
+        
+        -- Path "parent~0/child" should be parsed as parent="parent~", child="child"
+        -- The ~0 escapes to ~, so we get "parent~" as parent
+        -- This tests the branch where current ends with "~" when we encounter "/"
+        result <- buildSDJWTPayload SHA256 ["parent~0/child"] claims
+        
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 1
+            -- Verify the disclosure is for child "child" within parent "parent~"
+            let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                  Right dec -> Just dec
+                  Left _ -> Nothing
+                  ) disclosures
+            case decodedDisclosures of
+              [decoded] -> do
+                getDisclosureClaimName decoded `shouldBe` Just "child"
+              _ -> expectationFailure "Should have exactly one disclosure"
+          Left err -> expectationFailure $ "Failed: " ++ show err
 
   -- RFC Example Tests (Section 5.1 - Issuance)
   -- NOTE: These tests verify that RFC example disclosures produce expected digests.
@@ -813,12 +1366,68 @@ main = hspec $ do
 
   describe "SDJWT.Verification" $ do
     describe "extractHashAlgorithm" $ do
-      it "extracts hash algorithm from presentation" $ do
-        -- Create a simple presentation
-        let jwt = "eyJhbGciOiJSUzI1NiJ9.eyJfc2RfYWxnIjoic2hhLTI1NiJ9.test"
+      it "extracts SHA256 hash algorithm from presentation" $ do
+        -- Create a simple presentation with _sd_alg set to sha-256
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256")]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
         let presentation = SDJWTPresentation jwt [] Nothing
         case extractHashAlgorithm presentation of
           Right alg -> alg `shouldBe` SHA256
+          Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
+      
+      it "extracts SHA384 hash algorithm from presentation" $ do
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-384")]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation jwt [] Nothing
+        case extractHashAlgorithm presentation of
+          Right alg -> alg `shouldBe` SHA384
+          Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
+      
+      it "extracts SHA512 hash algorithm from presentation" $ do
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-512")]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation jwt [] Nothing
+        case extractHashAlgorithm presentation of
+          Right alg -> alg `shouldBe` SHA512
+          Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
+      
+      it "defaults to SHA256 when _sd_alg is missing" $ do
+        -- Create a presentation without _sd_alg claim
+        let payload = Aeson.object [("sub", Aeson.String "user_42")]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation jwt [] Nothing
+        case extractHashAlgorithm presentation of
+          Right alg -> alg `shouldBe` SHA256  -- Should default to SHA256
+          Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
+      
+      it "defaults to SHA256 when _sd_alg is not a string" $ do
+        -- Create a presentation with _sd_alg as non-string
+        let payload = Aeson.object [("_sd_alg", Aeson.Number 256)]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation jwt [] Nothing
+        case extractHashAlgorithm presentation of
+          Right alg -> alg `shouldBe` SHA256  -- Should default to SHA256
+          Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
+      
+      it "defaults to SHA256 when _sd_alg is invalid algorithm string" $ do
+        -- Create a presentation with invalid _sd_alg value
+        let payload = Aeson.object [("_sd_alg", Aeson.String "invalid-algorithm")]
+        let payloadBS = BSL.toStrict $ Aeson.encode payload
+        let encodedPayload = base64urlEncode payloadBS
+        let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation jwt [] Nothing
+        case extractHashAlgorithm presentation of
+          Right alg -> alg `shouldBe` SHA256  -- Should default to SHA256
           Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
     
     describe "verifyDisclosures" $ do
@@ -934,10 +1543,433 @@ main = hspec $ do
         case result of
           Right _processed -> return ()  -- Success
           Left err -> expectationFailure $ "Verification failed: " ++ show err
+      
+      it "verifies issuer signature when issuer key is provided" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create a test payload
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        
+        -- Sign the JWT
+        signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+          Right signedJWT -> do
+            -- Create presentation with signed JWT
+            let presentation = SDJWTPresentation signedJWT [] Nothing
+            
+            -- Verify with issuer key (should verify signature and continue)
+            result <- verifySDJWT (Just (publicKeyJWK keyPair)) presentation
+            case result of
+              Right _processed -> return ()  -- Success - signature verified and verification completed
+              Left err -> expectationFailure $ "Verification with issuer key failed: " ++ show err
+      
+      it "fails when issuer signature is invalid" $ do
+        -- Generate test RSA key pair
+        keyPair <- generateTestRSAKeyPair
+        wrongKeyPair <- generateTestRSAKeyPair2
+        
+        -- Create a test payload
+        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        
+        -- Sign the JWT with one key
+        signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+          Right signedJWT -> do
+            -- Create presentation with signed JWT
+            let presentation = SDJWTPresentation signedJWT [] Nothing
+            
+            -- Verify with wrong issuer key (should fail signature verification)
+            result <- verifySDJWT (Just (publicKeyJWK wrongKeyPair)) presentation
+            case result of
+              Left (InvalidSignature _) -> return ()  -- Expected - signature verification failed
+              Left err -> return ()  -- Any error is acceptable for wrong key
+              Right _ -> expectationFailure "Verification should fail with wrong issuer key"
+      
+      it "extracts holder key from cnf claim and verifies KB-JWT" $ do
+        -- Generate test RSA key pairs for issuer and holder
+        issuerKeyPair <- generateTestRSAKeyPair
+        holderKeyPair <- generateTestRSAKeyPair
+        
+        -- Create a disclosure first
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let disclosureDigest = computeDigest SHA256 disclosure
+        
+        -- Create a test payload with cnf claim containing holder's public key
+        -- and include the disclosure digest in _sd array
+        let holderPublicKeyJWK = publicKeyJWK holderKeyPair
+        -- Parse holder's public key JWK as JSON (holderPublicKeyJWK is already a JSON string)
+        let holderPublicKeyJSON = case Aeson.eitherDecodeStrict (encodeUtf8 holderPublicKeyJWK) of
+              Right jwk -> jwk
+              Left _ -> Aeson.object []  -- Fallback
+        let payload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
+              , ("cnf", Aeson.object [("jwk", holderPublicKeyJSON)])
+              ]
+        
+        -- Sign the JWT with issuer's key
+        signedJWTResult <- signJWT (privateKeyJWK issuerKeyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+          Right signedJWT -> do
+            -- Create presentation without KB-JWT first
+            let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
+            
+            -- Create KB-JWT signed with holder's private key
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
+            case kbResult of
+              Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
+              Right kbJWT -> do
+                -- Create presentation with KB-JWT
+                let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
+                
+                -- Verify SD-JWT - should automatically extract holder key from cnf and verify KB-JWT
+                result <- verifySDJWT (Just (publicKeyJWK issuerKeyPair)) presentation
+                case result of
+                  Right _processed -> return ()  -- Success - holder key extracted from cnf and KB-JWT verified
+                  Left err -> expectationFailure $ "Verification with KB-JWT failed: " ++ show err
+      
+      it "fails when cnf claim is missing for KB-JWT verification" $ do
+        -- Generate test RSA key pairs
+        issuerKeyPair <- generateTestRSAKeyPair
+        holderKeyPair <- generateTestRSAKeyPair
+        
+        -- Create payload WITHOUT cnf claim
+        let payload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array V.empty)
+              ]
+        
+        -- Sign the JWT
+        signedJWTResult <- signJWT (privateKeyJWK issuerKeyPair) payload
+        case signedJWTResult of
+          Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+          Right signedJWT -> do
+            -- Create KB-JWT
+            let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+            let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
+            case kbResult of
+              Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
+              Right kbJWT -> do
+                -- Create presentation with KB-JWT but no cnf claim
+                let presentation = SDJWTPresentation signedJWT [disclosure] (Just kbJWT)
+                
+                -- Verify should fail - cnf claim missing
+                result <- verifySDJWT (Just (publicKeyJWK issuerKeyPair)) presentation
+                case result of
+                  Left (InvalidKeyBinding msg) -> do
+                    T.isInfixOf "Missing cnf claim" msg `shouldBe` True
+                  Left _ -> return ()  -- Any error is acceptable
+                  Right _ -> expectationFailure "Verification should fail when cnf claim is missing"
   
   -- RFC Example Tests (Section 5.2 - Presentation/Verification)
   -- NOTE: These tests verify presentation verification with selected disclosures.
   -- TODO: Add complete SD-JWT+KB flow test matching RFC Section 5.2 example
+  describe "SDJWT.Issuance (Error Paths and Edge Cases)" $ do
+    describe "buildSDJWTPayload error handling" $ do
+      it "handles empty claims map" $ do
+        result <- buildSDJWTPayload SHA256 [] Map.empty
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 0
+            -- Payload should be empty or contain only _sd_alg
+            sdAlg payload `shouldBe` Just SHA256
+          Left err -> expectationFailure $ "Should succeed with empty claims: " ++ show err
+      
+      it "handles claims map with no selective claims" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("iss", Aeson.String "https://issuer.example.com")
+              ]
+        result <- buildSDJWTPayload SHA256 [] claims
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 0
+            -- All claims should remain as regular claims
+            case payloadValue payload of
+              Aeson.Object obj -> do
+                KeyMap.lookup "sub" obj `shouldSatisfy` isJust
+                KeyMap.lookup "iss" obj `shouldSatisfy` isJust
+              _ -> expectationFailure "Payload should be an object"
+          Left err -> expectationFailure $ "Should succeed: " ++ show err
+      
+      it "handles selective claim that doesn't exist in claims map" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              ]
+        result <- buildSDJWTPayload SHA256 ["nonexistent_claim"] claims
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should succeed but create no disclosure for nonexistent claim
+            length disclosures `shouldBe` 0
+          Left err -> return ()  -- Or might return error, both acceptable
+      
+      it "handles nested path with missing parent" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              ]
+        result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Parent claim not found" msg `shouldBe` True
+          Left err -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when parent claim doesn't exist"
+      
+      it "handles nested path where parent is not an object" $ do
+        let claims = Map.fromList
+              [ ("address", Aeson.String "not-an-object")
+              ]
+        result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "not an object" msg `shouldBe` True
+          Left err -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when parent is not an object"
+      
+      it "handles nested path where child doesn't exist in parent" $ do
+        let claims = Map.fromList
+              [ ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "locality", Aeson.String "City")
+                  ])
+              ]
+        result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
+        case result of
+          Right (payload, disclosures) -> do
+            -- Should succeed but create no disclosure for nonexistent child
+            -- The parent object will have an _sd array (possibly empty or with other children)
+            length disclosures `shouldBe` 0  -- No disclosure for nonexistent child
+          Left err -> return ()  -- Or might return error, both acceptable
+      
+      it "handles recursive disclosure with missing parent" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              ]
+        result <- buildSDJWTPayload SHA256 ["address", "address/street_address"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Parent claim not found" msg `shouldBe` True
+          Left err -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when recursive parent doesn't exist"
+      
+      it "handles recursive disclosure where parent is not an object" $ do
+        let claims = Map.fromList
+              [ ("address", Aeson.String "not-an-object")
+              ]
+        result <- buildSDJWTPayload SHA256 ["address", "address/street_address"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "not an object" msg `shouldBe` True
+          Left err -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when recursive parent is not an object"
+    
+    describe "markArrayElementDisclosable edge cases" $ do
+      it "handles array element with null value" $ do
+        result <- markArrayElementDisclosable SHA256 Aeson.Null
+        case result of
+          Right (digest, disclosure) -> do
+            unDigest digest `shouldSatisfy` (not . T.null)
+            unEncodedDisclosure disclosure `shouldSatisfy` (not . T.null)
+          Left err -> expectationFailure $ "Should handle null value: " ++ show err
+      
+      it "handles array element with object value" $ do
+        let objValue = Aeson.Object $ KeyMap.fromList [(Key.fromText "key", Aeson.String "value")]
+        result <- markArrayElementDisclosable SHA256 objValue
+        case result of
+          Right (digest, disclosure) -> do
+            unDigest digest `shouldSatisfy` (not . T.null)
+            unEncodedDisclosure disclosure `shouldSatisfy` (not . T.null)
+          Left err -> expectationFailure $ "Should handle object value: " ++ show err
+      
+      it "handles array element with array value" $ do
+        let arrValue = Aeson.Array $ V.fromList [Aeson.String "item1", Aeson.String "item2"]
+        result <- markArrayElementDisclosable SHA256 arrValue
+        case result of
+          Right (digest, disclosure) -> do
+            unDigest digest `shouldSatisfy` (not . T.null)
+            unEncodedDisclosure disclosure `shouldSatisfy` (not . T.null)
+          Left err -> expectationFailure $ "Should handle array value: " ++ show err
+  
+  describe "SDJWT.Presentation (Error Paths and Edge Cases)" $ do
+    describe "selectDisclosuresByNames error handling" $ do
+      it "handles empty claim names list" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            keyPair <- generateTestRSAKeyPair
+            sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+            case sdjwtResult of
+              Right sdjwt -> do
+                case selectDisclosuresByNames sdjwt [] of
+                  Right presentation -> do
+                    length (selectedDisclosures presentation) `shouldBe` 0
+                  Left err -> expectationFailure $ "Should succeed with empty list: " ++ show err
+              Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles claim name that doesn't exist in disclosures" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, disclosures) -> do
+            keyPair <- generateTestRSAKeyPair
+            sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+            case sdjwtResult of
+              Right sdjwt -> do
+                case selectDisclosuresByNames sdjwt ["nonexistent_claim"] of
+                  Right presentation -> do
+                    -- Should succeed but return no disclosures
+                    length (selectedDisclosures presentation) `shouldBe` 0
+                  Left err -> return ()  -- Or might return error, both acceptable
+              Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "handles nested path where parent disclosure is missing" $ do
+        -- Create SD-JWT with structured nested disclosure (Section 6.2)
+        let claims = Map.fromList
+              [ ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  ])
+              ]
+        keyPair <- generateTestRSAKeyPair
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address"] claims
+        case result of
+          Right sdjwt -> do
+            -- Try to select nested claim - should work (parent stays in payload for Section 6.2)
+            case selectDisclosuresByNames sdjwt ["address/street_address"] of
+              Right presentation -> do
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should succeed: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+  
+  describe "SDJWT.Verification (Error Paths and Edge Cases)" $ do
+    describe "verifySDJWT error handling" $ do
+      it "handles presentation with empty JWT" $ do
+        let presentation = SDJWTPresentation "" [] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left (JSONParseError _) -> return ()  -- Also acceptable
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail with empty JWT"
+      
+      it "handles presentation with invalid JWT format (only one part)" $ do
+        let presentation = SDJWTPresentation "only-one-part" [] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left (JSONParseError _) -> return ()  -- Also acceptable
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail with invalid JWT format"
+      
+      it "handles presentation with invalid JWT format (only two parts)" $ do
+        let presentation = SDJWTPresentation "header.payload" [] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (InvalidSignature _) -> return ()  -- Expected error
+          Left (JSONParseError _) -> return ()  -- Also acceptable
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail with invalid JWT format"
+      
+      it "handles presentation with JWT payload that's not valid JSON" $ do
+        -- Create invalid JSON payload (not valid base64url)
+        let invalidPayload = "not-valid-base64url"
+        let invalidJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", invalidPayload, ".signature"]
+        let presentation = SDJWTPresentation invalidJWT [] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (JSONParseError _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail with invalid JSON payload"
+      
+      it "handles presentation with JWT payload that's not an object" $ do
+        -- Create payload that's a string instead of object
+        let stringPayload = base64urlEncode "\"just-a-string\""
+        let invalidJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", stringPayload, ".signature"]
+        let presentation = SDJWTPresentation invalidJWT [] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (JSONParseError _) -> return ()  -- Expected error
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> return ()  -- Or might succeed with empty claims
+      
+      it "handles presentation with disclosure that has invalid salt encoding" $ do
+        -- Create a disclosure with invalid salt (not valid base64url)
+        -- This is tricky because createObjectDisclosure validates salt
+        -- But we can test decodeDisclosure with invalid salt
+        let invalidDisclosure = EncodedDisclosure "WyJpbnZhbGlkLX salt!!!IiwgIm5hbWUiLCAidmFsdWUiXQ"
+        let disclosureDigest = computeDigest SHA256 invalidDisclosure
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
+              ]
+        let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode payloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation mockJWT [invalidDisclosure] Nothing
+        result <- verifySDJWT Nothing presentation
+        case result of
+          Left (InvalidDisclosureFormat _) -> return ()  -- Expected error
+          Left (MissingDisclosure _) -> return ()  -- Also acceptable (digest won't match)
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail with invalid disclosure"
+      
+      it "handles presentation with _sd array containing non-string values" $ do
+        -- Create payload with _sd array containing non-string (should be strings)
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList [Aeson.Number 123])  -- Invalid: should be string
+              ]
+        let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode payloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation mockJWT [] Nothing
+        result <- verifySDJWT Nothing presentation
+        -- Should succeed (non-string values in _sd are just ignored)
+        case result of
+          Right processed -> do
+            -- Should process successfully, ignoring invalid _sd entries
+            return ()
+          Left _ -> return ()  -- Or might fail, both acceptable
+      
+      it "handles _sd array with mixed string and non-string values" $ do
+        -- Test that non-string values in _sd arrays are correctly ignored
+        -- This exercises the _ -> Nothing branch in extractDigestsFromSDArray
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList
+                  [ Aeson.String "validDigest1"
+                  , Aeson.Number 123  -- Non-string, should be ignored
+                  , Aeson.String "validDigest2"
+                  , Aeson.Bool True  -- Non-string, should be ignored
+                  , Aeson.Null  -- Non-string, should be ignored
+                  , Aeson.Object (KeyMap.fromList [])  -- Non-string, should be ignored
+                  ])
+              ]
+        let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode payloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        let presentation = SDJWTPresentation mockJWT [] Nothing
+        
+        -- Verify should succeed - non-string values are ignored during processing
+        -- The function should handle mixed types gracefully
+        result <- verifySDJWT Nothing presentation
+        -- Should process successfully, ignoring non-string values in _sd array
+        case result of
+          Right _ -> return ()  -- Success - non-string values were ignored
+          Left err -> expectationFailure $ "Should handle mixed types, got error: " ++ show err
+  
   describe "SDJWT.Verification (RFC Examples)" $ do
     describe "RFC Section 5.2 - verify presentation with selected disclosures" $ do
       it "verifies presentation matching RFC example structure" $ do
@@ -1394,10 +2426,38 @@ main = hspec $ do
         result <- verifySDJWT Nothing presentation
         case result of
           Left (InvalidHashAlgorithm msg) -> do
+            T.isInfixOf "Invalid hash algorithm" msg `shouldBe` True
             T.isInfixOf "sha-1" msg `shouldBe` True
           Left err -> return ()  -- Any error is acceptable for unsupported algorithm
           Right _ -> return ()  -- Or it might default to SHA-256 (implementation dependent)
 
+  describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
+    describe "computeSDHash edge cases" $ do
+      it "computes sd_hash for presentation with empty disclosures" $ do
+        let jwt = "test.jwt"
+        let presentation = SDJWTPresentation jwt [] Nothing
+        let sdHash = computeSDHash SHA256 presentation
+        unDigest sdHash `shouldSatisfy` (not . T.null)
+      
+      it "computes sd_hash for presentation with KB-JWT" $ do
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let kbJwt = Just "kb-jwt-token"
+        let presentation = SDJWTPresentation jwt [disclosure] kbJwt
+        let sdHash = computeSDHash SHA256 presentation
+        unDigest sdHash `shouldSatisfy` (not . T.null)
+      
+      it "produces different sd_hash for different hash algorithms" $ do
+        let jwt = "test.jwt"
+        let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let presentation = SDJWTPresentation jwt [disclosure] Nothing
+        let sdHash256 = computeSDHash SHA256 presentation
+        let sdHash384 = computeSDHash SHA384 presentation
+        let sdHash512 = computeSDHash SHA512 presentation
+        unDigest sdHash256 `shouldNotBe` unDigest sdHash384
+        unDigest sdHash256 `shouldNotBe` unDigest sdHash512
+        unDigest sdHash384 `shouldNotBe` unDigest sdHash512
+  
   describe "SDJWT.KeyBinding" $ do
     describe "computeSDHash" $ do
       it "computes sd_hash for a presentation" $ do

@@ -89,8 +89,9 @@ parseTildeSeparated input =
       jwt : rest ->
         let
           -- Last part could be empty (SD-JWT) or KB-JWT (SD-JWT+KB)
+          -- Note: rest is guaranteed to be non-empty since [jwt] case is handled above
           (disclosureParts, lastPart) = case reverse rest of
-            [] -> ([], Nothing)
+            [] -> error "parseTildeSeparated: impossible case - rest should be non-empty"
             lastItem : revDisclosures ->
               if T.null lastItem
                 then (reverse revDisclosures, Nothing)

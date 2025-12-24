@@ -202,7 +202,7 @@ processArrayForSelectiveDisclosure hashAlg arr indices = do
 -- 5. Returns the payload and all disclosures
 --
 -- Supports nested structures (Section 6.2, 6.3):
--- - Use dot notation for nested paths: ["address.street_address", "address.locality"]
+-- - Use JSON Pointer syntax for nested paths: ["address/street_address", "address/locality"]
 -- - For Section 6.2 (structured): parent object stays, sub-claims get _sd array within parent
 -- - For Section 6.3 (recursive): parent is selectively disclosable, disclosure contains _sd array
 buildSDJWTPayload
@@ -376,15 +376,15 @@ partitionNestedPaths claimNames =
       where
         go remaining acc current
           | T.null remaining = reverse (if T.null current then acc else current : acc)
-          | T.head remaining == '/' && (T.null current || not (T.isSuffixOf "~" current)) =
-              -- Found unescaped slash
-              go (T.tail remaining) (if T.null current then acc else current : acc) ""
           | T.take 2 remaining == "~1" =
-              -- Escaped slash
+              -- Escaped slash (must check before checking for unescaped "/")
               go (T.drop 2 remaining) acc (current <> "/")
           | T.take 2 remaining == "~0" =
               -- Escaped tilde
               go (T.drop 2 remaining) acc (current <> "~")
+          | T.head remaining == '/' =
+              -- Found unescaped slash (after checking escape sequences)
+              go (T.tail remaining) (if T.null current then acc else current : acc) ""
           | otherwise =
               -- Regular character
               go (T.tail remaining) acc (T.snoc current (T.head remaining))
