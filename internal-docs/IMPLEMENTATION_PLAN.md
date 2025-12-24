@@ -2,16 +2,17 @@
 
 ## Current Status (Updated)
 
-**Overall Progress**: ~95% complete
+**Overall Progress**: ~98% complete (Core implementation complete, remaining: cleanup, documentation, packaging)
 
 - ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
-- 🟡 **Phase 5**: Mostly Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, missing nested structures)
-- ✅ **Phase 6**: Mostly Complete (Presentation - basic works ✅, key binding infrastructure ✅, recursive disclosure handling ✅)
-- ✅ **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, array element processing ✅)
+- ✅ **Phase 5**: Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, nested structures ✅)
+- ✅ **Phase 6**: Complete (Presentation - basic works ✅, key binding infrastructure ✅, recursive disclosure handling ✅)
+- ✅ **Phase 7**: Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, array element processing ✅)
 - ✅ **Phase 8**: Complete (Key Binding module ✅, tests ✅, RFC test vectors verified ✅)
 
 **Critical Missing Features**:
 1. ~~Nested structure support (recursive _sd arrays)~~ ✅ COMPLETED
+2. ~~RFC Section 7 verification tests~~ ✅ COMPLETED (covered via Section 5.2 tests - Section 7 is the verification spec, not test vectors)
 
 **Recent Updates**:
 - ✅ JWT signing/verification fully integrated using jose-jwt library
@@ -28,7 +29,10 @@
 - ✅ EC P-256 (ES256) verification support using jose-jwt's existing verification
 - ✅ Comprehensive unit tests for EC module (9 tests covering success and error cases)
 - ✅ RFC test vector verification tests added (Section 5.1 and 5.2 complete examples)
-- ✅ All RFC test vectors passing (72 tests total)
+- ✅ All RFC test vectors passing (82 tests total)
+- ✅ Nested structure support (RFC Sections 6.2 and 6.3) - structured and recursive disclosures
+- ✅ JSON Pointer syntax with escaping (`~1` for `/`, `~0` for `~`)
+- ✅ Recursive disclosure handling in Presentation (automatic parent inclusion)
 
 ## Overview
 
@@ -409,23 +413,25 @@ data SDJWTError
    - Format validation tests
    - Edge cases (empty disclosures, no KB-JWT)
 
-5. **Phase 5 (Issuance)** - 🟡 MOSTLY COMPLETE
+5. **Phase 5 (Issuance)** - ✅ COMPLETE
    - ✅ Unit tests for SD-JWT creation (basic)
    - ✅ Basic issuance flow working
    - ✅ Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
    - ✅ Decoy digest support (addDecoyDigest)
    - ✅ RFC example tests (Section 5.1 disclosures - basic digest verification)
-  - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
-  - ✅ JWT signing integrated in createSDJWT (using SDJWT.JWT.signJWT)
-  - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
-  - ✅ Ed25519 key generation utilities (generateTestEd25519KeyPair)
-  - ✅ Tests using Ed25519 keys for JWT signing in issuance
-  - ✅ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation verified with RFC test vectors)
-  - ❌ Tests for nested structures (Section 6)
-  - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
-  - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
+   - ✅ JWK parsing from Text/JSON (parseJWKFromText implemented)
+   - ✅ JWT signing integrated in createSDJWT (using SDJWT.JWT.signJWT)
+   - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
+   - ✅ Ed25519 key generation utilities (generateTestEd25519KeyPair)
+   - ✅ Tests using Ed25519 keys for JWT signing in issuance
+   - ✅ RFC example tests (complete issuance flow from Section 5.1 - full JWT creation verified with RFC test vectors)
+   - ✅ Tests for nested structures (Section 6.2 and 6.3)
+   - ✅ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
+   - ✅ JSON Pointer syntax support with escaping (`~1` for `/`, `~0` for `~`)
+   - ✅ Structured nested disclosures (Section 6.2 - parent stays, children selectively disclosable)
+   - ✅ Recursive disclosures (Section 6.3 - parent itself selectively disclosable)
 
-6. **Phase 6 (Presentation)** - ✅ MOSTLY COMPLETE
+6. **Phase 6 (Presentation)** - ✅ COMPLETE
    - ✅ Unit tests for disclosure selection
    - ✅ Integration tests for presentation creation (basic)
    - ✅ Edge cases (no disclosures selected, all disclosures)
@@ -434,8 +440,10 @@ data SDJWTError
    - ✅ Disclosure dependency validation (ensure parent disclosures included)
    - ✅ Tests for recursive disclosure handling (Section 6.3)
    - ✅ Tests for structured nested disclosures (Section 6.2 - parent not included)
+   - ✅ JSON Pointer path parsing and handling
+   - ✅ Automatic parent disclosure inclusion for recursive disclosures
 
-7. **Phase 7 (Verification)** - ✅ MOSTLY COMPLETE
+7. **Phase 7 (Verification)** - ✅ COMPLETE
    - ✅ Unit tests for verification logic (basic)
    - ✅ Basic disclosure verification working
    - ✅ JWT signature verification (verifySDJWTSignature function using SDJWT.JWT.verifyJWT)
@@ -446,22 +454,23 @@ data SDJWTError
    - ✅ RFC example tests (Section 5.2 - array element disclosures in verification)
    - ✅ Array element disclosure processing in processPayload (recursive array processing implemented)
    - ✅ Recursive array processing to handle `{"...": "<digest>"}` objects in arrays during verification
-  - ✅ Tests for array element disclosure processing
-  - ✅ Tests using Ed25519 keys for JWT signature verification
-  - ✅ Error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
-  - **TODO**: Add more comprehensive error handling edge cases if needed
+   - ✅ Tests for array element disclosure processing
+   - ✅ Tests using Ed25519 keys for JWT signature verification
+   - ✅ Error handling tests (invalid digests, missing disclosures, duplicate disclosures, etc.)
+   - ✅ Recursive disclosure verification (extracting digests from nested disclosures)
 
-8. **Phase 8 (Key Binding)** - ✅ MOSTLY COMPLETE
+8. **Phase 8 (Key Binding)** - ✅ COMPLETE
    - ✅ KeyBinding.hs module exists
    - ✅ Unit tests for KB-JWT creation/verification
    - ✅ Basic KB-JWT creation and verification (computeSDHash, createKeyBindingJWT, verifyKeyBindingJWT)
-  - ✅ KB-JWT signing/verification using real RSA keys (integrated with SDJWT.JWT)
-  - ✅ KB-JWT signing/verification using Ed25519 keys (fully tested)
-  - ✅ addKeyBindingToPresentation function implemented
-  - ✅ Test key generation utilities support Ed25519 keys (generateTestEd25519KeyPair)
-  - ✅ Tests using Ed25519 keys for KB-JWT signing/verification
-  - ✅ Integration tests for SD-JWT+KB flow (end-to-end verified via RFC Section 5.2 test vectors)
-  - ✅ RFC example tests (Section 5.2 SD-JWT+KB example verified)
+   - ✅ KB-JWT signing/verification using real RSA keys (integrated with SDJWT.JWT)
+   - ✅ KB-JWT signing/verification using Ed25519 keys (fully tested)
+   - ✅ addKeyBindingToPresentation function implemented
+   - ✅ Test key generation utilities support Ed25519 keys (generateTestEd25519KeyPair)
+   - ✅ Tests using Ed25519 keys for KB-JWT signing/verification
+   - ✅ Integration tests for SD-JWT+KB flow (end-to-end verified via RFC Section 5.2 test vectors)
+   - ✅ RFC example tests (Section 5.2 SD-JWT+KB example verified)
+   - ✅ RFC Section 7 verification requirements covered (Section 7 is the verification spec, covered via Section 5.2 tests)
 
 ### 9.3 Test Framework
 
@@ -526,18 +535,19 @@ dependencies:
    - ✅ **Implementation**: Test key generation utilities (TestKeys.hs with cached 2048-bit RSA keys)
    - ✅ **Tests**: Complete RFC example tests with full JWT creation (RFC test vectors verified)
 
-5. **Week 5**: SD-JWT issuance (nested and recursive) - 🟡 PARTIALLY COMPLETE
+5. **Week 5**: SD-JWT issuance (nested and recursive) - ✅ COMPLETE
    - ✅ **Implementation**: Array element disclosures (markArrayElementDisclosable, processArrayForSelectiveDisclosure)
    - ✅ **Implementation**: Decoy digest support (addDecoyDigest)
-   - ❌ **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
-   - ❌ **Implementation**: Nested structure support (recursive _sd arrays)
+   - ✅ **Tests**: Tests for nested structures (RFC Section 6.2 and 6.3), recursive disclosure tests
+   - ✅ **Implementation**: Nested structure support (recursive _sd arrays)
+   - ✅ **Implementation**: JSON Pointer syntax with escaping
 
 6. **Week 6**: Presentation and disclosure selection - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for disclosure selection, integration tests for presentation creation (basic)
    - ✅ **Implementation**: Key binding support, recursive disclosure handling
    - ✅ **Tests**: Tests for recursive disclosure handling (Section 6.3) and structured nested disclosures (Section 6.2)
 
-7. **Week 7**: Verification (basic) - ✅ MOSTLY COMPLETE
+7. **Week 7**: Verification (basic) - ✅ COMPLETE
    - ✅ **Tests**: Unit tests for verification logic (basic)
    - ✅ **Tests**: RFC example tests (Section 5.2 presentations - object disclosures)
    - ✅ **Tests**: RFC example tests for array element disclosures
@@ -545,20 +555,47 @@ dependencies:
    - ✅ **Implementation**: Key binding verification working with real keys
    - ✅ **Implementation**: Array element disclosure processing in processPayload (recursive array processing)
 
-8. **Week 8**: Key Binding support - ✅ MOSTLY COMPLETE
+8. **Week 8**: Key Binding support - ✅ COMPLETE
    - ✅ **Tests**: Unit tests for KB-JWT creation/verification
    - ✅ **Implementation**: KeyBinding.hs module, KB-JWT creation/verification
-  - ✅ **Implementation**: KB-JWT signing/verification using real RSA keys
-  - ✅ **Implementation**: Ed25519 key generation utilities (generateTestEd25519KeyPair)
-  - ✅ **Tests**: Tests using Ed25519 keys for KB-JWT signing/verification
-  - ❌ **Tests**: RFC example tests (Section 7 - complete KB-JWT examples)
-  - ❌ **Tests**: Integration tests for complete SD-JWT+KB flow
+   - ✅ **Implementation**: KB-JWT signing/verification using real RSA keys
+   - ✅ **Implementation**: Ed25519 key generation utilities (generateTestEd25519KeyPair)
+   - ✅ **Tests**: Tests using Ed25519 keys for KB-JWT signing/verification
+   - ✅ **Tests**: RFC example tests (Section 5.2 SD-JWT+KB examples - Section 7 is the verification spec, not test vectors)
+   - ✅ **Tests**: Integration tests for complete SD-JWT+KB flow
 
-9. **Week 9**: Edge cases and polish
-   - **Tests**: Additional edge case tests, property-based tests with QuickCheck
+9. **Week 9**: Code cleanup and refactoring - 🟡 IN PROGRESS
+   - **Code Review**: Remove unused code, dead functions, unused imports
+   - **Refactoring**: Reduce code duplication, extract common patterns
+   - **Module Organization**: Ensure logical module boundaries
+   - **Code Style**: Consistent formatting, naming conventions
+   - **Test Coverage**: Analyze coverage, identify gaps, add missing tests
+   - **Documentation**: Add Haddock comments for all public APIs
 
-10. **Week 10**: Documentation and final RFC compliance verification
-   - **Tests**: Final RFC compliance check against all examples
+10. **Week 10**: Security review and hardening - ⏳ PENDING
+   - **Security Audit**: Review cryptographic operations for vulnerabilities
+   - **Input Validation**: Ensure all inputs are properly validated
+   - **Constant-Time Operations**: Verify constant-time comparisons where needed
+   - **Memory Safety**: Review for potential memory leaks or exposure of sensitive data
+   - **Dependency Review**: Audit dependencies for known vulnerabilities
+   - **Fuzzing**: Consider property-based testing with QuickCheck for edge cases
+
+11. **Week 11**: User documentation - ⏳ PENDING
+   - **README**: Comprehensive usage guide with examples
+   - **API Documentation**: Complete Haddock documentation for all modules
+   - **Tutorial**: Step-by-step guide for common use cases
+   - **Examples**: Working examples for issuance, presentation, verification
+   - **Migration Guide**: If applicable, guide for migrating from other libraries
+   - **FAQ**: Common questions and troubleshooting
+
+12. **Week 12**: Packaging and distribution - ⏳ PENDING
+   - **Hackage**: Prepare package for Hackage upload
+   - **Versioning**: Establish semantic versioning strategy
+   - **Changelog**: Maintain CHANGELOG.md
+   - **License**: Ensure LICENSE file is correct and complete
+   - **CI/CD**: Set up automated testing and builds
+   - **Benchmarks**: Add performance benchmarks if needed
+   - **Release Notes**: Prepare release notes for initial version
 
 ## Security Considerations
 
@@ -569,14 +606,209 @@ dependencies:
 5. **Constant-Time Operations**: Use constant-time comparisons where applicable
 6. **Memory Safety**: Avoid exposing sensitive data unnecessarily
 
+## Phase 9: Code Cleanup and Refactoring
+
+### 9.1 Code Review Tasks
+
+- [ ] **Remove Unused Code**
+  - Identify and remove unused functions
+  - Remove unused imports
+  - Remove commented-out code
+  - Remove dead code paths
+
+- [ ] **Reduce Duplication**
+  - Identify repeated patterns
+  - Extract common functionality into shared functions
+  - Consolidate similar implementations
+  - Create utility modules for shared operations
+
+- [ ] **Module Organization**
+  - Review module boundaries
+  - Ensure logical separation of concerns
+  - Check for circular dependencies
+  - Optimize module exports
+
+- [ ] **Code Style**
+  - Consistent formatting (use `ormolu` or `brittany`)
+  - Consistent naming conventions
+  - Follow Haskell best practices
+  - Add type signatures where missing
+
+### 9.2 Test Coverage Analysis
+
+- [ ] **Coverage Measurement**
+  - Set up test coverage tooling (e.g., `hpc`, `haskell-coverage`, or `stack test --coverage`)
+  - Generate coverage reports
+  - Identify uncovered code paths
+  - Set coverage targets (e.g., >80% for core modules)
+
+- [ ] **Coverage Gaps**
+  - Identify untested functions
+  - Identify untested error paths
+  - Identify untested edge cases
+  - Prioritize gaps by criticality
+
+- [ ] **Coverage Improvements**
+  - Add tests for uncovered code paths
+  - Add tests for error handling paths
+  - Add tests for edge cases
+  - Ensure all public APIs have tests
+
+- [ ] **Coverage Monitoring**
+  - Integrate coverage into CI/CD
+  - Set up coverage trend tracking
+  - Prevent coverage regression
+  - Document coverage goals and current status
+
+### 9.3 Documentation Improvements
+
+- [ ] **Haddock Comments**
+  - Add module-level documentation
+  - Document all public functions
+  - Include usage examples in documentation
+  - Document type classes and instances
+
+- [ ] **Code Comments**
+  - Add inline comments for complex logic
+  - Document algorithm choices
+  - Explain cryptographic operations
+  - Note RFC compliance points
+
+## Phase 10: Security Review
+
+### 10.1 Security Audit Checklist
+
+- [ ] **Cryptographic Operations**
+  - Verify salt generation is cryptographically secure
+  - Ensure hash algorithms are used correctly
+  - Verify signature verification is properly implemented
+  - Check for timing attacks in comparisons
+
+- [ ] **Input Validation**
+  - All user inputs are validated
+  - Malformed JWTs are rejected
+  - Invalid disclosures are handled safely
+  - Edge cases are handled (empty inputs, very large inputs)
+
+- [ ] **Memory Safety**
+  - Sensitive data is not exposed in error messages
+  - Keys are not logged or exposed
+  - Memory is cleared after use where applicable
+  - No buffer overflows or similar issues
+
+- [ ] **Dependency Security**
+  - Review dependencies for known vulnerabilities
+  - Keep dependencies up to date
+  - Minimize dependency surface area
+  - Document security-critical dependencies
+
+### 10.2 Testing for Security
+
+- [ ] **Property-Based Testing**
+  - Use QuickCheck for edge cases
+  - Test cryptographic properties
+  - Test error handling paths
+  - Test with malformed inputs
+
+- [ ] **Fuzzing**
+  - Consider fuzzing for parsing functions
+  - Test with random inputs
+  - Test with boundary conditions
+
+## Phase 11: User Documentation
+
+### 11.1 Documentation Structure
+
+- [ ] **README.md**
+  - Project overview and purpose
+  - Quick start guide
+  - Installation instructions
+  - Basic usage examples
+  - Link to full documentation
+
+- [ ] **API Documentation**
+  - Complete Haddock documentation
+  - All public APIs documented
+  - Usage examples for each module
+  - Type signatures and descriptions
+
+- [ ] **Tutorial Guide**
+  - Step-by-step issuance example
+  - Step-by-step presentation example
+  - Step-by-step verification example
+  - Common patterns and use cases
+
+- [ ] **Examples Directory**
+  - Basic issuance example
+  - Presentation with key binding
+  - Verification example
+  - Nested structures example
+  - Array element disclosure example
+
+### 11.2 Additional Documentation
+
+- [ ] **CHANGELOG.md**
+  - Version history
+  - Breaking changes
+  - New features
+  - Bug fixes
+
+- [ ] **FAQ**
+  - Common questions
+  - Troubleshooting guide
+  - Performance tips
+  - Migration from other libraries
+
+## Phase 12: Packaging and Distribution
+
+### 12.1 Hackage Preparation
+
+- [ ] **Package Metadata**
+  - Verify package.yaml/cabal file is complete
+  - Check version number
+  - Verify license field
+  - Add maintainer information
+  - Add category and tags
+
+- [ ] **Build Configuration**
+  - Ensure package builds on multiple GHC versions
+  - Test on different platforms (Linux, macOS, Windows)
+  - Verify all dependencies are available
+  - Check build warnings
+
+- [ ] **Documentation**
+  - Generate Haddock documentation
+  - Verify documentation builds correctly
+  - Check for documentation warnings
+
+### 12.2 Release Preparation
+
+- [ ] **Versioning**
+  - Establish semantic versioning strategy
+  - Tag releases in git
+  - Create release notes
+
+- [ ] **CI/CD**
+  - Set up automated testing
+  - Set up automated builds
+  - Set up automated documentation generation
+  - Set up release automation (if applicable)
+
+- [ ] **Quality Assurance**
+  - Run full test suite
+  - Verify all examples work
+  - Check documentation is complete
+  - Review for any remaining TODOs
+
 ## Future Enhancements
 
-1. JWS JSON Serialization support (Section 8)
+1. JWS JSON Serialization support (RFC Section 8)
 2. Performance optimizations
 3. Streaming support for large SD-JWTs
 4. Additional hash algorithms (beyond SHA-256, SHA-384, SHA-512)
 5. Custom claim processors
 6. SD-JWT profile support
+7. Additional JWT algorithms (beyond RS256, EdDSA, ES256)
 
 ## Notes
 
