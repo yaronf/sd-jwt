@@ -2,16 +2,16 @@
 
 ## Current Status (Updated)
 
-**Overall Progress**: ~90% complete
+**Overall Progress**: ~95% complete
 
 - ✅ **Phases 1-4**: Complete (Core Types, Utils, Disclosure, Digest, Serialization)
 - 🟡 **Phase 5**: Mostly Complete (Issuance - basic works ✅, array elements ✅, decoy digests ✅, JWT signing ✅, missing nested structures)
-- 🟡 **Phase 6**: Partially Complete (Presentation - basic works ✅, key binding infrastructure ✅, missing recursive disclosure handling)
+- ✅ **Phase 6**: Mostly Complete (Presentation - basic works ✅, key binding infrastructure ✅, recursive disclosure handling ✅)
 - ✅ **Phase 7**: Mostly Complete (Verification - basic works ✅, JWT verification ✅, key binding verification ✅, RFC tests ✅, array element processing ✅)
 - ✅ **Phase 8**: Complete (Key Binding module ✅, tests ✅, RFC test vectors verified ✅)
 
 **Critical Missing Features**:
-1. Nested structure support (recursive _sd arrays)
+1. ~~Nested structure support (recursive _sd arrays)~~ ✅ COMPLETED
 
 **Recent Updates**:
 - ✅ JWT signing/verification fully integrated using jose-jwt library
@@ -425,15 +425,15 @@ data SDJWTError
   - ❌ Nested structure support in buildSDJWTPayload (recursive _sd arrays)
   - **TODO**: Add support for nested structures with recursive _sd arrays (Section 6.2, 6.3)
 
-6. **Phase 6 (Presentation)** - 🟡 PARTIALLY COMPLETE
+6. **Phase 6 (Presentation)** - ✅ MOSTLY COMPLETE
    - ✅ Unit tests for disclosure selection
    - ✅ Integration tests for presentation creation (basic)
    - ✅ Edge cases (no disclosures selected, all disclosures)
    - ✅ Key binding support (addKeyBindingToPresentation function)
-   - ❌ Recursive disclosure handling (parent disclosures for nested structures)
-   - ❌ Disclosure dependency validation (ensure parent disclosures included)
-   - **TODO**: Implement recursive disclosure handling - when selecting a nested claim, include parent disclosures
-   - **TODO**: Add disclosure dependency validation - verify all required parent disclosures are present
+   - ✅ Recursive disclosure handling (parent disclosures for nested structures)
+   - ✅ Disclosure dependency validation (ensure parent disclosures included)
+   - ✅ Tests for recursive disclosure handling (Section 6.3)
+   - ✅ Tests for structured nested disclosures (Section 6.2 - parent not included)
 
 7. **Phase 7 (Verification)** - ✅ MOSTLY COMPLETE
    - ✅ Unit tests for verification logic (basic)
@@ -532,9 +532,10 @@ dependencies:
    - ❌ **Tests**: Tests for nested structures (RFC Section 6), recursive disclosure tests
    - ❌ **Implementation**: Nested structure support (recursive _sd arrays)
 
-6. **Week 6**: Presentation and disclosure selection - 🟡 PARTIALLY COMPLETE
+6. **Week 6**: Presentation and disclosure selection - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for disclosure selection, integration tests for presentation creation (basic)
-   - ❌ **Implementation**: Key binding support, recursive disclosure handling
+   - ✅ **Implementation**: Key binding support, recursive disclosure handling
+   - ✅ **Tests**: Tests for recursive disclosure handling (Section 6.3) and structured nested disclosures (Section 6.2)
 
 7. **Week 7**: Verification (basic) - ✅ MOSTLY COMPLETE
    - ✅ **Tests**: Unit tests for verification logic (basic)

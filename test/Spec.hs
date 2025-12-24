@@ -167,6 +167,102 @@ main = hspec $ do
         unDigest decoy `shouldSatisfy` (\s -> T.length s > 0)
 
   describe "SDJWT.Presentation" $ do
+    describe "Recursive Disclosure Handling" $ do
+      it "automatically includes parent disclosure when selecting nested claim (Section 6.3)" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("sub", Aeson.String "user_123")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  , (Key.fromText "country", Aeson.String "US")
+                  ])
+              ]
+        
+        -- Get test keys for signing
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with recursive disclosures (parent + children)
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
+        
+        case result of
+          Right sdjwt -> do
+            -- Select only nested claims - parent should be automatically included
+            case selectDisclosuresByNames sdjwt ["address/street_address", "address/locality"] of
+              Right presentation -> do
+                -- Decode selected disclosures
+                let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                      Right dec -> Just dec
+                      Left _ -> Nothing
+                      ) (selectedDisclosures presentation)
+                
+                -- Verify parent "address" disclosure is included
+                let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
+                claimNames `shouldContain` ["address"]
+                claimNames `shouldContain` ["street_address"]
+                claimNames `shouldContain` ["locality"]
+                
+                -- Verify address disclosure is recursive (contains _sd array)
+                let addressDisclosure = find (\dec -> getDisclosureClaimName dec == Just "address") decodedDisclosures
+                case addressDisclosure of
+                  Just addrDisc -> do
+                    -- Verify it contains _sd array
+                    case getDisclosureValue addrDisc of
+                      Aeson.Object obj -> do
+                        KeyMap.lookup (Key.fromText "_sd") obj `shouldSatisfy` isJust
+                      _ -> expectationFailure "address disclosure should be an object"
+                  Nothing -> expectationFailure "address disclosure should be present"
+                
+                -- Verify presentation can be verified
+                verificationResult <- verifySDJWT Nothing presentation
+                case verificationResult of
+                  Right processedPayload -> do
+                    -- Verify address object is reconstructed correctly
+                    case Map.lookup "address" (processedClaims processedPayload) of
+                      Just (Aeson.Object addressObj) -> do
+                        KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
+                        KeyMap.lookup (Key.fromText "locality") addressObj `shouldSatisfy` isJust
+                      _ -> expectationFailure "address object should be reconstructed"
+                  Left err -> expectationFailure $ "Verification failed: " ++ show err
+              Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+      
+      it "does not include non-recursive parent when selecting nested claim (Section 6.2)" $ do
+        let claims = Map.fromList
+              [ ("iss", Aeson.String "https://issuer.example.com")
+              , ("sub", Aeson.String "user_123")
+              , ("address", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
+                  , (Key.fromText "locality", Aeson.String "City")
+                  , (Key.fromText "country", Aeson.String "US")
+                  ])
+              ]
+        
+        -- Get test keys for signing
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with structured nested disclosures (Section 6.2: parent stays, children are selectively disclosable)
+        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
+        
+        case result of
+          Right sdjwt -> do
+            -- Select only nested claims - parent should NOT be included (it's not recursively disclosable)
+            case selectDisclosuresByNames sdjwt ["address/street_address", "address/locality"] of
+              Right presentation -> do
+                -- Decode selected disclosures
+                let decodedDisclosures = mapMaybe (\enc -> case decodeDisclosure enc of
+                      Right dec -> Just dec
+                      Left _ -> Nothing
+                      ) (selectedDisclosures presentation)
+                
+                -- Verify parent "address" disclosure is NOT included (it's not recursively disclosable)
+                let claimNames = mapMaybe getDisclosureClaimName decodedDisclosures
+                claimNames `shouldNotContain` ["address"]
+                claimNames `shouldContain` ["street_address"]
+                claimNames `shouldContain` ["locality"]
+              Left err -> expectationFailure $ "Failed to create presentation: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+    
     describe "createPresentation" $ do
       it "creates presentation with selected disclosures" $ do
         let jwt = "test.jwt"
