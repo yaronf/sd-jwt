@@ -141,7 +141,25 @@ jobs:
           cp -r haddock-docs/* deploy/sd-jwt/
         fi
         echo "Deployment structure prepared:"
-        ls -la deploy/sd-jwt/ | head -10
+        echo "Contents of deploy/sd-jwt/:"
+        ls -la deploy/sd-jwt/ | head -20
+        echo ""
+        echo "Looking for index.html:"
+        find deploy/sd-jwt -name "index.html" | head -5
+        echo ""
+        echo "Verifying index.html exists:"
+        if [ -f "deploy/sd-jwt/index.html" ]; then
+          echo "✓ index.html found at deploy/sd-jwt/index.html"
+          head -5 deploy/sd-jwt/index.html
+        else
+          echo "✗ ERROR: index.html not found!"
+          echo "Available HTML files:"
+          find deploy/sd-jwt -name "*.html" | head -10
+          exit 1
+        fi
+        echo ""
+        echo "Directory structure:"
+        find deploy/sd-jwt -type d | head -10
     
     - name: Deploy Haddock documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
