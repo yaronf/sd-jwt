@@ -206,7 +206,7 @@ The implementation is **fully compliant** with RFC 8725bis (JWT Best Current Pra
 - ✅ Proper header validation
 - ✅ Key validation
 
-See `RFC8725BIS_REVIEW.md` for detailed compliance analysis.
+RFC 8725bis compliance is verified in the code implementation and documented in this security review.
 
 ## Conclusion
 
