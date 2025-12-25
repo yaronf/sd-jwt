@@ -96,11 +96,19 @@ jobs:
           exit 1
         fi
     
-    - name: Upload Haddock documentation
+    - name: Upload Haddock documentation (artifact)
       if: matrix.resolver == 'lts-22.0'
       uses: actions/upload-artifact@v4
       with:
         name: haddock-docs
         path: haddock-artifact/sd-jwt/
         retention-days: 7
+    
+    - name: Deploy Haddock documentation to GitHub Pages
+      if: matrix.resolver == 'lts-22.0' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: haddock-artifact/sd-jwt/
+        keep_files: false
 
