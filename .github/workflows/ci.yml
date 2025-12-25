@@ -63,13 +63,31 @@ jobs:
     
     - name: Build documentation
       run: |
-        stack --stack-yaml stack-ci.yaml haddock --no-haddock-deps
+        stack --stack-yaml stack-ci.yaml haddock --no-haddock-deps --no-haddock-hyperlink-source
+    
+    - name: Find and upload Haddock documentation
+      if: matrix.resolver == 'lts-22.0'
+      run: |
+        # Try both possible locations
+        DOC_DIR=$(find .stack-work -name "sd-jwt" -type d -path "*/doc/html/*" 2>/dev/null | head -1)
+        if [ -z "$DOC_DIR" ]; then
+          DOC_DIR=$(find .stack-work -name "sd-jwt" -type d -path "*/doc/*" 2>/dev/null | head -1)
+        fi
+        if [ -n "$DOC_DIR" ]; then
+          echo "Found docs at: $DOC_DIR"
+          mkdir -p haddock-artifact
+          cp -r "$DOC_DIR" haddock-artifact/
+        else
+          echo "Warning: Could not find Haddock documentation"
+          find .stack-work -name "*.html" -type f | head -5
+          exit 1
+        fi
     
     - name: Upload Haddock documentation
-      uses: actions/upload-artifact@v4
       if: matrix.resolver == 'lts-22.0'
+      uses: actions/upload-artifact@v4
       with:
         name: haddock-docs
-        path: .stack-work/dist/*/doc/html/sd-jwt/
+        path: haddock-artifact/sd-jwt/
         retention-days: 7
 
