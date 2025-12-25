@@ -10,6 +10,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     
+    permissions:
+      contents: write  # Required for GitHub Pages deployment
+    
     strategy:
       matrix:
         resolver: ['lts-22.0']
