@@ -13,6 +13,7 @@ import KeyBindingSpec
 import JWTSpec
 import RFCSpec
 import PropertySpec
+import EndToEndSpec
 
 main :: IO ()
 main = hspec $ do
@@ -27,3 +28,4 @@ main = hspec $ do
   JWTSpec.spec
   RFCSpec.spec
   PropertySpec.spec
+  EndToEndSpec.spec

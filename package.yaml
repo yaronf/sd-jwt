@@ -104,6 +104,7 @@ tests:
     - JWTSpec
     - RFCSpec
     - PropertySpec
+    - EndToEndSpec
     - TestHelpers
     - TestKeys
     ghc-options:
