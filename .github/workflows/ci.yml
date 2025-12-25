@@ -119,10 +119,32 @@ jobs:
         name: haddock-docs
         path: haddock-docs/
     
+    - name: List downloaded files
+      run: |
+        echo "Contents of haddock-docs/:"
+        ls -la haddock-docs/ || echo "Directory not found"
+        echo ""
+        echo "Looking for HTML files:"
+        find haddock-docs -type f -name "*.html" | head -10 || echo "No HTML files found"
+        echo ""
+        echo "Directory structure:"
+        find haddock-docs -type d | head -10 || echo "No directories found"
+    
     - name: Deploy Haddock documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: haddock-docs/
-        keep_files: false
+        keep_files: true  # Preserve CNAME file for custom domain
+    
+    - name: Output documentation URL
+      run: |
+        REPO_NAME="${GITHUB_REPOSITORY#*/}"
+        OWNER="${GITHUB_REPOSITORY%/*}"
+        if [ "$OWNER" = "$GITHUB_REPOSITORY" ]; then
+          # Fallback for user repos
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+        fi
+        echo "::notice::Documentation deployed to: https://${OWNER}.github.io/${REPO_NAME}/"
+        echo "Documentation URL: https://${OWNER}.github.io/${REPO_NAME}/"
 
