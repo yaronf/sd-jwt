@@ -68,9 +68,7 @@ jobs:
     
     - name: Build and Test
       run: |
-        # Build library first to ensure it's compiled before doctest runs
-        stack --stack-yaml stack-ci.yaml build --fast sd-jwt:lib
-        # Then build test suite and run tests
+        # Build everything (library + test dependencies) in one go to avoid redundant compilation
         stack --stack-yaml stack-ci.yaml test --fast
     
     - name: Build documentation
