@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 -- | SD-JWT presentation: Creating presentations with selected disclosures.
 --
 -- This module provides functions for creating SD-JWT presentations on the holder side.
@@ -25,7 +26,7 @@ import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Aeson.Key as Key
 import qualified Data.Vector as V
 import Data.Int (Int64)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe)
 import Data.List (partition)
 
 -- | Create a presentation with selected disclosures.
@@ -137,13 +138,9 @@ buildDisclosureMap
   -> [EncodedDisclosure]
   -> Map.Map T.Text (Disclosure, EncodedDisclosure)
 buildDisclosureMap decoded encoded =
-  let pairs = zip decoded encoded
-      mappings = mapMaybe (\(dec, enc) ->
-        case getDisclosureClaimName dec of
-          Just name -> Just (name, (dec, enc))
-          Nothing -> Nothing  -- Array disclosures don't have claim names
-        ) pairs
-  in Map.fromList mappings
+  Map.fromList $ mapMaybe (\(dec, enc) ->
+    fmap (, (dec, enc)) (getDisclosureClaimName dec)
+  ) (zip decoded encoded)
 
 -- | Partition claim names into top-level and nested paths (using JSON Pointer syntax).
 --
@@ -222,9 +219,7 @@ filterDisclosuresByNames decoded encoded requiredNames =
 extractHashAlgorithmFromJWT :: T.Text -> Either SDJWTError HashAlgorithm
 extractHashAlgorithmFromJWT jwt = do
   sdPayload <- parsePayloadFromJWT jwt
-  return $ case sdAlg sdPayload of
-    Just alg -> alg
-    Nothing -> defaultHashAlgorithm
+  return $ fromMaybe defaultHashAlgorithm (sdAlg sdPayload)
 
 -- | Validate disclosure dependencies per RFC 9901 Section 7.2, step 2.
 --
@@ -285,8 +280,6 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
           _ -> return ()  -- Not a recursive disclosure
       _ -> return ()  -- Not an object disclosure
     ) decodedSelected
-  
-  return ()
 
 -- | Extract digests from JWT payload (_sd arrays and array ellipsis objects).
 --
@@ -294,6 +287,6 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
 extractDigestsFromJWTPayload :: T.Text -> Either SDJWTError (Set.Set T.Text)
 extractDigestsFromJWTPayload jwt = do
   sdPayload <- parsePayloadFromJWT jwt
-  let digests = extractDigestsFromValue (payloadValue sdPayload)
+  digests <- extractDigestsFromValue (payloadValue sdPayload)
   return $ Set.fromList $ map unDigest digests
 

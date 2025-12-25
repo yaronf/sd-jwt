@@ -240,7 +240,8 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
   let (topLevelClaims, nestedPaths) = partitionNestedPaths selectiveClaimNames
   
   -- Group nested paths by parent to detect recursive disclosures (Section 6.3)
-  let nestedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) nestedPaths
+  -- Create singleton lists for each child, then combine lists for same parent
+  let nestedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, c : [])) nestedPaths
   let recursiveParents = Map.keysSet nestedByParent `Set.intersection` Set.fromList topLevelClaims
   
   -- Separate recursive disclosures (Section 6.3) from structured disclosures (Section 6.2)
@@ -564,7 +565,7 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
       let allChildDisclosures = concatMap (\(_, _, _, childDiscs) -> childDiscs) successes
       
       -- Remove recursive parents from remaining claims (they're now in disclosures)
-      let recursiveParentNames = Set.fromList $ map (\(name, _, _, _) -> name) successes
+      let recursiveParentNames = Set.fromList $ map (\(name, _, _) -> name) parentInfo
       let remainingClaims = Map.filterWithKey (\name _ -> not (Set.member name recursiveParentNames)) claims
       
       -- Combine parent and child disclosures (parents first, then children)

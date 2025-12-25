@@ -275,6 +275,45 @@ spec = describe "SDJWT.Presentation" $ do
               Left err -> expectationFailure $ "Should handle arrays with non-ellipsis objects: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
+      it "exercises buildDisclosureMap with mixed object and array disclosures" $ do
+        -- This test ensures buildDisclosureMap's Nothing branch (for array disclosures) is covered
+        -- buildDisclosureMap filters out array disclosures since they don't have claim names
+        let claims = Map.fromList
+              [ ("given_name", Aeson.String "John")
+              , ("nationalities", Aeson.Array $ V.fromList [Aeson.String "US"])
+              ]
+        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        case result of
+          Right (_, objectDisclosures) -> do
+            -- Create array disclosure
+            let nationalitiesArr = case Map.lookup "nationalities" claims of
+                  Just (Aeson.Array arr) -> arr
+                  _ -> V.empty
+            arrayResult <- processArrayForSelectiveDisclosure SHA256 nationalitiesArr [0]
+            case arrayResult of
+              Right (_, arrayDisclosures) -> do
+                -- Create SD-JWT with both object and array disclosures
+                let payloadBS = BSL.toStrict $ Aeson.encode (Aeson.object
+                      [ ("_sd_alg", Aeson.String "sha-256")
+                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head objectDisclosures)))])
+                      ])
+                let encodedPayload = base64urlEncode payloadBS
+                let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+                let sdjwt = SDJWT jwt (objectDisclosures ++ arrayDisclosures)
+                
+                -- selectDisclosuresByNames calls buildDisclosureMap internally
+                -- buildDisclosureMap processes both object and array disclosures:
+                -- - Object disclosures (Just name) -> included in map
+                -- - Array disclosures (Nothing) -> filtered out (exercises Nothing branch)
+                case selectDisclosuresByNames sdjwt ["given_name"] of
+                  Right presentation -> do
+                    -- Should succeed - array disclosures are filtered out by buildDisclosureMap
+                    -- but object disclosures are still selected correctly
+                    length (selectedDisclosures presentation) `shouldBe` 1
+                  Left err -> expectationFailure $ "Should handle mixed disclosures: " ++ show err
+              Left err -> expectationFailure $ "Failed to process array: " ++ show err
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
       it "handles arrays with ellipsis objects where value is not a string" $ do
         -- Test that extractDigestsFromValue correctly handles ellipsis objects where
         -- the "..." value is not a string (should recursively process them)

@@ -32,7 +32,8 @@ import Data.List (find, nub)
 import Control.Monad (replicateM)
 
 spec :: Spec
-spec =     describe "SDJWT.JWT.EC" $ do
+spec = describe "SDJWT.JWT" $ do
+  describe "EC" $ do
     describe "signJWT (ES256)" $ do
       it "signs a JWT with EC P-256 key" $ do
         -- Generate test EC key pair
@@ -201,4 +202,104 @@ spec =     describe "SDJWT.JWT.EC" $ do
               (_, Left err) -> expectationFailure $ "Second JWT verification failed: " ++ show err
           (Left err, _) -> expectationFailure $ "First signing failed: " ++ show err
           (_, Left err) -> expectationFailure $ "Second signing failed: " ++ show err
+  
+  describe "verifyJWT security checks (RFC 8725bis)" $ do
+    it "rejects JWT with alg: 'none' header (prevented by jose type system)" $ do
+      -- Create a JWT with alg: "none" header manually
+      -- Note: jose's type system prevents "none" from being a valid JWA.Alg value,
+      -- so it will be rejected during decodeCompact before reaching our validation code
+      let header = Aeson.object [("alg", Aeson.String "none"), ("typ", Aeson.String "JWT")]
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Base64url encode header and payload
+      let headerBS = BSL.toStrict $ Aeson.encode header
+      let payloadBS = BSL.toStrict $ Aeson.encode payload
+      let encodedHeader = base64urlEncode headerBS
+      let encodedPayload = base64urlEncode payloadBS
+      
+      -- Create unsecured JWT (no signature)
+      let unsecuredJWT = T.concat [encodedHeader, ".", encodedPayload, "."]
+      
+      -- Try to verify with any key - jose will reject it during decodeCompact
+      -- because "none" is not a valid JWA.Alg value (type system prevents it)
+      rsaKeyPair <- generateTestRSAKeyPair
+      result <- verifyJWT (publicKeyJWK rsaKeyPair) unsecuredJWT Nothing
+      
+      case result of
+        Left (InvalidSignature msg) -> do
+          -- jose library rejects "none" algorithm during decodeCompact
+          -- This is the correct behavior - unsecured JWTs are prevented by jose's type system
+          -- Our code never sees "none" because it's not a valid JWA.Alg value
+          return ()  -- Any error is acceptable - jose prevents "none" at decode time
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWT with alg: 'none' (jose type system prevents it)"
+    
+    it "rejects JWT with algorithm mismatch (RFC 8725bis - don't trust header)" $ do
+      -- Create a JWT signed with RSA key (PS256)
+      rsaKeyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Sign with RSA key (will use PS256)
+      signedResult <- signJWT (privateKeyJWK rsaKeyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          -- Now try to verify with Ed25519 key (EdDSA)
+          -- This should fail because header says PS256 but key expects EdDSA
+          ed25519KeyPair <- generateTestEd25519KeyPair
+          verifyResult <- verifyJWT (publicKeyJWK ed25519KeyPair) signedJWT Nothing
+          
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              -- Should reject with algorithm mismatch message
+              T.isInfixOf "Algorithm mismatch" msg `shouldBe` True
+              T.isInfixOf "RFC 8725bis" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected algorithm mismatch error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with algorithm mismatch"
+    
+    it "rejects JWT signed with Ed25519 when verified with RSA key" $ do
+      -- Create a JWT signed with Ed25519 key (EdDSA)
+      ed25519KeyPair <- generateTestEd25519KeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Sign with Ed25519 key (will use EdDSA)
+      signedResult <- signJWT (privateKeyJWK ed25519KeyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          -- Now try to verify with RSA key (PS256)
+          -- This should fail because header says EdDSA but key expects PS256
+          rsaKeyPair <- generateTestRSAKeyPair
+          verifyResult <- verifyJWT (publicKeyJWK rsaKeyPair) signedJWT Nothing
+          
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              -- Should reject with algorithm mismatch message
+              T.isInfixOf "Algorithm mismatch" msg `shouldBe` True
+              T.isInfixOf "RFC 8725bis" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected algorithm mismatch error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with algorithm mismatch"
+    
+    it "rejects JWT signed with RSA when verified with EC key" $ do
+      -- Create a JWT signed with RSA key (PS256)
+      rsaKeyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Sign with RSA key
+      signedResult <- signJWT (privateKeyJWK rsaKeyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          -- Now try to verify with EC key (ES256)
+          -- This should fail because header says PS256 but key expects ES256
+          ecKeyPair <- generateTestECKeyPair
+          verifyResult <- verifyJWT (publicKeyJWK ecKeyPair) signedJWT Nothing
+          
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              -- Should reject with algorithm mismatch message
+              T.isInfixOf "Algorithm mismatch" msg `shouldBe` True
+              T.isInfixOf "RFC 8725bis" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected algorithm mismatch error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with algorithm mismatch"
 

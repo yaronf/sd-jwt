@@ -33,6 +33,30 @@ import Control.Monad (replicateM)
 
 spec :: Spec
 spec = describe "SDJWT.Issuance" $ do
+  describe "createSDJWTFromClaims" $ do
+    it "is an alias for buildSDJWTPayload and works identically" $ do
+      let claims = Map.fromList
+            [ ("sub", Aeson.String "user_42")
+            , ("given_name", Aeson.String "John")
+            , ("family_name", Aeson.String "Doe")
+            ]
+      let selectiveClaims = ["given_name", "family_name"]
+      result <- createSDJWTFromClaims SHA256 selectiveClaims claims
+      case result of
+        Right (payload, payloadDisclosures) -> do
+          sdAlg payload `shouldBe` Just SHA256
+          length payloadDisclosures `shouldBe` 2
+          -- Verify it works the same as buildSDJWTPayload
+          case payloadValue payload of
+            Aeson.Object obj -> do
+              KeyMap.lookup "_sd" obj `shouldSatisfy` isJust
+              KeyMap.lookup "_sd_alg" obj `shouldSatisfy` isJust
+              KeyMap.lookup "sub" obj `shouldSatisfy` isJust
+              KeyMap.lookup "given_name" obj `shouldBe` Nothing
+              KeyMap.lookup "family_name" obj `shouldBe` Nothing
+            _ -> expectationFailure "Payload should be an object"
+        Left err -> expectationFailure $ "Failed to create SD-JWT from claims: " ++ show err
+  
   describe "buildSDJWTPayload" $ do
     it "creates SD-JWT payload with selective disclosures" $ do
       let claims = Map.fromList

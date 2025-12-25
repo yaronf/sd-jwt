@@ -44,3 +44,5 @@ cabal.sandbox.config
 # Temporary files
 *.tmp
 *.bak
+*.tix
+.stack-work/**/*.tix

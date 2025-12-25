@@ -30,7 +30,7 @@ module SDJWT.Internal.Digest
   , extractDigestsFromValue
   ) where
 
-import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..))
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTError(..))
 import SDJWT.Internal.Utils (hashToBytes, base64urlEncode, constantTimeEq, textToByteString)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -39,6 +39,7 @@ import qualified Data.Vector as V
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Maybe (mapMaybe)
+import Control.Monad (mapM)
 
 -- | Default hash algorithm (SHA-256 per RFC 9901).
 --
@@ -117,26 +118,31 @@ verifyDigest alg expectedDigest disclosure =
 -- 3. Recursively processing nested structures
 --
 -- Used for extracting digests from SD-JWT payloads and disclosure values.
-extractDigestsFromValue :: Aeson.Value -> [Digest]
-extractDigestsFromValue (Aeson.Object obj) =
-  let topLevelDigests = case KeyMap.lookup "_sd" obj of
-        Just (Aeson.Array arr) ->
-          mapMaybe (\v -> case v of
-            Aeson.String s -> Just (Digest s)
-            _ -> Nothing
-          ) (V.toList arr)
-        _ -> []
-      -- Recursively extract from nested objects
-      nestedDigests = concatMap (extractDigestsFromValue . snd) (KeyMap.toList obj)
-  in topLevelDigests ++ nestedDigests
-extractDigestsFromValue (Aeson.Array arr) =
+--
+-- Per RFC 9901 Section 4.2.4.1, _sd arrays MUST contain only strings (digests).
+-- Returns an error if non-string values are found in _sd arrays.
+extractDigestsFromValue :: Aeson.Value -> Either SDJWTError [Digest]
+extractDigestsFromValue (Aeson.Object obj) = do
+  topLevelDigests <- case KeyMap.lookup "_sd" obj of
+    Just (Aeson.Array arr) ->
+      mapM (\v -> case v of
+        Aeson.String s -> Right (Digest s)
+        _ -> Left $ InvalidDigest "_sd array must contain only string digests (RFC 9901 Section 4.2.4.1)"
+      ) (V.toList arr)
+    _ -> Right []
+  -- Recursively extract from nested objects
+  nestedDigests <- mapM (extractDigestsFromValue . snd) (KeyMap.toList obj)
+  return $ topLevelDigests ++ concat nestedDigests
+extractDigestsFromValue (Aeson.Array arr) = do
   -- Check for array ellipsis objects {"...": "<digest>"}
-  concatMap (\el -> case el of
+  let elements = V.toList arr
+  results <- mapM (\el -> case el of
     Aeson.Object obj ->
       case KeyMap.lookup (Key.fromText "...") obj of
-        Just (Aeson.String digest) -> [Digest digest]
+        Just (Aeson.String digest) -> Right [Digest digest]
         _ -> extractDigestsFromValue el  -- Recursively check nested structures
     _ -> extractDigestsFromValue el  -- Recursively check nested structures
-  ) (V.toList arr)
-extractDigestsFromValue _ = []
+    ) elements
+  return $ concat results
+extractDigestsFromValue _ = Right []
 

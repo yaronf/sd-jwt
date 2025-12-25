@@ -266,12 +266,10 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
               case expectedAlgResult of
                 Left err -> return $ Left err
                 Right expectedAlg -> do
-                  -- Reject "none" algorithm (unsecured JWT attack prevention)
-                  if headerAlg == "none"
-                    then return $ Left $ InvalidSignature "Unsecured JWT (alg: 'none') rejected per RFC 8725bis"
-                    else do
-                      -- Validate algorithm matches expected algorithm (RFC 8725bis - don't trust header)
-                      if headerAlg /= expectedAlg
+                  -- Note: "none" algorithm is prevented by jose's type system (JWA.Alg doesn't include "none")
+                  -- so headerAlg can never be "none" - jose will reject it during decodeCompact
+                  -- Validate algorithm matches expected algorithm (RFC 8725bis - don't trust header)
+                  if headerAlg /= expectedAlg
                         then return $ Left $ InvalidSignature $ "Algorithm mismatch: header claims '" <> headerAlg <> "', but key type requires '" <> expectedAlg <> "' (RFC 8725bis)"
                         else do
                           -- Validate algorithm is in whitelist

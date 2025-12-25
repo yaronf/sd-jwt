@@ -14,7 +14,7 @@ import SDJWT.Internal.Disclosure
 import SDJWT.Internal.Serialization
 import SDJWT.Internal.Issuance
 import SDJWT.Internal.Presentation
-import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
+import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm, extractRegularClaims)
 import SDJWT.Internal.KeyBinding
 import SDJWT.Internal.JWT
 import qualified Data.Vector as V
@@ -33,6 +33,52 @@ import Control.Monad (replicateM)
 
 spec :: Spec
 spec = describe "SDJWT.Verification" $ do
+  describe "extractRegularClaims" $ do
+    it "extracts regular claims from Object payload" $ do
+      let payload = Aeson.object
+            [ ("sub", Aeson.String "user_123")
+            , ("given_name", Aeson.String "John")
+            , ("_sd", Aeson.Array V.empty)
+            , ("_sd_alg", Aeson.String "sha-256")
+            , ("cnf", Aeson.object [("jwk", Aeson.String "key")])
+            ]
+      case extractRegularClaims payload of
+        Right claims -> do
+          -- Should include regular claims
+          Map.lookup "sub" claims `shouldBe` Just (Aeson.String "user_123")
+          Map.lookup "given_name" claims `shouldBe` Just (Aeson.String "John")
+          -- Should exclude SD-JWT internal claims
+          Map.lookup "_sd" claims `shouldBe` Nothing
+          Map.lookup "_sd_alg" claims `shouldBe` Nothing
+          Map.lookup "cnf" claims `shouldBe` Nothing
+        Left err -> expectationFailure $ "Failed to extract claims: " ++ show err
+    
+    it "rejects non-Object values (JWT payloads must be objects)" $ do
+      -- JWT payloads must be JSON objects per RFC 7519
+      case extractRegularClaims (Aeson.String "not an object") of
+        Left (JSONParseError msg) ->
+          T.isInfixOf "JWT payload must be a JSON object" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected JSONParseError, got: " ++ show err
+        Right _ -> expectationFailure "Expected error for non-Object value"
+      
+      case extractRegularClaims (Aeson.Number 42) of
+        Left (JSONParseError msg) ->
+          T.isInfixOf "JWT payload must be a JSON object" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected JSONParseError, got: " ++ show err
+        Right _ -> expectationFailure "Expected error for non-Object value"
+      
+      case extractRegularClaims (Aeson.Array V.empty) of
+        Left (JSONParseError msg) ->
+          T.isInfixOf "JWT payload must be a JSON object" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected JSONParseError, got: " ++ show err
+        Right _ -> expectationFailure "Expected error for non-Object value"
+      
+      case extractRegularClaims Aeson.Null of
+        Left (JSONParseError msg) ->
+          T.isInfixOf "JWT payload must be a JSON object" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected JSONParseError, got: " ++ show err
+        Right _ -> expectationFailure "Expected error for non-Object value"
+  
   describe "extractHashAlgorithm" $ do
     it "extracts SHA256 hash algorithm from presentation" $ do
       -- Create a simple presentation with _sd_alg set to sha-256
@@ -519,18 +565,15 @@ spec = describe "SDJWT.Verification" $ do
             return ()
           Left _ -> return ()  -- Or might fail, both acceptable
       
-      it "handles _sd array with mixed string and non-string values" $ do
-        -- Test that non-string values in _sd arrays are correctly ignored
-        -- This exercises the _ -> Nothing branch in extractDigestsFromSDArray
+      it "rejects _sd array with non-string values (RFC 9901 violation)" $ do
+        -- Per RFC 9901 Section 4.2.4.1, _sd arrays MUST contain only strings (digests).
+        -- Non-string values are a violation of the spec and should be rejected.
         let jwtPayload = Aeson.object
               [ ("_sd_alg", Aeson.String "sha-256")
               , ("_sd", Aeson.Array $ V.fromList
                   [ Aeson.String "validDigest1"
-                  , Aeson.Number 123  -- Non-string, should be ignored
+                  , Aeson.Number 123  -- Non-string, violates RFC 9901
                   , Aeson.String "validDigest2"
-                  , Aeson.Bool True  -- Non-string, should be ignored
-                  , Aeson.Null  -- Non-string, should be ignored
-                  , Aeson.Object (KeyMap.fromList [])  -- Non-string, should be ignored
                   ])
               ]
         let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
@@ -538,13 +581,13 @@ spec = describe "SDJWT.Verification" $ do
         let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
         let presentation = SDJWTPresentation mockJWT [] Nothing
         
-        -- Verify should succeed - non-string values are ignored during processing
-        -- The function should handle mixed types gracefully
+        -- Verify should fail - non-string values violate RFC 9901
         result <- verifySDJWTWithoutSignature presentation
-        -- Should process successfully, ignoring non-string values in _sd array
         case result of
-          Right _ -> return ()  -- Success - non-string values were ignored
-          Left err -> expectationFailure $ "Should handle mixed types, got error: " ++ show err
+          Left (InvalidDigest msg) ->
+            T.isInfixOf "_sd array must contain only string digests" msg `shouldBe` True
+          Left err -> expectationFailure $ "Expected InvalidDigest error, got: " ++ show err
+          Right _ -> expectationFailure "Should reject non-string values in _sd array"
   
   describe "SDJWT.Verification (RFC Examples)" $ do
     describe "RFC Section 5.2 - verify presentation with selected disclosures" $ do

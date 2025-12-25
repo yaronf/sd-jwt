@@ -67,4 +67,128 @@ spec = describe "SDJWT.Utils" $ do
         salt1 <- generateSalt
         salt2 <- generateSalt
         salt1 `shouldNotBe` salt2  -- Very unlikely to be the same
+    
+    describe "splitJSONPointer" $ do
+      it "splits simple path" $ do
+        splitJSONPointer "a/b" `shouldBe` ["a", "b"]
+      
+      it "splits path with multiple segments" $ do
+        splitJSONPointer "a/b/c" `shouldBe` ["a", "b", "c"]
+      
+      it "handles empty path" $ do
+        splitJSONPointer "" `shouldBe` []
+      
+      it "handles path starting with slash (strips leading slash)" $ do
+        -- Note: Function strips leading slashes for relative path compatibility
+        splitJSONPointer "/a/b" `shouldBe` ["a", "b"]
+      
+      it "handles path ending with slash (strips trailing slash)" $ do
+        -- Note: Function doesn't create trailing empty segments
+        splitJSONPointer "a/b/" `shouldBe` ["a", "b"]
+      
+      it "handles multiple consecutive slashes (collapses them)" $ do
+        -- Note: Function collapses consecutive slashes
+        splitJSONPointer "a//b" `shouldBe` ["a", "b"]
+      
+      it "handles escaped slash (~1)" $ do
+        splitJSONPointer "a~1b" `shouldBe` ["a/b"]
+      
+      it "handles escaped tilde (~0)" $ do
+        splitJSONPointer "a~0b" `shouldBe` ["a~b"]
+      
+      it "handles escaped slash followed by separator" $ do
+        -- "a~1" becomes "a/", then "/" is separator, so we get ["a/", "b"]
+        splitJSONPointer "a~1/b" `shouldBe` ["a/", "b"]
+      
+      it "handles escaped tilde followed by separator" $ do
+        splitJSONPointer "a~0/b" `shouldBe` ["a~", "b"]
+      
+      it "handles multiple escaped sequences" $ do
+        splitJSONPointer "a~1b~0c" `shouldBe` ["a/b~c"]
+      
+      it "handles escaped sequences at start" $ do
+        splitJSONPointer "~1a/b" `shouldBe` ["/a", "b"]
+        splitJSONPointer "~0a/b" `shouldBe` ["~a", "b"]
+      
+      it "handles escaped sequences at end" $ do
+        splitJSONPointer "a/b~1" `shouldBe` ["a", "b/"]
+        splitJSONPointer "a/b~0" `shouldBe` ["a", "b~"]
+      
+      it "handles complex nested path with escapes" $ do
+        splitJSONPointer "address/street~1address/locality" `shouldBe` ["address", "street/address", "locality"]
+      
+      it "handles tilde not followed by 0 or 1" $ do
+        splitJSONPointer "a~2b" `shouldBe` ["a~2b"]
+      
+      it "handles incomplete escape sequence at end" $ do
+        splitJSONPointer "a~" `shouldBe` ["a~"]
+      
+      it "handles escape sequence at end of segment" $ do
+        splitJSONPointer "a~1" `shouldBe` ["a/"]
+        splitJSONPointer "a~0" `shouldBe` ["a~"]
+      
+      it "handles only slashes (returns empty list)" $ do
+        -- Note: Function strips leading slashes and collapses consecutive ones
+        splitJSONPointer "/" `shouldBe` []
+        splitJSONPointer "//" `shouldBe` []
+      
+      it "handles only escaped sequences" $ do
+        splitJSONPointer "~1" `shouldBe` ["/"]
+        splitJSONPointer "~0" `shouldBe` ["~"]
+        splitJSONPointer "~1~0" `shouldBe` ["/~"]
+      
+      it "handles mixed regular and escaped characters" $ do
+        splitJSONPointer "foo~1bar/baz~0qux" `shouldBe` ["foo/bar", "baz~qux"]
+      
+      it "handles RFC 6901 example: empty path" $ do
+        splitJSONPointer "" `shouldBe` []
+      
+      it "handles RFC 6901 example: root path (strips leading slash)" $ do
+        -- Note: Function is designed for relative paths, strips leading "/"
+        splitJSONPointer "/" `shouldBe` []
+      
+      it "handles RFC 6901 example: nested object" $ do
+        splitJSONPointer "a/b/c" `shouldBe` ["a", "b", "c"]
+      
+      it "handles RFC 6901 example: escaped characters" $ do
+        splitJSONPointer "a~1b~0c" `shouldBe` ["a/b~c"]
+    
+    describe "unescapeJSONPointer" $ do
+      it "unescapes escaped slash" $ do
+        unescapeJSONPointer "a~1b" `shouldBe` "a/b"
+      
+      it "unescapes escaped tilde" $ do
+        unescapeJSONPointer "a~0b" `shouldBe` "a~b"
+      
+      it "unescapes multiple escaped sequences" $ do
+        unescapeJSONPointer "a~1b~0c" `shouldBe` "a/b~c"
+      
+      it "handles empty string" $ do
+        unescapeJSONPointer "" `shouldBe` ""
+      
+      it "handles string with no escapes" $ do
+        unescapeJSONPointer "abc" `shouldBe` "abc"
+      
+      it "handles only escaped slash" $ do
+        unescapeJSONPointer "~1" `shouldBe` "/"
+      
+      it "handles only escaped tilde" $ do
+        unescapeJSONPointer "~0" `shouldBe` "~"
+      
+      it "handles consecutive escapes" $ do
+        unescapeJSONPointer "~1~0" `shouldBe` "/~"
+      
+      it "handles tilde not followed by 0 or 1" $ do
+        unescapeJSONPointer "a~2b" `shouldBe` "a~2b"
+      
+      it "handles incomplete escape at end" $ do
+        unescapeJSONPointer "a~" `shouldBe` "a~"
+      
+      it "handles escape at start" $ do
+        unescapeJSONPointer "~1a" `shouldBe` "/a"
+        unescapeJSONPointer "~0a" `shouldBe` "~a"
+      
+      it "handles escape at end" $ do
+        unescapeJSONPointer "a~1" `shouldBe` "a/"
+        unescapeJSONPointer "a~0" `shouldBe` "a~"
 

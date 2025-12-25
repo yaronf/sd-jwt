@@ -77,8 +77,12 @@ newtype EncodedDisclosure = EncodedDisclosure { unEncodedDisclosure :: Text }
   deriving stock (Eq, Show, Generic)
 
 -- | Key Binding information from cnf claim
+--
+-- The public key is stored as a JWK JSON string (Text), which is compatible
+-- with 'SDJWT.Internal.JWT.JWKLike'. This allows users to work with JWKs
+-- without requiring a direct dependency on the jose library.
 newtype KeyBindingInfo = KeyBindingInfo
-  { kbPublicKey :: Text  -- TODO: Use proper JWK type from jose
+  { kbPublicKey :: Text  -- ^ Holder's public key from cnf claim (JWK JSON string)
   }
   deriving stock (Eq, Show, Generic)
 

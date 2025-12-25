@@ -13,9 +13,10 @@ module SDJWT.Internal.Verification
   , processPayload
   , extractHashAlgorithm
   , parsePayloadFromJWT
+  , extractRegularClaims
   ) where
 
-import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..))
+import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..), KeyBindingInfo(..))
 import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
 import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
 import SDJWT.Internal.Utils (base64urlDecode)
@@ -99,9 +100,10 @@ verifySDJWTAfterSignature presentation = do
               holderKeyResult <- extractHolderKeyFromPayload presentation
               case holderKeyResult of
                 Left err -> return (Left err)
-                Right holderKey -> do
+                Right keyBindingInfo -> do
                   -- Verify KB-JWT using holder's public key from cnf claim
-                  kbVerifyResult <- verifyKeyBindingJWT alg holderKey kbJWT presentation
+                  -- kbPublicKey is compatible with JWKLike (Text implements JWKLike)
+                  kbVerifyResult <- verifyKeyBindingJWT alg (kbPublicKey keyBindingInfo) kbJWT presentation
                   case kbVerifyResult of
                     Left err -> return (Left err)
                     Right () -> do
@@ -164,11 +166,11 @@ verifyDisclosures hashAlg presentation = do
   sdPayload <- parsePayloadFromJWT (presentationJWT presentation)
   
   -- Get all digests from payload
-  let payloadDigests = extractDigestsFromPayload sdPayload
+  payloadDigests <- extractDigestsFromPayload sdPayload
   
   -- Get all digests from recursive disclosures (disclosures that contain _sd arrays)
   -- For Section 6.3 recursive disclosures, child digests are in the parent disclosure's _sd array
-  let recursiveDisclosureDigests = extractDigestsFromRecursiveDisclosures hashAlg (selectedDisclosures presentation)
+  recursiveDisclosureDigests <- extractDigestsFromRecursiveDisclosures (selectedDisclosures presentation)
   
   -- Combine all valid digests (payload + recursive disclosures)
   let allValidDigests = Set.fromList (map unDigest (payloadDigests ++ recursiveDisclosureDigests))
@@ -201,13 +203,13 @@ processPayload
   -> Either SDJWTError ProcessedSDJWTPayload
 processPayload hashAlg sdPayload sdDisclosures = do
   -- Start with regular claims (non-selectively disclosable)
-  let regularClaims = extractRegularClaims (payloadValue sdPayload)
+  regularClaims <- extractRegularClaims (payloadValue sdPayload)
   
   -- Process disclosures to create maps of digests to claim values
   (objectDisclosureMap, arrayDisclosureMap) <- buildDisclosureMap hashAlg sdDisclosures
   
   -- Replace digests in _sd arrays with actual values and process arrays
-  let finalClaims = replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap (payloadValue sdPayload)
+  let finalClaims = replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap
   
   return $ ProcessedSDJWTPayload { processedClaims = finalClaims }
 
@@ -235,10 +237,10 @@ extractHashAlgorithmFromPresentation presentation = do
 --
 -- The cnf claim (RFC 7800) contains the holder's public key, typically
 -- in the format: {"cnf": {"jwk": {...}}}
--- This function extracts the JWK as a JSON string.
+-- This function extracts the JWK and returns it as a KeyBindingInfo.
 extractHolderKeyFromPayload
   :: SDJWTPresentation
-  -> IO (Either SDJWTError T.Text)
+  -> IO (Either SDJWTError KeyBindingInfo)
 extractHolderKeyFromPayload presentation = do
   sdPayload <- case parsePayloadFromJWT (presentationJWT presentation) of
     Left err -> return (Left err)
@@ -257,7 +259,7 @@ extractHolderKeyFromPayload presentation = do
                 Just jwkValue -> do
                   -- Encode JWK as JSON string
                   let jwkJson = Aeson.encode jwkValue
-                  return $ Right $ decodeUtf8 $ BSL.toStrict jwkJson
+                  return $ Right $ KeyBindingInfo $ decodeUtf8 $ BSL.toStrict jwkJson
                 Nothing -> return $ Left $ InvalidKeyBinding "Missing jwk in cnf claim"
             Just _ -> return $ Left $ InvalidKeyBinding "cnf claim is not an object"
             Nothing -> return $ Left $ InvalidKeyBinding "Missing cnf claim in SD-JWT payload"
@@ -320,35 +322,38 @@ parsePayloadFromJWT jwt = do
     extractHashAlgorithmFromPayload _ = Nothing
 
 -- | Extract digests from payload's _sd array and arrays with ellipsis objects.
-extractDigestsFromPayload :: SDJWTPayload -> [Digest]
+extractDigestsFromPayload :: SDJWTPayload -> Either SDJWTError [Digest]
 extractDigestsFromPayload sdPayload = extractDigestsFromValue (payloadValue sdPayload)
 
 -- | Extract digests from recursive disclosures (disclosures that contain _sd arrays).
 -- For Section 6.3 recursive disclosures, child digests are in the parent disclosure's _sd array.
 extractDigestsFromRecursiveDisclosures
-  :: HashAlgorithm
-  -> [EncodedDisclosure]
-  -> [Digest]
-extractDigestsFromRecursiveDisclosures _hashAlg disclosures =
-  concatMap (\encDisclosure -> do
+  :: [EncodedDisclosure]
+  -> Either SDJWTError [Digest]
+extractDigestsFromRecursiveDisclosures disclosures = do
+  results <- mapM (\encDisclosure ->
     case decodeDisclosure encDisclosure of
-      Left _ -> []  -- Skip invalid disclosures
+      Left _ -> Right []  -- Skip invalid disclosures
       Right decoded -> do
         let claimValue = getDisclosureValue decoded
         -- Extract digests from _sd arrays in disclosure values
         extractDigestsFromValue claimValue
     ) disclosures
+  return $ concat results
 
 -- | Extract regular (non-selectively disclosable) claims from payload.
-extractRegularClaims :: Aeson.Value -> Map.Map T.Text Aeson.Value
+--
+-- JWT payloads must be JSON objects (RFC 7519), so this function only accepts
+-- Aeson.Object values. Returns an error if given a non-object value.
+extractRegularClaims :: Aeson.Value -> Either SDJWTError (Map.Map T.Text Aeson.Value)
 extractRegularClaims (Aeson.Object obj) =
-  Map.fromList $ mapMaybe (\(k, v) ->
+  Right $ Map.fromList $ mapMaybe (\(k, v) ->
     let keyText = Key.toText k
     in if keyText == "_sd" || keyText == "_sd_alg" || keyText == "cnf"
       then Nothing  -- Skip SD-JWT internal claims
       else Just (keyText, v)
   ) (KeyMap.toList obj)
-extractRegularClaims _ = Map.empty
+extractRegularClaims _ = Left $ JSONParseError "JWT payload must be a JSON object"
 
 -- | Build maps from digests to disclosure values.
 -- Returns two maps:
@@ -383,9 +388,8 @@ replaceDigestsWithValues
   :: Map.Map T.Text Aeson.Value
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
-  -> Aeson.Value  -- Original payload
   -> Map.Map T.Text Aeson.Value
-replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap _payloadValue =
+replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap =
   -- Process object claims: replace digests in _sd arrays with values (including nested _sd arrays)
   let disclosedPairs = Map.elems objectDisclosureMap  -- [(claimName, claimValue)]
       disclosedClaims = Map.fromList disclosedPairs
