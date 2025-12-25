@@ -66,12 +66,11 @@ jobs:
         - .
         EOF
     
-    - name: Build
+    - name: Build and Test
       run: |
-        stack --stack-yaml stack-ci.yaml build --fast --test --no-run-tests
-    
-    - name: Test
-      run: |
+        # Build library first to ensure it's compiled before doctest runs
+        stack --stack-yaml stack-ci.yaml build --fast sd-jwt:lib
+        # Then build test suite and run tests
         stack --stack-yaml stack-ci.yaml test --fast
     
     - name: Build documentation

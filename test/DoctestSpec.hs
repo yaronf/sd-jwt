@@ -23,9 +23,10 @@ spec :: Spec
 spec = describe "Doctest" $ do
   it "runs doctest on Haddock examples" $ do
     -- Run doctest on persona modules
+    -- Use --fast flag to use already-compiled modules and avoid recompilation
     stackArgs <- getStackYaml
     (exitCode, stdout, stderr) <- readProcessWithExitCode "stack" 
-      (stackArgs ++ ["exec", "--", "doctest", 
+      (stackArgs ++ ["exec", "--", "doctest", "--fast",
        "src/SDJWT/Issuer.hs",
        "src/SDJWT/Holder.hs", 
        "src/SDJWT/Verifier.hs"]) ""
@@ -50,9 +51,10 @@ spec = describe "Doctest" $ do
           "Failed to extract README examples: exit code " ++ show code
     
     -- Then run doctest on the generated file
+    -- Use --fast flag to use already-compiled modules and avoid recompilation
     stackArgs <- getStackYaml
     (exitCode2, stdout, stderr) <- readProcessWithExitCode "stack" 
-      (stackArgs ++ ["exec", "--", "doctest", "test/ReadmeExamplesDoctest.hs"]) ""
+      (stackArgs ++ ["exec", "--", "doctest", "--fast", "test/ReadmeExamplesDoctest.hs"]) ""
     
     case exitCode2 of
       ExitSuccess -> return ()
