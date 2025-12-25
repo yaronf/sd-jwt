@@ -30,6 +30,21 @@ stack build
 cabal build
 ```
 
+## Examples
+
+A complete end-to-end example demonstrating the full SD-JWT flow (issuer → holder → verifier) is available:
+
+```bash
+stack exec sd-jwt-example
+# or
+stack runghc examples/EndToEndExample.hs
+```
+
+This example shows:
+- Issuer creating an SD-JWT with selective disclosure
+- Holder selecting which claims to disclose and creating a presentation
+- Verifier verifying the presentation and extracting claims
+
 ## Usage
 
 ### Recommended: Use Persona-Specific Modules

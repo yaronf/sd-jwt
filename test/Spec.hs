@@ -15,6 +15,7 @@ import RFCSpec
 import PropertySpec
 import EndToEndSpec
 import DoctestSpec
+import ExampleSpec
 
 main :: IO ()
 main = hspec $ do
@@ -31,3 +32,4 @@ main = hspec $ do
   PropertySpec.spec
   EndToEndSpec.spec
   DoctestSpec.spec
+  ExampleSpec.spec
