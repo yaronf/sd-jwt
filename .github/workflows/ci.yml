@@ -34,17 +34,28 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-${{ matrix.resolver }}-stack-
     
+    - name: Create CI stack.yaml override
+      run: |
+        cat > stack-ci.yaml <<EOF
+        resolver: ${{ matrix.resolver }}
+        arch: x86_64
+        compiler-check: match-exact
+        system-ghc: false
+        packages:
+        - .
+        EOF
+    
     - name: Build
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact build --test --no-run-tests
+        stack --stack-yaml stack-ci.yaml build --test --no-run-tests
     
     - name: Test
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact test
+        stack --stack-yaml stack-ci.yaml test
     
     - name: Build documentation
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact haddock
+        stack --stack-yaml stack-ci.yaml haddock
     
     - name: Upload Haddock documentation
       uses: actions/upload-artifact@v4
