@@ -12,8 +12,7 @@ jobs:
     
     strategy:
       matrix:
-        ghc-version: ['9.4.8', '9.6.7']
-        stack-version: ['2.13.1']
+        resolver: ['lts-22.0', 'nightly-2024-10-22']
     
     steps:
     - uses: actions/checkout@v4
@@ -21,9 +20,9 @@ jobs:
     - name: Set up Stack
       uses: haskell-actions/setup@v2
       with:
-        ghc-version: ${{ matrix.ghc-version }}
-        stack-version: ${{ matrix.stack-version }}
+        stack-version: '2.13.1'
         enable-stack: true
+        stack-no-global: true
     
     - name: Cache Stack dependencies
       uses: actions/cache@v4
@@ -31,22 +30,25 @@ jobs:
         path: |
           ~/.stack
           .stack-work
-        key: ${{ runner.os }}-${{ matrix.ghc-version }}-stack-${{ hashFiles('**/*.cabal', '**/stack.yaml', '**/stack.yaml.lock') }}
+        key: ${{ runner.os }}-${{ matrix.resolver }}-stack-${{ hashFiles('**/*.cabal', '**/stack.yaml', '**/stack.yaml.lock') }}
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.ghc-version }}-stack-
+          ${{ runner.os }}-${{ matrix.resolver }}-stack-
     
     - name: Build
-      run: stack build --test --no-run-tests
+      run: |
+        stack --resolver ${{ matrix.resolver }} build --test --no-run-tests
     
     - name: Test
-      run: stack test
+      run: |
+        stack --resolver ${{ matrix.resolver }} test
     
     - name: Build documentation
-      run: stack haddock
+      run: |
+        stack --resolver ${{ matrix.resolver }} haddock
     
     - name: Upload Haddock documentation
       uses: actions/upload-artifact@v4
-      if: matrix.ghc-version == '9.6.7'
+      if: matrix.resolver == 'lts-22.0'
       with:
         name: haddock-docs
         path: .stack-work/dist/*/doc/html/sd-jwt/
