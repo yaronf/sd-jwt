@@ -22,18 +22,9 @@ jobs:
       with:
         stack-version: '2.13.1'
         enable-stack: true
-        stack-no-global: true
+        stack-no-global: false
     
-    - name: Cache Stack snapshots
-      id: cache-stack-snapshots
-      uses: actions/cache@v4
-      with:
-        path: ~/.stack/snapshots
-        key: ${{ runner.os }}-${{ matrix.resolver }}-snapshots
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.resolver }}-snapshots-
-    
-    - name: Cache Stack global
+    - name: Cache Stack global (includes snapshots, indices, etc.)
       id: cache-stack-global
       uses: actions/cache@v4
       with:
@@ -53,7 +44,6 @@ jobs:
     
     - name: Debug cache status
       run: |
-        echo "Snapshot cache hit: ${{ steps.cache-stack-snapshots.outputs.cache-hit }}"
         echo "Global cache hit: ${{ steps.cache-stack-global.outputs.cache-hit }}"
         echo "Work cache hit: ${{ steps.cache-stack-work.outputs.cache-hit }}"
     
