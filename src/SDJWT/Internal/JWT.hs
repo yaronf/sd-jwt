@@ -32,7 +32,8 @@ import Control.Lens ((&), (?~), (^.), (^..))
 import Data.Functor.Identity (Identity(..))
 
 -- | Detect the key type from a JWK JSON and return the appropriate algorithm.
--- Returns "RS256" for RSA keys, "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
+-- Returns "PS256" for RSA keys (defaults to PS256 for security, RS256 also supported via "alg" field),
+-- "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
 detectKeyAlgorithm :: T.Text -> Either SDJWTError T.Text
 detectKeyAlgorithm jwkText = do
   case Aeson.eitherDecodeStrict (TE.encodeUtf8 jwkText) of
@@ -43,7 +44,13 @@ detectKeyAlgorithm jwkText = do
         _ -> Left $ InvalidSignature "Missing 'kty' field in JWK"
       
       if kty == "RSA"
-        then Right "RS256"
+        then do
+          -- Check if JWK specifies algorithm (RFC 7517 allows optional "alg" field)
+          -- RS256 is deprecated per draft-ietf-jose-deprecate-none-rsa15 (padding oracle attacks)
+          -- Default to PS256 (RSA-PSS) for security; RS256 can be explicitly requested but is deprecated
+          case KeyMap.lookup (Key.fromText "alg") obj of
+            Just (Aeson.String "RS256") -> Right "RS256"  -- Deprecated but still supported for compatibility
+            _ -> Right "PS256"  -- Default to PS256 (RSA-PSS) for security
         else if kty == "EC"
           then do
             -- Check curve for EC keys (only P-256 is supported)
@@ -62,15 +69,18 @@ detectKeyAlgorithm jwkText = do
             if crv == "Ed25519"
               then Right "EdDSA"
               else Left $ InvalidSignature $ "Unsupported OKP curve: " <> crv <> " (only Ed25519 is supported)"
-          else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (only RSA, EC P-256, and Ed25519 are supported)"
+          else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (supported: RSA, EC P-256, Ed25519)"
     Right _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
 
 -- | Convert algorithm string to JWA.Alg
+-- Supports RSA-PSS (PS256, default) and RSA-PKCS#1 v1.5 (RS256, deprecated per draft-ietf-jose-deprecate-none-rsa15).
+-- RS256 is deprecated due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is recommended.
 toJwsAlg :: T.Text -> Either SDJWTError JWA.Alg
-toJwsAlg "RS256" = Right JWA.RS256
+toJwsAlg "RS256" = Right JWA.RS256  -- Deprecated: Use PS256 instead (draft-ietf-jose-deprecate-none-rsa15)
+toJwsAlg "PS256" = Right JWA.PS256
 toJwsAlg "EdDSA" = Right JWA.EdDSA
 toJwsAlg "ES256" = Right JWA.ES256
-toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (only RS256, EdDSA, and ES256 are supported)"
+toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (supported: PS256 default, RS256 deprecated, EdDSA, ES256)"
 
 -- | Sign a JWT payload using a private key.
 --
@@ -80,7 +90,7 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 --
 -- Returns the signed JWT as a compact string, or an error.
 -- Automatically detects key type and uses:
--- - RS256 for RSA keys
+-- - PS256 for RSA keys (default, RS256 also supported via JWK "alg" field)
 -- - EdDSA for Ed25519 keys
 -- - ES256 for EC P-256 keys
 signJWT
@@ -178,7 +188,7 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
 -- then signs the JWT. This is needed for KB-JWT which requires typ: "kb+jwt"
 -- (RFC 9901 Section 4.3).
 --
--- Supports all algorithms: EC P-256 (ES256), RSA (RS256), and Ed25519 (EdDSA).
+-- Supports all algorithms: EC P-256 (ES256), RSA (PS256 default, RS256 also supported), and Ed25519 (EdDSA).
 --
 -- Parameters:
 -- - typ: The typ header value (e.g., "kb+jwt" for KB-JWT)
@@ -231,6 +241,7 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
                   let algParam = hdr ^. Header.alg . Header.param
                   let headerAlg = case algParam of
                         JWA.RS256 -> "RS256"
+                        JWA.PS256 -> "PS256"
                         JWA.EdDSA -> "EdDSA"
                         JWA.ES256 -> "ES256"
                         _ -> "UNSUPPORTED"

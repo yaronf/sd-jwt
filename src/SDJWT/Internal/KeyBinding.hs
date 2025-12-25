@@ -59,7 +59,7 @@ createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentatio
         ]
   
   -- Sign the KB-JWT with typ: "kb+jwt" header (RFC 9901 Section 4.3 requirement)
-  -- Supports all key types: RSA (RS256), EC P-256 (ES256), and Ed25519 (EdDSA).
+  -- Supports all key types: RSA (PS256 default, RS256 also supported), EC P-256 (ES256), and Ed25519 (EdDSA).
   signJWTWithTyp "kb+jwt" holderPrivateKey kbPayload
 
 -- | Compute sd_hash for key binding.

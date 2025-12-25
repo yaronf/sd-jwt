@@ -37,7 +37,9 @@ The library provides three persona-specific modules for different use cases:
 
 #### For Issuers (Creating SD-JWTs)
 
-⚠️ **Security Warning**: When using Elliptic Curve (EC) keys (ES256 algorithm), be aware that the underlying `jose` library's EC signing implementation may be vulnerable to timing attacks. This affects signing only, not verification. For applications where timing attacks are a concern, consider using RSA (RS256) or Ed25519 (EdDSA) keys instead.
+⚠️ **Security Warning**: When using Elliptic Curve (EC) keys (ES256 algorithm), be aware that the underlying `jose` library's EC signing implementation may be vulnerable to timing attacks. This affects signing only, not verification. For applications where timing attacks are a concern, consider using RSA-PSS (PS256, default for RSA keys) or Ed25519 (EdDSA) keys instead.
+
+**Note**: RS256 (RSA-PKCS#1 v1.5) is deprecated per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/) due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is the recommended RSA algorithm and is used by default for RSA keys.
 
 ```haskell
 import SDJWT.Issuer

@@ -503,7 +503,8 @@ dependencies:
   - cryptonite >= 0.30  # For hashing and random number generation (still needed, jose handles JWT signing)
   
 **Supported JWT Algorithms**:
-- ✅ **RSA (RS256)**: Fully supported for signing and verification
+- ✅ **RSA-PSS (PS256)**: Default for RSA keys, fully supported for signing and verification (RFC 7518, well-defined in JOSE standards, preferred for security)
+- ⚠️ **RSA (RS256)**: Deprecated per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/) due to padding oracle attack vulnerabilities. Still supported for compatibility but PS256 is strongly recommended. Can be explicitly requested via JWK "alg" field.
 - ✅ **Ed25519 (EdDSA)**: Fully supported for signing and verification
 - ✅ **EC P-256 (ES256)**: Fully supported for signing and verification (native support via jose library)
   - memory >= 0.18      # For secure random generation
@@ -807,13 +808,13 @@ dependencies:
   - ✅ Test key binding scenarios (RSA and Ed25519)
   - ✅ All tests passing
 
-- [ ] **Test Plan Review**
-  - Reverse engineer test plan from existing tests
-  - Document test coverage by RFC section
-  - Review test plan against RFC 9901 requirements
-  - Identify any gaps in test coverage
-  - Ensure all RFC examples are covered
-  - **Status**: Test suite covers RFC Sections 5.1, 5.2, 6.2, 6.3, but formal test plan document needed
+- [x] **Test Plan Review** ✅ COMPLETE
+  - ✅ Created comprehensive test plan document (TEST_PLAN.md)
+  - ✅ Documented test coverage by RFC section (Sections 4, 5, 6, 7, 9, 10)
+  - ✅ Reviewed test plan against RFC 9901 requirements
+  - ✅ Identified gaps (Section 8 JWS JSON Serialization not implemented)
+  - ✅ Verified all RFC examples covered (Sections 5.1, 5.2)
+  - ✅ Documented 223 test examples across 11 test modules
 
 - [ ] **CI/CD**
   - Set up GitHub Actions for automated testing

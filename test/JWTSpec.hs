@@ -75,6 +75,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       it "succeeds with RSA key (signJWT supports all key types)" $ do
         -- Use RSA key - signJWT now supports all key types (RSA, Ed25519, EC)
         -- It will automatically detect the key type and use the appropriate algorithm
+        -- RSA keys default to PS256 (RSA-PSS) for security
         rsaKeyPair <- generateTestRSAKeyPair
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
@@ -82,13 +83,42 @@ spec =     describe "SDJWT.JWT.EC" $ do
         case result of
           Left err -> expectationFailure $ "signJWT should succeed with RSA key: " ++ show err
           Right signedJWT -> do
-            -- Verify it signed successfully with RSA (RS256)
+            -- Verify it signed successfully with RSA (PS256 is default)
             let parts = T.splitOn "." signedJWT
             length parts `shouldBe` 3
-            -- Verify we can verify it
+            -- Verify we can verify it (public key will also default to PS256)
             verifyResult <- verifyJWT (publicKeyJWK rsaKeyPair) signedJWT Nothing
             case verifyResult of
               Left err -> expectationFailure $ "Failed to verify RSA-signed JWT: " ++ show err
+              Right _ -> return ()  -- Success
+      
+      it "succeeds with RSA key using RS256 algorithm (explicit)" $ do
+        -- Test RS256 (RSA-PKCS#1 v1.5) support via explicit alg field
+        -- PS256 is now the default, but RS256 can be explicitly requested
+        rsaKeyPair <- generateTestRSAKeyPair
+        -- Create a JWK with alg field specifying RS256 (for both private and public keys)
+        let addAlgField jwkText = case Aeson.eitherDecodeStrict (encodeUtf8 jwkText) of
+              Right (Aeson.Object obj) -> 
+                let updatedObj = KeyMap.insert (Key.fromText "alg") (Aeson.String "RS256") obj
+                in case decodeUtf8' (BSL.toStrict (Aeson.encode (Aeson.Object updatedObj))) of
+                     Right t -> t
+                     Left _ -> jwkText  -- Fallback on decode error
+              _ -> jwkText  -- Fallback
+        let privateKeyJWKWithAlg = addAlgField (privateKeyJWK rsaKeyPair)
+        let publicKeyJWKWithAlg = addAlgField (publicKeyJWK rsaKeyPair)
+        let payload = Aeson.object [("sub", Aeson.String "user_rs256")]
+        
+        result <- signJWT privateKeyJWKWithAlg payload
+        case result of
+          Left err -> expectationFailure $ "signJWT should succeed with RS256: " ++ show err
+          Right signedJWT -> do
+            -- Verify it signed successfully with RS256
+            let parts = T.splitOn "." signedJWT
+            length parts `shouldBe` 3
+            -- Verify we can verify it with the public key (public key also needs alg field)
+            verifyResult <- verifyJWT publicKeyJWKWithAlg signedJWT Nothing
+            case verifyResult of
+              Left err -> expectationFailure $ "Failed to verify RS256-signed JWT: " ++ show err
               Right _ -> return ()  -- Success
       
       it "fails with unsupported EC curve" $ do
