@@ -36,15 +36,15 @@ jobs:
     
     - name: Build
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 build --test --no-run-tests
+        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact build --test --no-run-tests
     
     - name: Test
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 test
+        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact test
     
     - name: Build documentation
       run: |
-        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 haddock
+        stack --resolver ${{ matrix.resolver }} --no-system-ghc --arch x86_64 --compiler-check match-exact haddock
     
     - name: Upload Haddock documentation
       uses: actions/upload-artifact@v4
