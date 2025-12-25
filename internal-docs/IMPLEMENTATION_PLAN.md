@@ -816,23 +816,31 @@ dependencies:
   - ✅ Verified all RFC examples covered (Sections 5.1, 5.2)
   - ✅ Documented 223 test examples across 11 test modules
 
-- [ ] **CI/CD**
+- [ ] **GitHub Deployment** (Next: Step 1)
+  - Push repository to GitHub
+  - Set up repository structure (README, LICENSE, etc.)
+  - Configure GitHub Actions workflows (after repo is created)
+  - Set up branch protection rules
+  - Add issue templates and contribution guidelines
+  - **Status**: Repository exists locally, needs to be pushed to GitHub
+
+- [ ] **CI/CD** (Next: Step 2)
   - Set up GitHub Actions for automated testing
   - Set up automated builds (multiple GHC versions)
   - Set up automated documentation generation
   - Set up automated linting/formatting checks
   - Set up release automation (if applicable)
-  - **Status**: Not yet started - need to create .github/workflows/ci.yml
+  - **Status**: Not yet started - need to create .github/workflows/ci.yml (after GitHub repo exists)
 
-- [ ] **GitHub Deployment**
-  - Push repository to GitHub
-  - Set up repository structure (README, LICENSE, etc.)
-  - Configure GitHub Actions workflows
-  - Set up branch protection rules
-  - Add issue templates and contribution guidelines
-  - **Status**: Repository exists locally, needs to be pushed to GitHub
+- [ ] **Quality Assurance** (Next: Step 3)
+  - Run full test suite
+  - Verify all examples work
+  - Check documentation is complete
+  - Review for any remaining TODOs
+  - Perform final security review
+  - **Status**: Not yet started
 
-- [ ] **Hackage Deployment**
+- [ ] **Hackage Deployment** (Next: Step 4)
   - Prepare package for Hackage (check all requirements)
   - Create Hackage-compatible package description
   - Generate and review Haddock documentation
@@ -840,13 +848,6 @@ dependencies:
   - Submit package to Hackage
   - Set up Hackage CI integration
   - **Status**: package.yaml is mostly ready, but needs review for Hackage requirements
-
-- [ ] **Quality Assurance**
-  - Run full test suite
-  - Verify all examples work
-  - Check documentation is complete
-  - Review for any remaining TODOs
-  - Perform final security review
 
 ## Future Enhancements
 
