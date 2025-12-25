@@ -15,7 +15,7 @@
 2. ~~RFC Section 7 verification tests~~ ✅ COMPLETED (covered via Section 5.2 tests - Section 7 is the verification spec, not test vectors)
 
 **Recent Updates**:
-- ✅ JWT signing/verification fully integrated using jose-jwt library
+- ✅ JWT signing/verification fully integrated using jose library (migrated from jose-jwt)
 - ✅ Test key generation utilities (TestKeys.hs) with cached 2048-bit RSA keys
 - ✅ RFC example tests for Phase 5 (Issuance) and Phase 7 (Verification)
 - ✅ JWK parsing from Text/JSON implemented
@@ -24,9 +24,8 @@
 - ✅ Tests for array element disclosure verification added
 - ✅ Ed25519 (EdDSA) key support added - fully tested for signing and verification
 - ✅ Comprehensive tests for Ed25519 keys in issuance, verification, and key binding
-- ✅ Note added about cryptonite deprecation (migrate to crypton when jose-jwt supports it)
-- ✅ EC P-256 (ES256) signing support added using cryptonite (SDJWT.JWT.EC module - temporary until jose-jwt adds EC signing)
-- ✅ EC P-256 (ES256) verification support using jose-jwt's existing verification
+- ✅ Migrated from jose-jwt to jose library (provides native EC signing support)
+- ✅ EC P-256 (ES256) signing and verification support using jose library (native support)
 - ✅ Comprehensive unit tests for EC module (9 tests covering success and error cases)
 - ✅ RFC test vector verification tests added (Section 5.1 and 5.2 complete examples)
 - ✅ All RFC test vectors passing (82 tests total)
@@ -501,15 +500,14 @@ dependencies:
   - aeson >= 2.0
   - bytestring >= 0.11
   - text >= 2.0
-  - cryptonite >= 0.30  # For cryptographic operations (TODO: Migrate to crypton when jose-jwt supports it - cryptonite is deprecated)
+  - cryptonite >= 0.30  # For hashing and random number generation (still needed, jose handles JWT signing)
   
 **Supported JWT Algorithms**:
 - ✅ **RSA (RS256)**: Fully supported for signing and verification
 - ✅ **Ed25519 (EdDSA)**: Fully supported for signing and verification
-- ✅ **EC P-256 (ES256)**: Fully supported for signing (via SDJWT.JWT.EC module using cryptonite) and verification (via jose-jwt)
-  - **Note**: EC signing is implemented in a separate module (SDJWT.JWT.EC) that can be removed once jose-jwt adds native EC signing support
+- ✅ **EC P-256 (ES256)**: Fully supported for signing and verification (native support via jose library)
   - memory >= 0.18      # For secure random generation
-  - jose-jwt >= 0.10   # For JWT handling (currently depends on cryptonite)
+  - jose >= 0.10        # For JWT handling (replaces jose-jwt, provides native EC signing support)
   - base64-bytestring >= 1.2  # For base64url encoding
   - unordered-containers >= 0.2  # For Map
   - vector >= 0.13     # For arrays
@@ -692,7 +690,7 @@ dependencies:
 - [x] **Cryptographic Operations** ✅ COMPLETE
   - ✅ Salt generation is cryptographically secure (cryptonite's secure RNG)
   - ✅ Hash algorithms used correctly (SHA-256, SHA-384, SHA-512)
-  - ✅ Signature verification properly implemented (jose-jwt with explicit algorithm)
+    - ✅ Signature verification properly implemented (jose library with explicit algorithm)
   - ✅ Fixed timing attacks in comparisons (constant-time comparison implemented)
 
 - [x] **Input Validation** ✅ COMPLETE
@@ -703,7 +701,7 @@ dependencies:
 
 - [x] **Memory Safety** ✅ COMPLETE
   - ✅ Sensitive data is not exposed in error messages (no keys, no salts)
-  - ✅ Keys are not logged or exposed (handled by jose-jwt)
+    - ✅ Keys are not logged or exposed (handled by jose library)
   - ✅ Memory safety ensured by Haskell's type system
   - ✅ No buffer overflows (Haskell's safe memory management)
 
@@ -808,6 +806,7 @@ dependencies:
   - Test with various key types (RSA, EC, Ed25519)
   - Test nested structures and recursive disclosures
   - Test key binding scenarios
+  - **Status**: Current test suite includes integration tests, but dedicated end-to-end test scenarios would be valuable
 
 - [ ] **Test Plan Review**
   - Reverse engineer test plan from existing tests
@@ -815,6 +814,7 @@ dependencies:
   - Review test plan against RFC 9901 requirements
   - Identify any gaps in test coverage
   - Ensure all RFC examples are covered
+  - **Status**: Test suite covers RFC Sections 5.1, 5.2, 6.2, 6.3, but formal test plan document needed
 
 - [ ] **CI/CD**
   - Set up GitHub Actions for automated testing
@@ -822,6 +822,7 @@ dependencies:
   - Set up automated documentation generation
   - Set up automated linting/formatting checks
   - Set up release automation (if applicable)
+  - **Status**: Not yet started - need to create .github/workflows/ci.yml
 
 - [ ] **GitHub Deployment**
   - Push repository to GitHub
@@ -829,6 +830,7 @@ dependencies:
   - Configure GitHub Actions workflows
   - Set up branch protection rules
   - Add issue templates and contribution guidelines
+  - **Status**: Repository exists locally, needs to be pushed to GitHub
 
 - [ ] **Hackage Deployment**
   - Prepare package for Hackage (check all requirements)
@@ -837,6 +839,7 @@ dependencies:
   - Test package installation from Hackage
   - Submit package to Hackage
   - Set up Hackage CI integration
+  - **Status**: package.yaml is mostly ready, but needs review for Hackage requirements
 
 - [ ] **Quality Assurance**
   - Run full test suite

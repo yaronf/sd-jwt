@@ -284,7 +284,6 @@ extractHolderKeyFromPayload presentation = do
 -- Most users should use higher-level functions like 'verifySDJWT' instead.
 -- Only use this function directly if you need fine-grained control over JWT parsing.
 --
--- @since 0.1.0.0
 parsePayloadFromJWT :: T.Text -> Either SDJWTError SDJWTPayload
 parsePayloadFromJWT jwt = do
   -- Split JWT into parts (header.payload.signature)

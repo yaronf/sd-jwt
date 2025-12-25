@@ -20,7 +20,6 @@
 -- * Library developers building on top of SD-JWT
 -- * Testing and debugging
 --
--- @since 0.1.0.0
 module SDJWT.Internal.Digest
   ( computeDigest
   , verifyDigest

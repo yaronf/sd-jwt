@@ -135,7 +135,6 @@ createSDJWTFromClaims = buildSDJWTPayload
 -- Only use this function if you need fine-grained control over individual claim
 -- processing, such as custom disclosure creation logic or testing.
 --
--- @since 0.1.0.0
 markSelectivelyDisclosable
   :: HashAlgorithm
   -> T.Text  -- ^ Claim name
@@ -187,7 +186,6 @@ markArrayElementDisclosable hashAlg elementValue = do
 -- Only use this function if you need fine-grained control over array processing,
 -- such as custom array handling logic or testing.
 --
--- @since 0.1.0.0
 processArrayForSelectiveDisclosure
   :: HashAlgorithm
   -> V.Vector Aeson.Value  -- ^ Original array
@@ -346,7 +344,6 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 --
 -- Returns the created SD-JWT or an error.
 --
--- @since 0.1.0.0
 createSDJWTWithTyp
   :: Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
   -> HashAlgorithm
@@ -385,7 +382,6 @@ createSDJWTWithTyp mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims 
 -- Only use this function if you need fine-grained control over decoy generation,
 -- such as custom privacy-preserving logic or testing.
 --
--- @since 0.1.0.0
 addDecoyDigest
   :: HashAlgorithm
   -> IO Digest

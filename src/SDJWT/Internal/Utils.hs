@@ -18,7 +18,6 @@
 -- * Library developers building on top of SD-JWT
 -- * Testing and debugging
 --
--- @since 0.1.0.0
 module SDJWT.Internal.Utils
   ( base64urlEncode
   , base64urlDecode
@@ -148,7 +147,6 @@ unescapeJSONPointer = T.replace "~1" "/" . T.replace "~0" "~"
 -- Implementation uses cryptonite's 'BA.constEq' which provides constant-time
 -- comparison for ByteArray instances. ByteString is a ByteArray instance.
 --
--- @since 0.1.0.0
 constantTimeEq :: BS.ByteString -> BS.ByteString -> Bool
 constantTimeEq a b
   | BS.length a /= BS.length b = False

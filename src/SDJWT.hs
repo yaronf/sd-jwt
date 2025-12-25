@@ -25,7 +25,6 @@
 -- -- etc.
 -- @
 --
--- @since 0.1.0.0
 module SDJWT
   ( module SDJWT.Issuer
   , module SDJWT.Holder
