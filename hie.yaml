@@ -4,5 +4,3 @@ cradle:
       component: "sd-jwt:test:sd-jwt-test"
     - path: "./src"
       component: "sd-jwt:lib"
-    - path: "./app"
-      component: "sd-jwt:exe:sd-jwt-exe"
