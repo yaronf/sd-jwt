@@ -9,16 +9,26 @@ module DoctestSpec (spec) where
 import Test.Hspec
 import System.Process (readProcessWithExitCode)
 import System.Exit (ExitCode(..))
+import System.Directory (doesFileExist)
+
+-- Get stack yaml file to use (prefer stack-ci.yaml if it exists, otherwise default)
+getStackYaml :: IO [String]
+getStackYaml = do
+  ciExists <- doesFileExist "stack-ci.yaml"
+  if ciExists
+    then return ["--stack-yaml", "stack-ci.yaml"]
+    else return []
 
 spec :: Spec
 spec = describe "Doctest" $ do
   it "runs doctest on Haddock examples" $ do
     -- Run doctest on persona modules
+    stackArgs <- getStackYaml
     (exitCode, stdout, stderr) <- readProcessWithExitCode "stack" 
-      ["exec", "--", "doctest", 
+      (stackArgs ++ ["exec", "--", "doctest", 
        "src/SDJWT/Issuer.hs",
        "src/SDJWT/Holder.hs", 
-       "src/SDJWT/Verifier.hs"] ""
+       "src/SDJWT/Verifier.hs"]) ""
     
     case exitCode of
       ExitSuccess -> return ()
@@ -40,8 +50,9 @@ spec = describe "Doctest" $ do
           "Failed to extract README examples: exit code " ++ show code
     
     -- Then run doctest on the generated file
+    stackArgs <- getStackYaml
     (exitCode2, stdout, stderr) <- readProcessWithExitCode "stack" 
-      ["exec", "--", "doctest", "test/ReadmeExamplesDoctest.hs"] ""
+      (stackArgs ++ ["exec", "--", "doctest", "test/ReadmeExamplesDoctest.hs"]) ""
     
     case exitCode2 of
       ExitSuccess -> return ()

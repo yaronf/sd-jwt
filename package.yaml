@@ -110,3 +110,4 @@ tests:
     - doctest >= 0.22
     - process >= 1.6
     - filepath >= 1.4
+    - directory >= 1.3
