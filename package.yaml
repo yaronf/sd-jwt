@@ -47,6 +47,7 @@ ghc-options:
 - -Wunused-packages        # Warn about unused packages
 - -Wmissing-deriving-strategies # Warn about missing deriving strategies
 - -Wno-missing-import-lists   # Disable: (..) imports are acceptable for constructors
+- -Wno-unused-imports      # Disable: unused imports are acceptable (often used for re-exports or future use)
 - -Wunused-type-patterns   # Warn about unused type patterns
 - -Wunused-record-wildcards # Warn about unused record wildcards
 - -Wredundant-record-wildcards # Warn about redundant record wildcards
