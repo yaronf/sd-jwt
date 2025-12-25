@@ -16,6 +16,7 @@
 -- * 'SDJWT.Verifier' - For verifiers (handles digest verification internally)
 --
 -- These utilities may be useful for:
+--
 -- * Advanced use cases requiring custom digest computation
 -- * Library developers building on top of SD-JWT
 -- * Testing and debugging

@@ -25,13 +25,15 @@ import Data.Int (Int64)
 --
 -- Creates a KB-JWT that proves the holder possesses a specific key.
 -- The KB-JWT contains:
+--
 -- - aud: Audience (verifier identifier)
 -- - nonce: Nonce provided by verifier
 -- - iat: Issued at timestamp
 -- - sd_hash: Hash of the SD-JWT presentation
 --
 -- Parameters:
--- - holderPrivateKey: Private key for signing (as Text JWK, placeholder for now)
+-- - hashAlg: Hash algorithm for computing sd_hash
+-- - holderPrivateKey: Private key for signing - can be Text (JSON string) or jose JWK object
 -- - audience: Audience claim
 -- - nonce: Nonce from verifier
 -- - issuedAt: Issued at timestamp (Unix epoch seconds)
@@ -98,7 +100,8 @@ computeSDHash hashAlg presentation =
 -- 3. The nonce, audience, and iat claims are present and valid
 --
 -- Parameters:
--- - holderPublicKey: Public key for verification (JWK as Text, placeholder for now)
+-- - hashAlg: Hash algorithm for verifying sd_hash
+-- - holderPublicKey: Public key for verification - can be Text (JSON string) or jose JWK object
 -- - kbJWT: The Key Binding JWT to verify
 -- - presentation: The SD-JWT presentation
 --

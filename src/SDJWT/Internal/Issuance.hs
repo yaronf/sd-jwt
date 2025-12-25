@@ -226,6 +226,7 @@ processArrayForSelectiveDisclosure hashAlg arr indices = do
 -- 5. Returns the payload and all disclosures
 --
 -- Supports nested structures (Section 6.2, 6.3):
+--
 -- - Use JSON Pointer syntax for nested paths: ["address/street_address", "address/locality"]
 -- - For Section 6.2 (structured): parent object stays, sub-claims get _sd array within parent
 -- - For Section 6.3 (recursive): parent is selectively disclosable, disclosure contains _sd array
@@ -338,7 +339,7 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 -- Parameters:
 -- - mbTyp: Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt")
 -- - hashAlg: Hash algorithm for digests
--- - issuerPrivateKeyJWK: Issuer private key JWK (JSON format)
+-- - issuerPrivateKeyJWK: Issuer private key JWK - can be Text (JSON string) or jose JWK object
 -- - selectiveClaimNames: Claim names to mark as selectively disclosable
 -- - claims: Original claims set
 --

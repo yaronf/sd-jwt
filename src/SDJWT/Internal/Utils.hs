@@ -99,6 +99,7 @@ hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 -- | Split JSON Pointer path by "/", respecting escapes (RFC 6901).
 --
 -- This function properly handles JSON Pointer escaping:
+--
 -- - "~1" represents a literal forward slash "/"
 -- - "~0" represents a literal tilde "~"
 --
@@ -128,6 +129,7 @@ splitJSONPointer path = go path [] ""
 -- | Unescape JSON Pointer segment (RFC 6901).
 --
 -- Converts escape sequences back to literal characters:
+--
 -- - "~1" → "/"
 -- - "~0" → "~"
 --

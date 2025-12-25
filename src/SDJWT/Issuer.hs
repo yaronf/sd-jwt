@@ -27,6 +27,7 @@
 -- @
 --
 -- This gives you access to:
+--
 -- * 'SDJWT.Internal.Types' - Core data types
 -- * 'SDJWT.Internal.Serialization' - Serialize SD-JWTs for transmission
 -- * 'SDJWT.Internal.Issuance' - Create SD-JWTs from claims

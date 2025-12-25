@@ -14,6 +14,7 @@
 -- @
 --
 -- This gives you access to:
+--
 -- * 'SDJWT.Internal.Types' - Core data types
 -- * 'SDJWT.Internal.Serialization' - Deserialize SD-JWTs and serialize presentations
 -- * 'SDJWT.Internal.Presentation' - Select disclosures and create presentations
@@ -30,14 +31,20 @@
 --   let sdjwtText = "eyJhbGciOiJSUzI1NiJ9.eyJfc2QiOlsidGVzdCJdLCJfc2RfYWxnIjoic2hhLTI1NiJ9.~WyJ0ZXN0Il0~"
 --   case deserializeSDJWT (T.pack sdjwtText) of
 --     Right sdjwt -> do
---       -- Select only specific disclosures
+--       -- Select which disclosures to include in the presentation
+--       -- The holder chooses which claims to reveal (e.g., only "given_name", not "family_name")
 --       case selectDisclosuresByNames sdjwt ["given_name"] of
 --         Right presentation -> do
---           -- Optionally add key binding
+--           -- The presentation contains:
+--           -- - presentationJWT: The issuer-signed JWT (with digests)
+--           -- - selectedDisclosures: Only the disclosures for selected claims
+--           -- Optionally add key binding for proof of possession
 --           keyPair <- generateTestEd25519KeyPair
---           result <- addKeyBinding presentation (privateKeyJWK keyPair) "verifier.example.com" "nonce123" 1234567890
+--           result <- addKeyBinding SHA256 (privateKeyJWK keyPair) "verifier.example.com" "nonce123" 1234567890 presentation
 --           case result of
 --             Right presentationWithKB -> do
+--               -- Serialize: JWT~disclosure1~disclosure2~...~KB-JWT
+--               -- This includes both the issuer-signed JWT and the selected disclosures
 --               let serialized = serializePresentation presentationWithKB
 --               putStrLn $ "Presentation: " ++ T.unpack serialized
 --             Left err -> putStrLn $ "Error: " ++ show err

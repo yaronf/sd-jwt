@@ -91,47 +91,6 @@ detectKeyAlgorithmFromJWK jwk = do
           else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (supported: RSA, EC P-256, Ed25519)"
     _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
 
--- | Detect the key type from a JWK JSON Text and return the appropriate algorithm.
--- Returns "PS256" for RSA keys (defaults to PS256 for security, RS256 also supported via "alg" field),
--- "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
-detectKeyAlgorithm :: T.Text -> Either SDJWTError T.Text
-detectKeyAlgorithm jwkText = do
-  case Aeson.eitherDecodeStrict (TE.encodeUtf8 jwkText) of
-    Left err -> Left $ InvalidSignature $ "Failed to parse JWK JSON: " <> T.pack err
-    Right (Aeson.Object obj) -> do
-      kty <- case KeyMap.lookup (Key.fromText "kty") obj of
-        Just (Aeson.String ktyText) -> Right ktyText
-        _ -> Left $ InvalidSignature "Missing 'kty' field in JWK"
-      
-      if kty == "RSA"
-        then do
-          -- Check if JWK specifies algorithm (RFC 7517 allows optional "alg" field)
-          -- RS256 is deprecated per draft-ietf-jose-deprecate-none-rsa15 (padding oracle attacks)
-          -- Default to PS256 (RSA-PSS) for security; RS256 can be explicitly requested but is deprecated
-          case KeyMap.lookup (Key.fromText "alg") obj of
-            Just (Aeson.String "RS256") -> Right "RS256"  -- Deprecated but still supported for compatibility
-            _ -> Right "PS256"  -- Default to PS256 (RSA-PSS) for security
-        else if kty == "EC"
-          then do
-            -- Check curve for EC keys (only P-256 is supported)
-            _crv <- case KeyMap.lookup (Key.fromText "crv") obj of
-              Just (Aeson.String "P-256") -> Right ()
-              Just (Aeson.String crvText) -> Left $ InvalidSignature $ "Unsupported EC curve: " <> crvText <> " (only P-256 is supported)"
-              _ -> Left $ InvalidSignature "Missing 'crv' field in EC JWK"
-            Right "ES256"
-        else if kty == "OKP"
-          then do
-            -- Check curve for OKP keys (Ed25519, Ed448)
-            crv <- case KeyMap.lookup (Key.fromText "crv") obj of
-              Just (Aeson.String crvText) -> Right crvText
-              _ -> Left $ InvalidSignature "Missing 'crv' field in OKP JWK"
-            
-            if crv == "Ed25519"
-              then Right "EdDSA"
-              else Left $ InvalidSignature $ "Unsupported OKP curve: " <> crv <> " (only Ed25519 is supported)"
-          else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (supported: RSA, EC P-256, Ed25519)"
-    Right _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
-
 -- | Convert algorithm string to JWA.Alg
 -- Supports RSA-PSS (PS256, default) and RSA-PKCS#1 v1.5 (RS256, deprecated per draft-ietf-jose-deprecate-none-rsa15).
 -- RS256 is deprecated due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is recommended.
@@ -150,6 +109,7 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 --
 -- Returns the signed JWT as a compact string, or an error.
 -- Automatically detects key type and uses:
+--
 -- - PS256 for RSA keys (default, RS256 also supported via JWK "alg" field)
 -- - EdDSA for Ed25519 keys
 -- - ES256 for EC P-256 keys
@@ -166,7 +126,7 @@ signJWT privateKeyJWK payload = signJWTWithOptionalTyp Nothing privateKeyJWK pay
 --
 -- Parameters:
 -- - mbTyp: Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing for issuer-signed JWTs)
--- - privateKeyJWK: Private key JWK (JSON format)
+-- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
@@ -248,7 +208,7 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
 --
 -- Parameters:
 -- - typ: The typ header value (e.g., "kb+jwt" for KB-JWT)
--- - privateKeyJWK: Private key JWK (JSON format)
+-- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
@@ -262,7 +222,7 @@ signJWTWithTyp typValue privateKeyJWK payload = signJWTWithOptionalTyp (Just typ
 -- | Verify a JWT signature using a public key.
 --
 -- Parameters:
--- - publicKeyJWK: Public key as JSON Web Key (JWK) in Text format
+-- - publicKeyJWK: Public key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
 -- - jwtText: The JWT to verify as a compact string
 -- - requiredTyp: Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
 --
@@ -354,6 +314,7 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
 -- Supports RSA, Ed25519, and EC P-256 keys.
 --
 -- The JWK JSON format follows RFC 7517. Examples:
+--
 -- - RSA public key: {"kty":"RSA","n":"...","e":"..."}
 -- - Ed25519 public key: {"kty":"OKP","crv":"Ed25519","x":"..."}
 -- - EC P-256 public key: {"kty":"EC","crv":"P-256","x":"...","y":"..."}

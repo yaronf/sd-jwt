@@ -14,6 +14,7 @@
 -- @
 --
 -- This gives you access to:
+--
 -- * 'SDJWT.Internal.Types' - Core data types
 -- * 'SDJWT.Internal.Serialization' - Deserialize presentations
 -- * 'SDJWT.Internal.Verification' - Verify SD-JWTs and extract claims
@@ -35,7 +36,7 @@
 --       result <- verifySDJWT issuerPublicKey presentation
 --       case result of
 --         Right processedPayload -> do
---           -- Extract claims
+--           -- Extract claims (includes both regular claims and disclosed claims)
 --           let claims = processedClaims processedPayload
 --           putStrLn $ "Verified claims: " ++ show claims
 --         Left err -> putStrLn $ "Verification failed: " ++ show err

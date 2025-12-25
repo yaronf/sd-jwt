@@ -8,7 +8,7 @@ and this project adheres to the
 
 ## Unreleased
 
-## 0.1.0.0 - 2025-01-XX
+## 0.1.0.0 - 2026-01-XX
 
 ### Added
 - Initial release of SD-JWT library implementing RFC 9901

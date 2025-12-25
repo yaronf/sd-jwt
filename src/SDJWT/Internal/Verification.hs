@@ -44,7 +44,8 @@ import Data.Text.Encoding (decodeUtf8)
 -- 5. Verifies key binding (if present)
 -- 6. Processes payload to reconstruct claims
 --
--- Returns the processed payload with all disclosed claims.
+-- Returns the processed payload with all claims (both regular non-selectively-disclosable
+-- claims and disclosed selectively-disclosable claims).
 --
 -- For testing or debugging purposes where signature verification should be skipped,
 -- use 'verifySDJWTWithoutSignature' instead.
@@ -119,7 +120,7 @@ verifySDJWTAfterSignature presentation = do
 -- Verifies the signature on the issuer-signed JWT using the issuer's public key.
 --
 -- Parameters:
--- - issuerKey: Issuer public key (JWK as Text)
+-- - issuerKey: Issuer public key - can be Text (JSON string) or jose JWK object
 -- - presentation: SD-JWT presentation to verify
 -- - requiredTyp: If Nothing, allow any typ or none (liberal). If Just typValue, require typ to be exactly that value.
 verifySDJWTSignature

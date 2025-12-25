@@ -79,10 +79,14 @@ import Data.Int (Int64)
 -- Deserialize SD-JWT received from issuer
 case deserializeSDJWT sdjwtText of
   Right sdjwt -> do
-    -- Select disclosures to include
+    -- Select which disclosures to include in the presentation
+    -- The holder chooses which claims to reveal (e.g., only "given_name", not "family_name")
     case selectDisclosuresByNames sdjwt ["given_name"] of
       Right presentation -> do
-        -- Optionally add key binding (SD-JWT+KB)
+        -- The presentation now contains:
+        -- - presentationJWT: The issuer-signed JWT (with digests for all claims)
+        -- - selectedDisclosures: Only the disclosures for "given_name"
+        -- Optionally add key binding (SD-JWT+KB) for proof of possession
         holderPrivateKeyJWK <- loadPrivateKeyJWK  -- Your function to load holder's private key (Text or jose JWK)
         let audience = "verifier.example.com"
         let nonce = "random-nonce-12345"
@@ -90,9 +94,11 @@ case deserializeSDJWT sdjwtText of
         result <- addKeyBindingToPresentation SHA256 holderPrivateKeyJWK audience nonce issuedAt presentation
         case result of
           Right presentationWithKB -> do
-            -- Serialize and send to verifier
+            -- Serialize the presentation: JWT~disclosure1~disclosure2~...~KB-JWT
+            -- This includes both the issuer-signed JWT and the selected disclosures
             let serialized = serializePresentation presentationWithKB
             -- Send serialized presentation to verifier
+            -- The verifier will verify the signature and reconstruct claims from the selected disclosures
           Left err -> putStrLn $ "Error adding key binding: " ++ show err
       Left err -> putStrLn $ "Error selecting disclosures: " ++ show err
   Left err -> putStrLn $ "Error deserializing SD-JWT: " ++ show err

@@ -112,12 +112,12 @@ selectDisclosures sdjwt@(SDJWT _ allDisclosures) selectedDisclos = do
 -- to SD-JWT+KB format. The KB-JWT proves that the holder possesses a specific key.
 --
 -- Parameters:
--- - presentation: The SD-JWT presentation to add key binding to
 -- - hashAlg: Hash algorithm to use for sd_hash computation
--- - holderPrivateKey: Private key for signing the KB-JWT (JWK as Text)
+-- - holderPrivateKey: Private key for signing the KB-JWT - can be Text (JSON string) or jose JWK object
 -- - audience: Audience claim (verifier identifier)
 -- - nonce: Nonce provided by verifier
 -- - issuedAt: Issued at timestamp (Unix epoch seconds)
+-- - presentation: The SD-JWT presentation to add key binding to
 --
 -- Returns the presentation with key binding added, or an error if KB-JWT creation fails.
 addKeyBinding
@@ -148,6 +148,7 @@ buildDisclosureMap decoded encoded =
 -- | Partition claim names into top-level and nested paths (using JSON Pointer syntax).
 --
 -- Supports JSON Pointer escaping (RFC 6901):
+--
 -- - "~1" represents a literal forward slash "/"
 -- - "~0" represents a literal tilde "~"
 partitionNestedPaths :: [T.Text] -> ([T.Text], [(T.Text, T.Text)])
