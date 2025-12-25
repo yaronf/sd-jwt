@@ -816,13 +816,13 @@ dependencies:
   - ✅ Verified all RFC examples covered (Sections 5.1, 5.2)
   - ✅ Documented 223 test examples across 11 test modules
 
-- [ ] **GitHub Deployment** (Next: Step 1)
-  - Push repository to GitHub
-  - Set up repository structure (README, LICENSE, etc.)
-  - Configure GitHub Actions workflows (after repo is created)
-  - Set up branch protection rules
-  - Add issue templates and contribution guidelines
-  - **Status**: Repository exists locally, needs to be pushed to GitHub
+- [x] **GitHub Deployment** ✅ COMPLETE
+  - ✅ Push repository to GitHub
+  - ✅ Set up repository structure (README, LICENSE, etc.)
+  - ✅ Configure GitHub Actions workflows
+  - ✅ Add issue templates and contribution guidelines
+  - ⚠️ Set up branch protection rules (manual step on GitHub web interface)
+  - **Status**: Repository created at https://github.com/yaronf/sd-jwt
 
 - [ ] **CI/CD** (Next: Step 2)
   - Set up GitHub Actions for automated testing
@@ -858,6 +858,7 @@ dependencies:
 5. Custom claim processors
 6. SD-JWT profile support
 7. Additional JWT algorithms (beyond RS256, EdDSA, ES256)
+8. SD-JWT for Verifiable Credentials support ([draft-ietf-oauth-sd-jwt-vc](https://datatracker.ietf.org/doc/draft-ietf-oauth-sd-jwt-vc/))
 
 ## Notes
 
