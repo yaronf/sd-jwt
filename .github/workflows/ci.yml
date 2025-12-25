@@ -42,6 +42,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-snapshots-
     
+    - name: Cache Stack snapshots
+      uses: actions/cache@v4
+      with:
+        path: ~/.stack/snapshots
+        key: ${{ runner.os }}-snapshots-${{ matrix.resolver }}
+        restore-keys: |
+          ${{ runner.os }}-snapshots-
+    
     - name: Cache GHC
       uses: actions/cache@v4
       with:
