@@ -130,11 +130,25 @@ jobs:
         echo "Directory structure:"
         find haddock-docs -type d | head -10 || echo "No directories found"
     
+    - name: Prepare documentation for deployment
+      run: |
+        # Create sd-jwt subdirectory structure for custom domain path
+        mkdir -p deploy/sd-jwt
+        # Copy all files from haddock-docs to deploy/sd-jwt
+        # Handle both cases: haddock-docs contains files directly or has sd-jwt subdirectory
+        if [ -d "haddock-docs/sd-jwt" ]; then
+          cp -r haddock-docs/sd-jwt/* deploy/sd-jwt/
+        else
+          cp -r haddock-docs/* deploy/sd-jwt/
+        fi
+        echo "Deployment structure prepared:"
+        ls -la deploy/sd-jwt/ | head -10
+    
     - name: Deploy Haddock documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: haddock-docs/
+        publish_dir: deploy/
         keep_files: true  # Preserve CNAME file for custom domain
     
     - name: Output documentation URL
