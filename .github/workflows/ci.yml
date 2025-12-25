@@ -63,7 +63,7 @@ jobs:
     
     - name: Build documentation
       run: |
-        stack --stack-yaml stack-ci.yaml haddock
+        stack --stack-yaml stack-ci.yaml haddock --no-haddock-deps
     
     - name: Upload Haddock documentation
       uses: actions/upload-artifact@v4
