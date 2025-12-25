@@ -198,7 +198,8 @@ spec = describe "SDJWT.Verification" $ do
       it "passes when no key binding present" $ do
         let jwt = "test.jwt"
         let presentation = SDJWTPresentation jwt [] Nothing
-        result <- verifyKeyBinding SHA256 "holder_key" presentation
+        let holderKey :: T.Text = "holder_key"
+        result <- verifyKeyBinding SHA256 holderKey presentation
         case result of
           Right () -> return ()  -- Success (no KB-JWT, so verification passes)
           Left err -> expectationFailure $ "Verification failed: " ++ show err

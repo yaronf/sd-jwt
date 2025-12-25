@@ -14,7 +14,7 @@ module SDJWT.Internal.KeyBinding
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWTPresentation(..), SDJWTError(..))
 import SDJWT.Internal.Utils (hashToBytes, textToByteString, base64urlEncode, constantTimeEq, base64urlDecode)
 import SDJWT.Internal.Serialization (serializePresentation)
-import SDJWT.Internal.JWT (signJWTWithTyp, verifyJWT)
+import SDJWT.Internal.JWT (signJWTWithTyp, verifyJWT, JWKLike)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -39,8 +39,8 @@ import Data.Int (Int64)
 --
 -- Returns the signed KB-JWT as a compact JWT string.
 createKeyBindingJWT
-  :: HashAlgorithm
-  -> T.Text  -- ^ Holder private key (JWK as Text, placeholder for now)
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Holder private key (Text or jose JWK object)
   -> T.Text  -- ^ Audience
   -> T.Text  -- ^ Nonce
   -> Int64   -- ^ Issued at (Unix epoch seconds)
@@ -104,8 +104,8 @@ computeSDHash hashAlg presentation =
 --
 -- Returns 'Right ()' if verification succeeds, 'Left' with error otherwise.
 verifyKeyBindingJWT
-  :: HashAlgorithm
-  -> T.Text  -- ^ Holder public key (JWK as Text)
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Holder public key (Text or jose JWK object)
   -> T.Text  -- ^ KB-JWT to verify
   -> SDJWTPresentation
   -> IO (Either SDJWTError ())
@@ -171,8 +171,8 @@ verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
 --
 -- Creates a KB-JWT and adds it to the presentation, converting it to SD-JWT+KB format.
 addKeyBindingToPresentation
-  :: HashAlgorithm
-  -> T.Text  -- ^ Holder private key
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Holder private key (Text or jose JWK object)
   -> T.Text  -- ^ Audience
   -> T.Text  -- ^ Nonce
   -> Int64   -- ^ Issued at

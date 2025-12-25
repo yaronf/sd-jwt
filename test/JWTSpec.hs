@@ -63,7 +63,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
                   _ -> expectationFailure "Payload is not an object"
       
       it "fails with invalid JWK format" $ do
-        let invalidJWK = "not a valid JSON"
+        let invalidJWK :: T.Text = "not a valid JSON"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT invalidJWK payload
@@ -123,7 +123,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       
       it "fails with unsupported EC curve" $ do
         -- Create JWK with unsupported curve (P-384 instead of P-256)
-        let unsupportedCurveJWK = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let unsupportedCurveJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT unsupportedCurveJWK payload
@@ -134,7 +134,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       
       it "fails with missing 'd' field (private key)" $ do
         -- Create JWK without private key scalar
-        let missingD = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let missingD :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT missingD payload
@@ -145,7 +145,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       
       it "fails with missing 'x' field" $ do
         -- Create JWK without x coordinate
-        let missingX = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let missingX :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT missingX payload
@@ -156,7 +156,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       
       it "fails with missing 'y' field" $ do
         -- Create JWK without y coordinate
-        let missingY = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}"
+        let missingY :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT missingY payload
@@ -167,7 +167,7 @@ spec =     describe "SDJWT.JWT.EC" $ do
       
       it "fails with invalid base64url in coordinates" $ do
         -- Create JWK with invalid base64url encoding
-        let invalidBase64 = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"!!!invalid!!!\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
+        let invalidBase64 :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"!!!invalid!!!\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
         let payload = Aeson.object [("sub", Aeson.String "user_123")]
         
         result <- signJWT invalidBase64 payload

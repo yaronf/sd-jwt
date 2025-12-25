@@ -82,7 +82,7 @@ import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDis
 import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
 import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
-import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp)
+import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp, JWKLike)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -309,8 +309,8 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 -- This function creates an SD-JWT and signs it using the issuer's key.
 -- Creates a complete SD-JWT with signed JWT using jose.
 createSDJWT
-  :: HashAlgorithm
-  -> T.Text  -- ^ Issuer private key JWK (JSON format)
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError SDJWT)
@@ -345,9 +345,9 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 -- Returns the created SD-JWT or an error.
 --
 createSDJWTWithTyp
-  :: Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
+  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
   -> HashAlgorithm
-  -> T.Text  -- ^ Issuer private key JWK (JSON format)
+  -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError SDJWT)

@@ -59,7 +59,7 @@ spec =     describe "RFC Test Vectors" $ do
               ]
         
         -- RFC public key from Appendix A.5 (line 4706-4711)
-        let rfcPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
+        let rfcPublicKeyJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
         
         -- Verify the RFC's JWT with the RFC's public key
         verifyResult <- verifyJWT rfcPublicKeyJWK rfcIssuerSignedJWT Nothing
@@ -118,7 +118,7 @@ spec =     describe "RFC Test Vectors" $ do
               ]
         
         -- RFC public key
-        let rfcPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
+        let rfcPublicKeyJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
         
         -- Parse the SD-JWT
         case parseTildeSeparated rfcSDJWT of
@@ -169,11 +169,11 @@ spec =     describe "RFC Test Vectors" $ do
               ]
         
         -- RFC issuer public key
-        let rfcIssuerPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
+        let rfcIssuerPublicKeyJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"b28d4MwZMjw8-00CG4xfnn9SLMVMM19SlqZpVb_uNtQ\",\"y\":\"Xv5zWwuoaTgdS6hV43yI6gBwTnjukmFQQnJ_kCxzqk8\"}"
         
         -- KB-JWT public key is in the cnf claim of the issuer-signed JWT
         -- From the issuer-signed JWT payload: cnf.jwk
-        let rfcKBPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"TCAER19Zvu3OHF4j4W4vfSVoHIP1ILilDls7vCeGemc\",\"y\":\"ZxjiWWbZMQGHVWKVQ4hbSIirsVfuecCE6t4jT9F2HZQ\"}"
+        let rfcKBPublicKeyJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"TCAER19Zvu3OHF4j4W4vfSVoHIP1ILilDls7vCeGemc\",\"y\":\"ZxjiWWbZMQGHVWKVQ4hbSIirsVfuecCE6t4jT9F2HZQ\"}"
         
         -- Parse the SD-JWT+KB
         case parseTildeSeparated rfcSDJWTKB of

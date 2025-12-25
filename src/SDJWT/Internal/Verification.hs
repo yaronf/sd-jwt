@@ -20,7 +20,7 @@ import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, parseHashA
 import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
 import SDJWT.Internal.Utils (base64urlDecode)
 import SDJWT.Internal.KeyBinding (verifyKeyBindingJWT)
-import SDJWT.Internal.JWT (verifyJWT)
+import SDJWT.Internal.JWT (verifyJWT, JWKLike)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -49,7 +49,7 @@ import Data.Text.Encoding (decodeUtf8)
 -- For testing or debugging purposes where signature verification should be skipped,
 -- use 'verifySDJWTWithoutSignature' instead.
 verifySDJWT
-  :: T.Text  -- ^ Issuer public key (JWK as Text)
+  :: JWKLike jwk => jwk  -- ^ Issuer public key (Text or jose JWK object)
   -> SDJWTPresentation
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
@@ -123,7 +123,7 @@ verifySDJWTAfterSignature presentation = do
 -- - presentation: SD-JWT presentation to verify
 -- - requiredTyp: If Nothing, allow any typ or none (liberal). If Just typValue, require typ to be exactly that value.
 verifySDJWTSignature
-  :: T.Text  -- ^ Issuer public key (JWK as Text)
+  :: JWKLike jwk => jwk  -- ^ Issuer public key (Text or jose JWK object)
   -> SDJWTPresentation
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError ())
@@ -139,8 +139,8 @@ verifySDJWTSignature issuerKey presentation requiredTyp = do
 -- Verifies the Key Binding JWT if present in the presentation.
 -- This includes verifying the KB-JWT signature and sd_hash.
 verifyKeyBinding
-  :: HashAlgorithm
-  -> T.Text  -- ^ Holder public key (JWK as Text, placeholder for now)
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Holder public key (Text or jose JWK object)
   -> SDJWTPresentation
   -> IO (Either SDJWTError ())
 verifyKeyBinding hashAlg holderKey presentation = do

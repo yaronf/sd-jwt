@@ -1,10 +1,13 @@
 name:                sd-jwt
 version:             0.1.0.0
+# TODO: Update these fields before publishing to Hackage:
+# github:              "yourusername/sd-jwt"
+# maintainer:          "your.email@example.com"
 github:              "githubuser/sd-jwt"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2023 Author name here"
+author:              "Yaron Sheffer"
+maintainer:          "yaronf.ietf@gmail.com"
+copyright:           "2025 Yaron Sheffer"
 
 extra-source-files:
 - README.md

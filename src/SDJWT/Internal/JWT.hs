@@ -1,15 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleInstances #-}
 -- | JWT signing and verification using jose library.
 --
 -- This module provides functions for signing and verifying JWTs using the
--- jose library. It handles the conversion between our Text-based JWK
--- placeholders and the jose library's JWK types.
+-- jose library. It supports both Text-based JWK strings and jose JWK objects.
 module SDJWT.Internal.JWT
   ( signJWT
   , signJWTWithOptionalTyp
   , signJWTWithTyp
   , verifyJWT
   , parseJWKFromText
+  , JWKLike(..)
   ) where
 
 import SDJWT.Internal.Types (SDJWTError(..))
@@ -31,7 +32,66 @@ import qualified Data.ByteString as BS
 import Control.Lens ((&), (?~), (^.), (^..))
 import Data.Functor.Identity (Identity(..))
 
--- | Detect the key type from a JWK JSON and return the appropriate algorithm.
+-- | Type class for types that can be converted to a jose JWK.
+--
+-- This allows functions to accept both Text (JWK JSON strings) and jose JWK objects.
+-- Users can pass JWK strings directly without importing jose, or pass jose JWK objects
+-- if they're already working with the jose library.
+class JWKLike a where
+  -- | Convert to a jose JWK object.
+  toJWK :: a -> Either SDJWTError JWK.JWK
+
+-- | Text instance: parse JWK from JSON string.
+instance JWKLike T.Text where
+  toJWK = parseJWKFromText
+
+-- | JWK instance: identity conversion (already a JWK).
+instance JWKLike JWK.JWK where
+  toJWK = Right
+
+-- | Detect the key type from a jose JWK object and return the appropriate algorithm.
+-- Returns "PS256" for RSA keys (defaults to PS256 for security, RS256 also supported via "alg" field),
+-- "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
+detectKeyAlgorithmFromJWK :: JWK.JWK -> Either SDJWTError T.Text
+detectKeyAlgorithmFromJWK jwk = do
+  -- Convert JWK to JSON Value to extract fields
+  let jwkValue = Aeson.toJSON jwk
+  case jwkValue of
+    Aeson.Object obj -> do
+      kty <- case KeyMap.lookup (Key.fromText "kty") obj of
+        Just (Aeson.String ktyText) -> Right ktyText
+        _ -> Left $ InvalidSignature "Missing 'kty' field in JWK"
+      
+      if kty == "RSA"
+        then do
+          -- Check if JWK specifies algorithm (RFC 7517 allows optional "alg" field)
+          -- RS256 is deprecated per draft-ietf-jose-deprecate-none-rsa15 (padding oracle attacks)
+          -- Default to PS256 (RSA-PSS) for security; RS256 can be explicitly requested but is deprecated
+          case KeyMap.lookup (Key.fromText "alg") obj of
+            Just (Aeson.String "RS256") -> Right "RS256"  -- Deprecated but still supported for compatibility
+            _ -> Right "PS256"  -- Default to PS256 (RSA-PSS) for security
+        else if kty == "EC"
+          then do
+            -- Check curve for EC keys (only P-256 is supported)
+            _crv <- case KeyMap.lookup (Key.fromText "crv") obj of
+              Just (Aeson.String "P-256") -> Right ()
+              Just (Aeson.String crvText) -> Left $ InvalidSignature $ "Unsupported EC curve: " <> crvText <> " (only P-256 is supported)"
+              _ -> Left $ InvalidSignature "Missing 'crv' field in EC JWK"
+            Right "ES256"
+        else if kty == "OKP"
+          then do
+            -- Check curve for OKP keys (Ed25519, Ed448)
+            crv <- case KeyMap.lookup (Key.fromText "crv") obj of
+              Just (Aeson.String crvText) -> Right crvText
+              _ -> Left $ InvalidSignature "Missing 'crv' field in OKP JWK"
+            
+            if crv == "Ed25519"
+              then Right "EdDSA"
+              else Left $ InvalidSignature $ "Unsupported OKP curve: " <> crv <> " (only Ed25519 is supported)"
+          else Left $ InvalidSignature $ "Unsupported key type: " <> kty <> " (supported: RSA, EC P-256, Ed25519)"
+    _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
+
+-- | Detect the key type from a JWK JSON Text and return the appropriate algorithm.
 -- Returns "PS256" for RSA keys (defaults to PS256 for security, RS256 also supported via "alg" field),
 -- "EdDSA" for Ed25519 keys, "ES256" for EC P-256 keys, or an error.
 detectKeyAlgorithm :: T.Text -> Either SDJWTError T.Text
@@ -85,7 +145,7 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 -- | Sign a JWT payload using a private key.
 --
 -- Parameters:
--- - privateKeyJWK: Private key as JSON Web Key (JWK) in Text format
+-- - privateKeyJWK: Private key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
@@ -94,7 +154,7 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 -- - EdDSA for Ed25519 keys
 -- - ES256 for EC P-256 keys
 signJWT
-  :: T.Text  -- ^ Private key JWK (JSON format)
+  :: JWKLike jwk => jwk  -- ^ Private key JWK (Text or jose JWK object)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
 signJWT privateKeyJWK payload = signJWTWithOptionalTyp Nothing privateKeyJWK payload
@@ -111,35 +171,31 @@ signJWT privateKeyJWK payload = signJWTWithOptionalTyp Nothing privateKeyJWK pay
 --
 -- Returns the signed JWT as a compact string, or an error.
 signJWTWithOptionalTyp
-  :: Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
-  -> T.Text  -- ^ Private key JWK (JSON format)
+  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
+  -> jwk  -- ^ Private key JWK (Text or jose JWK object)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
 signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
-  -- Require valid JWK - empty strings are not valid keys
-  if T.null privateKeyJWK
-    then return $ Left $ InvalidSignature "JWK cannot be empty - provide a valid private key JWK"
-    else do
-      -- Parse JWK from Text
-      case parseJWKFromText privateKeyJWK of
+  -- Convert to jose JWK
+  case toJWK privateKeyJWK of
+    Left err -> return $ Left err
+    Right jwk -> do
+      -- Detect algorithm from key type
+      algResult <- case detectKeyAlgorithmFromJWK jwk of
         Left err -> return $ Left err
-        Right jwk -> do
-          -- Detect algorithm from key type
-          algResult <- case detectKeyAlgorithm privateKeyJWK of
+        Right algText -> return $ Right algText
+      
+      case algResult of
+        Left err -> return $ Left err
+        Right algText -> do
+          -- Convert to JWA.Alg
+          jwsAlgResult <- case toJwsAlg algText of
             Left err -> return $ Left err
-            Right algText -> return $ Right algText
+            Right alg -> return $ Right alg
           
-          case algResult of
+          case jwsAlgResult of
             Left err -> return $ Left err
-            Right algText -> do
-              -- Convert to JWA.Alg
-              jwsAlgResult <- case toJwsAlg algText of
-                Left err -> return $ Left err
-                Right alg -> return $ Right alg
-              
-              case jwsAlgResult of
-                Left err -> return $ Left err
-                Right jwsAlg -> do
+            Right jwsAlg -> do
                   -- Create header with algorithm (Protected header)
                   let baseHeader = JWS.newJWSHeader (Header.Protected, jwsAlg)
                   -- Add typ header if specified (native support in jose!)
@@ -197,8 +253,8 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
 --
 -- Returns the signed JWT as a compact string, or an error.
 signJWTWithTyp
-  :: T.Text  -- ^ typ header value
-  -> T.Text  -- ^ Private key JWK (JSON format)
+  :: JWKLike jwk => T.Text  -- ^ typ header value
+  -> jwk  -- ^ Private key JWK (Text or jose JWK object)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
 signJWTWithTyp typValue privateKeyJWK payload = signJWTWithOptionalTyp (Just typValue) privateKeyJWK payload
@@ -212,60 +268,56 @@ signJWTWithTyp typValue privateKeyJWK payload = signJWTWithOptionalTyp (Just typ
 --
 -- Returns the decoded payload if verification succeeds, or an error.
 verifyJWT
-  :: T.Text  -- ^ Public key JWK (JSON format)
+  :: JWKLike jwk => jwk  -- ^ Public key JWK (Text or jose JWK object)
   -> T.Text  -- ^ JWT to verify
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError Aeson.Value)
 verifyJWT publicKeyJWK jwtText requiredTyp = do
-  -- Require valid JWK - empty strings are not valid keys
-  if T.null publicKeyJWK
-    then return $ Left $ InvalidSignature "JWK cannot be empty - provide a valid public key JWK"
-    else do
-      -- Parse JWK from Text
-      case parseJWKFromText publicKeyJWK of
-        Left err -> return $ Left err
-        Right jwk -> do
-          -- Decode compact JWT
-          case Compact.decodeCompact (LBS.fromStrict $ TE.encodeUtf8 jwtText) :: Either JoseError.Error (JWS.CompactJWS JWS.JWSHeader) of
-            Left err -> return $ Left $ InvalidSignature $ "Failed to decode JWT: " <> T.pack (show err)
-            Right jws -> do
-              -- Extract header from signature
-              let sigs = jws ^.. JWS.signatures
-              case sigs of
-                [] -> return $ Left $ InvalidSignature "No signatures found in JWT"
-                (sig:_) -> do
-                  let hdr = sig ^. JWS.header
-                  
-                  -- SECURITY: RFC 8725bis - Extract and validate algorithm BEFORE verification
-                  -- We MUST NOT trust the alg value in the header - we must validate it matches the key
-                  let algParam = hdr ^. Header.alg . Header.param
-                  let headerAlg = case algParam of
-                        JWA.RS256 -> "RS256"
-                        JWA.PS256 -> "PS256"
-                        JWA.EdDSA -> "EdDSA"
-                        JWA.ES256 -> "ES256"
-                        _ -> "UNSUPPORTED"
-                  
-                  -- Validate algorithm matches key type (RFC 8725bis requirement)
-                  expectedAlgResult <- case detectKeyAlgorithm publicKeyJWK of
-                    Left err -> return $ Left err
-                    Right expectedAlg -> return $ Right expectedAlg
-                  
-                  case expectedAlgResult of
-                    Left err -> return $ Left err
-                    Right expectedAlg -> do
-                      -- Reject "none" algorithm (unsecured JWT attack prevention)
-                      if headerAlg == "none"
-                        then return $ Left $ InvalidSignature "Unsecured JWT (alg: 'none') rejected per RFC 8725bis"
+  -- Convert to jose JWK
+  case toJWK publicKeyJWK of
+    Left err -> return $ Left err
+    Right jwk -> do
+      -- Decode compact JWT
+      case Compact.decodeCompact (LBS.fromStrict $ TE.encodeUtf8 jwtText) :: Either JoseError.Error (JWS.CompactJWS JWS.JWSHeader) of
+        Left err -> return $ Left $ InvalidSignature $ "Failed to decode JWT: " <> T.pack (show err)
+        Right jws -> do
+          -- Extract header from signature
+          let sigs = jws ^.. JWS.signatures
+          case sigs of
+            [] -> return $ Left $ InvalidSignature "No signatures found in JWT"
+            (sig:_) -> do
+              let hdr = sig ^. JWS.header
+              
+              -- SECURITY: RFC 8725bis - Extract and validate algorithm BEFORE verification
+              -- We MUST NOT trust the alg value in the header - we must validate it matches the key
+              let algParam = hdr ^. Header.alg . Header.param
+              let headerAlg = case algParam of
+                    JWA.RS256 -> "RS256"
+                    JWA.PS256 -> "PS256"
+                    JWA.EdDSA -> "EdDSA"
+                    JWA.ES256 -> "ES256"
+                    _ -> "UNSUPPORTED"
+              
+              -- Validate algorithm matches key type (RFC 8725bis requirement)
+              expectedAlgResult <- case detectKeyAlgorithmFromJWK jwk of
+                Left err -> return $ Left err
+                Right expectedAlg -> return $ Right expectedAlg
+              
+              case expectedAlgResult of
+                Left err -> return $ Left err
+                Right expectedAlg -> do
+                  -- Reject "none" algorithm (unsecured JWT attack prevention)
+                  if headerAlg == "none"
+                    then return $ Left $ InvalidSignature "Unsecured JWT (alg: 'none') rejected per RFC 8725bis"
+                    else do
+                      -- Validate algorithm matches expected algorithm (RFC 8725bis - don't trust header)
+                      if headerAlg /= expectedAlg
+                        then return $ Left $ InvalidSignature $ "Algorithm mismatch: header claims '" <> headerAlg <> "', but key type requires '" <> expectedAlg <> "' (RFC 8725bis)"
                         else do
-                          -- Validate algorithm matches expected algorithm (RFC 8725bis - don't trust header)
-                          if headerAlg /= expectedAlg
-                            then return $ Left $ InvalidSignature $ "Algorithm mismatch: header claims '" <> headerAlg <> "', but key type requires '" <> expectedAlg <> "' (RFC 8725bis)"
-                            else do
-                              -- Validate algorithm is in whitelist
-                              case toJwsAlg expectedAlg of
-                                Left err -> return $ Left err
-                                Right _ -> do
+                          -- Validate algorithm is in whitelist
+                          case toJwsAlg expectedAlg of
+                            Left err -> return $ Left err
+                            Right _ -> do
                                   -- Extract typ from header
                                   let mbTypValue = case hdr ^. Header.typ of
                                         Nothing -> Nothing

@@ -15,6 +15,7 @@ import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureClaimName, getD
 import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
 import SDJWT.Internal.Utils (splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.KeyBinding (addKeyBindingToPresentation)
+import SDJWT.Internal.JWT (JWKLike)
 import SDJWT.Internal.Verification (parsePayloadFromJWT)
 import qualified Data.Text as T
 import qualified Data.Set as Set
@@ -120,8 +121,8 @@ selectDisclosures sdjwt@(SDJWT _ allDisclosures) selectedDisclos = do
 --
 -- Returns the presentation with key binding added, or an error if KB-JWT creation fails.
 addKeyBinding
-  :: HashAlgorithm
-  -> T.Text  -- ^ Holder private key (JWK as Text)
+  :: JWKLike jwk => HashAlgorithm
+  -> jwk  -- ^ Holder private key (Text or jose JWK object)
   -> T.Text  -- ^ Audience
   -> T.Text  -- ^ Nonce
   -> Int64   -- ^ Issued at (Unix epoch seconds)
