@@ -24,15 +24,21 @@ jobs:
         enable-stack: true
         stack-no-global: true
     
-    - name: Cache Stack dependencies
+    - name: Cache Stack global
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.stack
-          .stack-work
-        key: ${{ runner.os }}-${{ matrix.resolver }}-stack-${{ hashFiles('**/*.cabal', '**/stack.yaml', '**/stack.yaml.lock') }}
+        path: ~/.stack
+        key: ${{ runner.os }}-${{ matrix.resolver }}-stack-global
         restore-keys: |
-          ${{ runner.os }}-${{ matrix.resolver }}-stack-
+          ${{ runner.os }}-${{ matrix.resolver }}-stack-global
+    
+    - name: Cache Stack work
+      uses: actions/cache@v4
+      with:
+        path: .stack-work
+        key: ${{ runner.os }}-${{ matrix.resolver }}-stack-work-${{ hashFiles('**/*.cabal', '**/stack.yaml', '**/stack.yaml.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ matrix.resolver }}-stack-work-
     
     - name: Cache Stack snapshots
       uses: actions/cache@v4
