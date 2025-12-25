@@ -180,21 +180,23 @@ jobs:
         fi
     
     - name: Deploy Haddock documentation to GitHub Pages
+      id: deploy
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: deploy/
         keep_files: true  # Preserve CNAME file for custom domain
         force_orphan: false  # Don't create orphan branch (preserve history)
+        allow_empty_commit: true  # Force commit even if files haven't changed (triggers GitHub Pages rebuild)
     
-    - name: Output documentation URL
+    - name: Output deployment status
       run: |
-        REPO_NAME="${GITHUB_REPOSITORY#*/}"
-        OWNER="${GITHUB_REPOSITORY%/*}"
-        if [ "$OWNER" = "$GITHUB_REPOSITORY" ]; then
-          # Fallback for user repos
-          OWNER="${GITHUB_REPOSITORY%%/*}"
-        fi
-        echo "::notice::Documentation deployed to: https://${OWNER}.github.io/${REPO_NAME}/"
-        echo "Documentation URL: https://${OWNER}.github.io/${REPO_NAME}/"
+        echo "Deployment completed successfully!"
+        echo "::notice::GitHub Pages deployment finished"
+        echo ""
+        echo "To view your documentation:"
+        echo "1. Go to Settings → Pages in your repository"
+        echo "2. Ensure 'Source' is set to 'GitHub Actions'"
+        echo "3. Wait a few minutes for GitHub Pages to build"
+        echo "4. Visit: https://www.sheffer.org/sd-jwt/"
 
