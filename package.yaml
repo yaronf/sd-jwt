@@ -92,6 +92,20 @@ tests:
   sd-jwt-test:
     main:                Spec.hs
     source-dirs:         test
+    other-modules:
+    - UtilsSpec
+    - DigestSpec
+    - DisclosureSpec
+    - SerializationSpec
+    - IssuanceSpec
+    - PresentationSpec
+    - VerificationSpec
+    - KeyBindingSpec
+    - JWTSpec
+    - RFCSpec
+    - PropertySpec
+    - TestHelpers
+    - TestKeys
     ghc-options:
     - -threaded
     - -rtsopts

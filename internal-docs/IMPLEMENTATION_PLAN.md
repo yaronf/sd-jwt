@@ -801,17 +801,49 @@ dependencies:
   - Tag releases in git
   - Create release notes
 
+- [ ] **End-to-End Tests**
+  - Create comprehensive end-to-end test scenarios
+  - Test full issuer → holder → verifier flow
+  - Test error paths and edge cases
+  - Test with various key types (RSA, EC, Ed25519)
+  - Test nested structures and recursive disclosures
+  - Test key binding scenarios
+
+- [ ] **Test Plan Review**
+  - Reverse engineer test plan from existing tests
+  - Document test coverage by RFC section
+  - Review test plan against RFC 9901 requirements
+  - Identify any gaps in test coverage
+  - Ensure all RFC examples are covered
+
 - [ ] **CI/CD**
-  - Set up automated testing
-  - Set up automated builds
+  - Set up GitHub Actions for automated testing
+  - Set up automated builds (multiple GHC versions)
   - Set up automated documentation generation
+  - Set up automated linting/formatting checks
   - Set up release automation (if applicable)
+
+- [ ] **GitHub Deployment**
+  - Push repository to GitHub
+  - Set up repository structure (README, LICENSE, etc.)
+  - Configure GitHub Actions workflows
+  - Set up branch protection rules
+  - Add issue templates and contribution guidelines
+
+- [ ] **Hackage Deployment**
+  - Prepare package for Hackage (check all requirements)
+  - Create Hackage-compatible package description
+  - Generate and review Haddock documentation
+  - Test package installation from Hackage
+  - Submit package to Hackage
+  - Set up Hackage CI integration
 
 - [ ] **Quality Assurance**
   - Run full test suite
   - Verify all examples work
   - Check documentation is complete
   - Review for any remaining TODOs
+  - Perform final security review
 
 ## Future Enhancements
 
