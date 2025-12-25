@@ -34,6 +34,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-${{ matrix.resolver }}-stack-
     
+    - name: Cache GHC
+      uses: actions/cache@v4
+      with:
+        path: ~/.stack/programs
+        key: ${{ runner.os }}-ghc-${{ matrix.resolver }}
+        restore-keys: |
+          ${{ runner.os }}-ghc-
+    
     - name: Create CI stack.yaml override
       run: |
         cat > stack-ci.yaml <<EOF
@@ -47,11 +55,11 @@ jobs:
     
     - name: Build
       run: |
-        stack --stack-yaml stack-ci.yaml build --test --no-run-tests
+        stack --stack-yaml stack-ci.yaml build --fast --test --no-run-tests
     
     - name: Test
       run: |
-        stack --stack-yaml stack-ci.yaml test
+        stack --stack-yaml stack-ci.yaml test --fast
     
     - name: Build documentation
       run: |
