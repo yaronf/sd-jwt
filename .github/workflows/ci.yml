@@ -161,12 +161,31 @@ jobs:
         echo "Directory structure:"
         find deploy/sd-jwt -type d | head -10
     
+    - name: Verify deployment structure before publishing
+      run: |
+        echo "Final structure to be deployed:"
+        echo "deploy/ directory contents:"
+        ls -la deploy/
+        echo ""
+        echo "deploy/sd-jwt/ directory contents:"
+        ls -la deploy/sd-jwt/ | head -10
+        echo ""
+        echo "Checking index.html:"
+        if [ -f "deploy/sd-jwt/index.html" ]; then
+          echo "✓ index.html exists at deploy/sd-jwt/index.html"
+          echo "File size: $(wc -c < deploy/sd-jwt/index.html) bytes"
+        else
+          echo "✗ ERROR: index.html not found!"
+          exit 1
+        fi
+    
     - name: Deploy Haddock documentation to GitHub Pages
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: deploy/
         keep_files: true  # Preserve CNAME file for custom domain
+        force_orphan: false  # Don't create orphan branch (preserve history)
     
     - name: Output documentation URL
       run: |
