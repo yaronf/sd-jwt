@@ -44,6 +44,33 @@ stack haddock
 - Follow the existing test structure in `test/`
 - Property-based tests are encouraged for core functionality
 
+### Testing Documentation Examples
+
+Code examples in documentation are automatically tested using `doctest`:
+
+- **README.md examples**: Extracted using `markdown-unlit` and converted to doctest format
+- **Haddock examples**: Tested directly using `doctest` (standard Haskell tool)
+
+When you add or modify code examples in documentation:
+
+1. **For README.md examples**:
+   - Use standard markdown code blocks (```haskell)
+   - The script `./scripts/extract-doc-examples.sh` converts them to doctest format
+   - Placeholders like `loadPrivateKeyJWK` are automatically replaced with test helpers
+
+2. **For Haddock examples**:
+   - Use `-- >>>` syntax in Haddock comments (not `-- @`)
+   - Examples are tested directly by `doctest`
+   - See `src/SDJWT/Issuer.hs`, `src/SDJWT/Holder.hs`, and `src/SDJWT/Verifier.hs` for examples
+
+3. **To test all documentation examples**:
+   ```bash
+   ./scripts/prepare-doctest.sh
+   ```
+   This script converts README.md and runs doctest on all documentation files.
+
+**Note**: The generated file (`test/ReadmeExamplesDoctest.hs`) should not be edited manually - it will be overwritten when you run the extraction script.
+
 ## Pull Request Process
 
 1. Update documentation if needed

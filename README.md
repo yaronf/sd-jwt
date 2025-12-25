@@ -203,6 +203,7 @@ Keys can be provided in two formats:
 
 1. **Text (JSON string)** - Most convenient, no need to import `jose`:
    ```haskell
+   let claims = Map.fromList [("claim", Aeson.String "value")]
    let issuerKey :: T.Text = "{\"kty\":\"RSA\",\"n\":\"...\",\"e\":\"AQAB\",\"d\":\"...\"}"
    result <- createSDJWT SHA256 issuerKey ["claim"] claims
    ```
@@ -210,6 +211,7 @@ Keys can be provided in two formats:
 2. **jose JWK object** - If you're already working with the `jose` library:
    ```haskell
    import Crypto.JOSE.JWK as JWK
+   let claims = Map.fromList [("claim", Aeson.String "value")]
    jwk <- loadJWK  -- Your function that returns JWK.JWK
    result <- createSDJWT SHA256 jwk ["claim"] claims
    ```

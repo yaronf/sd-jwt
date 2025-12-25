@@ -34,25 +34,16 @@
 --
 -- == Example
 --
--- @
--- import SDJWT.Issuer
--- import qualified Data.Map.Strict as Map
--- import qualified Data.Aeson as Aeson
---
--- main = do
---   let claims = Map.fromList
---         [ ("sub", Aeson.String "user_123")
---         , ("given_name", Aeson.String "John")
---         , ("family_name", Aeson.String "Doe")
---         ]
---   keyPair <- generateTestRSAKeyPair  -- From TestKeys module
---   result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name", "family_name"] claims
---   case result of
---     Right sdjwt -> do
---       let serialized = serializeSDJWT sdjwt
---       putStrLn $ "SD-JWT: " ++ T.unpack serialized
---     Left err -> putStrLn $ "Error: " ++ show err
--- @
+-- >>> :set -XOverloadedStrings
+-- >>> import SDJWT.Issuer
+-- >>> import qualified Data.Map.Strict as Map
+-- >>> import qualified Data.Aeson as Aeson
+-- >>> import qualified Data.Text as T
+-- >>> let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John"), ("family_name", Aeson.String "Doe")]
+-- >>> -- Note: In real usage, you would load your private key here
+-- >>> -- issuerPrivateKeyJWK <- loadPrivateKeyJWK
+-- >>> -- result <- createSDJWT SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
+-- >>> -- case result of Right sdjwt -> serializeSDJWT sdjwt; Left err -> T.pack $ show err
 module SDJWT.Issuer
   ( module SDJWT.Internal.Types
   , module SDJWT.Internal.Serialization

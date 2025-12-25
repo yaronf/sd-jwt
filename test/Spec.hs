@@ -14,6 +14,7 @@ import JWTSpec
 import RFCSpec
 import PropertySpec
 import EndToEndSpec
+import DoctestSpec
 
 main :: IO ()
 main = hspec $ do
@@ -29,3 +30,4 @@ main = hspec $ do
   RFCSpec.spec
   PropertySpec.spec
   EndToEndSpec.spec
+  DoctestSpec.spec

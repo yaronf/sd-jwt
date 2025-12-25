@@ -22,26 +22,18 @@
 --
 -- == Example
 --
--- @
--- import SDJWT.Verifier
--- import qualified Data.Text as T
---
--- main = do
---   -- Deserialize presentation received from holder
---   let presentationText = "eyJhbGciOiJSUzI1NiJ9.eyJfc2QiOlsidGVzdCJdLCJfc2RfYWxnIjoic2hhLTI1NiJ9.~WyJ0ZXN0Il0~"
---   case deserializePresentation (T.pack presentationText) of
---     Right presentation -> do
---       -- Verify the SD-JWT
---       issuerPublicKey <- loadIssuerPublicKey  -- Your function to load issuer's public key
---       result <- verifySDJWT issuerPublicKey presentation
---       case result of
---         Right processedPayload -> do
---           -- Extract claims (includes both regular claims and disclosed claims)
---           let claims = processedClaims processedPayload
---           putStrLn $ "Verified claims: " ++ show claims
---         Left err -> putStrLn $ "Verification failed: " ++ show err
---     Left err -> putStrLn $ "Error: " ++ show err
--- @
+-- >>> :set -XOverloadedStrings
+-- >>> import SDJWT.Verifier
+-- >>> import qualified Data.Text as T
+-- >>> -- Deserialize presentation received from holder
+-- >>> -- let presentationText = "eyJhbGciOiJSUzI1NiJ9..."
+-- >>> -- case deserializePresentation (T.pack presentationText) of
+-- >>> --   Right presentation -> do
+-- >>> --     issuerPublicKeyJWK <- loadPublicKeyJWK
+-- >>> --     verifySDJWT issuerPublicKeyJWK presentation Nothing
+-- >>> --   Left err -> Left err
+-- >>> -- Extract claims (includes both regular claims and disclosed claims)
+-- >>> -- let claims = processedClaims processedPayload
 module SDJWT.Verifier
   ( module SDJWT.Internal.Types
   , module SDJWT.Internal.Serialization

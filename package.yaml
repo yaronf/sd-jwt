@@ -95,6 +95,7 @@ tests:
     - RFCSpec
     - PropertySpec
     - EndToEndSpec
+    - DoctestSpec
     - TestHelpers
     - TestKeys
     ghc-options:
@@ -105,3 +106,7 @@ tests:
     - sd-jwt
     - hspec >= 2.10
     - QuickCheck >= 2.14
+    - markdown-unlit >= 0.5
+    - doctest >= 0.22
+    - process >= 1.6
+    - filepath >= 1.4
