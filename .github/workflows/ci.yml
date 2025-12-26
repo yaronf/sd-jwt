@@ -129,49 +129,46 @@ jobs:
     
     - name: Prepare documentation for deployment
       run: |
-        # Create sd-jwt subdirectory structure for custom domain path
-        mkdir -p deploy/sd-jwt
-        # Copy all files from haddock-docs to deploy/sd-jwt
+        # Deploy files to root of gh-pages branch (custom domain handles /sd-jwt/ path routing)
+        mkdir -p deploy
+        # Copy all files from haddock-docs to deploy root
         # Handle both cases: haddock-docs contains files directly or has sd-jwt subdirectory
         if [ -d "haddock-docs/sd-jwt" ]; then
-          cp -r haddock-docs/sd-jwt/* deploy/sd-jwt/
+          cp -r haddock-docs/sd-jwt/* deploy/
         else
-          cp -r haddock-docs/* deploy/sd-jwt/
+          cp -r haddock-docs/* deploy/
         fi
         echo "Deployment structure prepared:"
-        echo "Contents of deploy/sd-jwt/:"
-        ls -la deploy/sd-jwt/ | head -20
+        echo "Contents of deploy/:"
+        ls -la deploy/ | head -20
         echo ""
         echo "Looking for index.html:"
-        find deploy/sd-jwt -name "index.html" | head -5
+        find deploy -name "index.html" | head -5
         echo ""
         echo "Verifying index.html exists:"
-        if [ -f "deploy/sd-jwt/index.html" ]; then
-          echo "✓ index.html found at deploy/sd-jwt/index.html"
-          head -5 deploy/sd-jwt/index.html
+        if [ -f "deploy/index.html" ]; then
+          echo "✓ index.html found at deploy/index.html"
+          head -5 deploy/index.html
         else
           echo "✗ ERROR: index.html not found!"
           echo "Available HTML files:"
-          find deploy/sd-jwt -name "*.html" | head -10
+          find deploy -name "*.html" | head -10
           exit 1
         fi
         echo ""
         echo "Directory structure:"
-        find deploy/sd-jwt -type d | head -10
+        find deploy -type d | head -10
     
     - name: Verify deployment structure before publishing
       run: |
         echo "Final structure to be deployed:"
         echo "deploy/ directory contents:"
-        ls -la deploy/
-        echo ""
-        echo "deploy/sd-jwt/ directory contents:"
-        ls -la deploy/sd-jwt/ | head -10
+        ls -la deploy/ | head -20
         echo ""
         echo "Checking index.html:"
-        if [ -f "deploy/sd-jwt/index.html" ]; then
-          echo "✓ index.html exists at deploy/sd-jwt/index.html"
-          echo "File size: $(wc -c < deploy/sd-jwt/index.html) bytes"
+        if [ -f "deploy/index.html" ]; then
+          echo "✓ index.html exists at deploy/index.html"
+          echo "File size: $(wc -c < deploy/index.html) bytes"
         else
           echo "✗ ERROR: index.html not found!"
           exit 1
@@ -198,9 +195,10 @@ jobs:
         echo "Deployment completed successfully!"
         echo "::notice::GitHub Pages deployment finished"
         echo ""
+        echo "Files have been deployed to the root of the gh-pages branch."
+        echo "GitHub Pages will serve them from the branch root."
+        echo ""
         echo "To view your documentation:"
-        echo "1. Go to Settings → Pages in your repository"
-        echo "2. Ensure 'Source' is set to 'GitHub Actions'"
-        echo "3. Wait a few minutes for GitHub Pages to build"
-        echo "4. Visit: https://www.sheffer.org/sd-jwt/"
+        echo "1. Wait a few minutes for GitHub Pages to build"
+        echo "2. Visit: https://www.sheffer.org/sd-jwt/"
 
