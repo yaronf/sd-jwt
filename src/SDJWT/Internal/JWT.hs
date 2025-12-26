@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 -- | JWT signing and verification using jose library.
 --
 -- This module provides functions for signing and verifying JWTs using the
@@ -168,6 +169,7 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
                   
                   -- Sign the JWT using Identity container to get FlattenedJWS (single signature)
                   -- With native typ support, jose handles everything!
+                  -- Note: Header.Protection is deprecated in newer jose versions but required for jose-0.10 compatibility
                   result <- Jose.runJOSE $ JWS.signJWS payloadBS (Identity (header, jwk)) :: IO (Either JoseError.Error (JWS.JWS Identity Header.Protection JWS.JWSHeader))
                   
                   case result of

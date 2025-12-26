@@ -12,7 +12,7 @@
 -- Run with: stack runghc examples/EndToEndExample.hs
 -- Or: stack exec -- sd-jwt-example
 
-module Main where
+module Main (main) where
 
 import SDJWT.Issuer
 import SDJWT.Holder

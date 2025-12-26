@@ -118,6 +118,7 @@ executables:
     main:                examples/EndToEndExample.hs
     source-dirs:         .
     ghc-options:
+    - -Wno-unused-packages
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
@@ -125,6 +126,6 @@ executables:
     - sd-jwt
     - aeson >= 2.0 && < 2.3
     - bytestring >= 0.11 && < 0.12
-    - text >= 2.0 && < 2.1
+    - containers >= 0.6 && < 0.7
     - directory >= 1.3 && < 1.4
-    - filepath >= 1.4 && < 1.5
+    - text >= 2.0 && < 2.1
