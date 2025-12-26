@@ -1,6 +1,7 @@
 # Stack
 .stack-work/
 *.cabal
+!sd-jwt.cabal
 cabal.project.local
 cabal.project.local~
 
