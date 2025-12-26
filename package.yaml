@@ -100,6 +100,27 @@ tests:
     - TestHelpers
     - TestKeys
     ghc-options:
+    - -Wall                    # Enable all standard warnings
+    - -Wcompat                 # Warn about compatibility issues
+    - -Widentities             # Warn about redundant identity functions
+    - -Wincomplete-record-updates # Warn about incomplete record updates
+    - -Wincomplete-uni-patterns # Warn about incomplete pattern matches
+    - -Wmissing-export-lists   # Warn about missing export lists
+    - -Wmissing-home-modules   # Warn about missing home modules
+    - -Wpartial-fields         # Warn about partial record fields
+    - -Wredundant-constraints  # Warn about redundant constraints
+    - -Wunused-packages        # Warn about unused packages
+    - -Wmissing-deriving-strategies # Warn about missing deriving strategies
+    - -Wno-missing-import-lists   # Disable: (..) imports are acceptable for constructors
+    - -Wno-unused-imports      # Disable: unused imports are acceptable (often used for re-exports or future use)
+    - -Wunused-type-patterns   # Warn about unused type patterns
+    - -Wunused-record-wildcards # Warn about unused record wildcards
+    - -Wredundant-record-wildcards # Warn about redundant record wildcards
+    - -Wtype-defaults          # Warn about type defaulting
+    - -Wunused-do-bind         # Warn about unused do bindings
+    - -Wunused-foralls          # Warn about unused foralls
+    - -Wdeprecations            # Warn about deprecated functions
+    - -Wnoncanonical-monad-instances # Warn about non-canonical monad instances
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N

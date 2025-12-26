@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module RFCSpec (spec) where
 
 import Test.Hspec
@@ -197,6 +198,3 @@ spec =     describe "RFC Test Vectors" $ do
                       Right () -> return ()  -- Success
           Right (_, _, Nothing) -> expectationFailure "RFC SD-JWT+KB should have KB-JWT"
 
-isLeft :: Either a b -> Bool
-isLeft (Left _) = True
-isLeft _ = False

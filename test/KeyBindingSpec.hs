@@ -178,6 +178,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
                     case KeyMap.lookup (Key.fromText "typ") obj of
                       Just (Aeson.String "kb+jwt") -> return ()  -- Success - typ header is present and correct
                       Just (Aeson.String typVal) -> expectationFailure $ "Wrong typ value: " ++ T.unpack typVal ++ " (expected 'kb+jwt')"
+                      Just _ -> expectationFailure "typ header is not a string"
                       Nothing -> expectationFailure "Missing typ header in KB-JWT"
                   _ -> expectationFailure "Header is not an object"
               _ -> expectationFailure "Invalid KB-JWT format"
@@ -217,6 +218,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
                         case KeyMap.lookup (Key.fromText "typ") hObj of
                           Just (Aeson.String "kb+jwt") -> return ()  -- Success - typ is correct
                           Just (Aeson.String typVal) -> expectationFailure $ "Wrong typ value: " ++ T.unpack typVal
+                          Just _ -> expectationFailure "typ header is not a string"
                           Nothing -> expectationFailure "Missing typ header"
                       _ -> expectationFailure "Header is not an object"
                   _ -> expectationFailure "Invalid JWT format"

@@ -226,12 +226,12 @@ spec = describe "SDJWT.JWT" $ do
       result <- verifyJWT (publicKeyJWK rsaKeyPair) unsecuredJWT Nothing
       
       case result of
-        Left (InvalidSignature msg) -> do
+        Left (InvalidSignature _msg) -> do
           -- jose library rejects "none" algorithm during decodeCompact
           -- This is the correct behavior - unsecured JWTs are prevented by jose's type system
           -- Our code never sees "none" because it's not a valid JWA.Alg value
           return ()  -- Any error is acceptable - jose prevents "none" at decode time
-        Left err -> return ()  -- Any error is acceptable
+        Left _err -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWT with alg: 'none' (jose type system prevents it)"
     
     it "rejects JWT with algorithm mismatch (RFC 8725bis - don't trust header)" $ do

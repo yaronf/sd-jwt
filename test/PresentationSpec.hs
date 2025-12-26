@@ -188,7 +188,7 @@ spec = describe "SDJWT.Presentation" $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, sdDisclosures) -> do
+          Right (_payload, _sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
             sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of
@@ -218,7 +218,7 @@ spec = describe "SDJWT.Presentation" $ do
                   _ -> V.empty
             arrayResult <- processArrayForSelectiveDisclosure SHA256 nationalitiesArr [0]  -- Mark first element
             case arrayResult of
-              Right (modifiedArr, arrayDisclosures) -> do
+              Right (_modifiedArr, arrayDisclosures) -> do
                 -- Create payload with modified array containing ellipsis object
                 let arrayDigest = computeDigest SHA256 (head arrayDisclosures)
                 let payloadWithArray = Aeson.object
@@ -387,7 +387,7 @@ spec = describe "SDJWT.Presentation" $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, sdDisclosures) -> do
+          Right (_payload, _sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
             sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of

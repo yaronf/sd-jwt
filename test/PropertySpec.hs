@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-orphans -Wno-name-shadowing #-}
 module PropertySpec (spec) where
 
 import Test.Hspec

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module VerificationSpec (spec) where
 
 import Test.Hspec
@@ -560,7 +561,7 @@ spec = describe "SDJWT.Verification" $ do
         result <- verifySDJWTWithoutSignature presentation
         -- Should succeed (non-string values in _sd are just ignored)
         case result of
-          Right processed -> do
+          Right _processed -> do
             -- Should process successfully, ignoring invalid _sd entries
             return ()
           Left _ -> return ()  -- Or might fail, both acceptable
@@ -722,7 +723,7 @@ spec = describe "SDJWT.Verification" $ do
       it "fails when disclosure digest is not found in payload" $ do
         -- Create a valid disclosure
         let disclosure = EncodedDisclosure "WyJlbHVWNU9nM2dTTklJOEVZbnN4QV9BIiwgImZhbWlseV9uYW1lIiwgIkRvZSJd"
-        let disclosureDigest = computeDigest SHA256 disclosure
+        let _disclosureDigest = computeDigest SHA256 disclosure
         
         -- Create a JWT payload that doesn't contain this digest
         let jwtPayload = Aeson.object
@@ -751,7 +752,7 @@ spec = describe "SDJWT.Verification" $ do
       it "fails when array disclosure digest is not found in arrays" $ do
         -- Create a valid array disclosure
         let arrayDisclosure = EncodedDisclosure "WyJsa2x4RjVqTVlsR1RQVW92TU5JdkNBIiwgIlVTIl0"
-        let arrayDigest = computeDigest SHA256 arrayDisclosure
+        let _arrayDigest = computeDigest SHA256 arrayDisclosure
         
         -- Create a JWT payload with array that doesn't contain this digest
         let jwtPayload = Aeson.object
@@ -973,7 +974,7 @@ spec = describe "SDJWT.Verification" $ do
             result <- verifySDJWTSignature (publicKeyJWK wrongKeyPair) presentation Nothing
             case result of
               Left (InvalidSignature _) -> return ()  -- Success - signature verification failed as expected
-              Left err -> do
+              Left _err -> do
                 -- jose might return different error types, which is acceptable
                 -- The important thing is that verification fails
                 return ()  -- Accept any error
@@ -998,7 +999,7 @@ spec = describe "SDJWT.Verification" $ do
         -- Verify should fail
         result <- verifySDJWTSignature (publicKeyJWK keyPair) presentation Nothing
         case result of
-          Left (InvalidSignature msg) -> do
+          Left (InvalidSignature _msg) -> do
             -- Should fail with invalid JWT format or signature verification error
             True `shouldBe` True  -- Any error is acceptable
           Left _ -> return ()  -- Any error is acceptable
