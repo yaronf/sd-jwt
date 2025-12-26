@@ -177,6 +177,12 @@ jobs:
           exit 1
         fi
     
+    - name: Create CNAME file for custom domain
+      run: |
+        echo "www.sheffer.org" > deploy/CNAME
+        echo "Created CNAME file:"
+        cat deploy/CNAME
+    
     - name: Deploy Haddock documentation to GitHub Pages
       id: deploy
       uses: peaceiris/actions-gh-pages@v3
