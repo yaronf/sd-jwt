@@ -186,7 +186,7 @@ jobs:
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: deploy/
-        keep_files: true  # Preserve CNAME file for custom domain
+        keep_files: false  # Remove old files (like sd-jwt/ directory) since we're deploying to root
         force_orphan: false  # Don't create orphan branch (preserve history)
         allow_empty_commit: true  # Force commit even if files haven't changed (triggers GitHub Pages rebuild)
     
