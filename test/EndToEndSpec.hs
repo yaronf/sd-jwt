@@ -35,7 +35,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             ]
       
       -- Step 1: Issuer creates SD-JWT
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) 
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
                                      ["given_name", "family_name", "email"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
@@ -76,7 +76,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             ]
       
       -- Complete flow
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) 
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
                                      ["given_name", "family_name"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
@@ -110,7 +110,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             ]
       
       -- Complete flow
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) 
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
                                      ["given_name", "email"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
@@ -153,7 +153,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             ]
       
       -- Step 1: Issuer creates SD-JWT with cnf claim
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) 
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
                                      ["given_name", "email"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
@@ -208,7 +208,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             , ("cnf", cnfValue)
             ]
       
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
         Right sdjwt -> do
@@ -243,7 +243,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
       wrongIssuerKeyPair <- generateTestRSAKeyPair2
       let claims = Map.fromList [("sub", Aeson.String "user_123"), ("name", Aeson.String "Test")]
       
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
         Right sdjwt -> do
@@ -261,7 +261,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
       issuerKeyPair <- generateTestRSAKeyPair
       let claims = Map.fromList [("sub", Aeson.String "user_123"), ("name", Aeson.String "Test")]
       
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
         Right sdjwt -> do
@@ -278,7 +278,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
       let claims = Map.fromList [("sub", Aeson.String "user_123")]
       
       -- Create SD-JWT with no selectively disclosable claims
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) [] claims
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) [] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err
         Right sdjwt -> do
@@ -304,7 +304,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             , ("email", Aeson.String "john@example.com")
             ]
       
-      issuanceResult <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) 
+      issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
                                      ["given_name", "family_name", "email"] claims
       case issuanceResult of
         Left err -> expectationFailure $ "Issuance failed: " ++ show err

@@ -113,6 +113,7 @@ module SDJWT.Internal.Issuance
   , createSDJWTWithDecoys
   , addDecoyDigest
   , buildSDJWTPayload
+  , addHolderKeyToClaims
     -- * Internal/Test-only functions
     -- These functions are exported primarily for testing purposes.
     -- Most users should use 'createSDJWT' or 'buildSDJWTPayload' instead.
@@ -125,13 +126,14 @@ import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDis
 import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
 import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
-import SDJWT.Internal.JWT (signJWTWithOptionalTyp, JWKLike)
+import SDJWT.Internal.JWT (signJWTWithHeaders, JWKLike)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
 import Data.List (sortBy, partition)
 import Data.Ord (comparing)
@@ -367,18 +369,19 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 --
 createSDJWT
   :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing). If @Nothing@, no typ header is added. If @Just "sd-jwt"@ or @Just "example+sd-jwt"@, the typ header is included in the JWT header.
+  -> Maybe T.Text  -- ^ Optional kid header value (Key ID for key management). If @Nothing@, no kid header is added.
   -> HashAlgorithm  -- ^ Hash algorithm for digests
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
   -> IO (Either SDJWTError SDJWT)
-createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
+createSDJWT mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
   result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
   case result of
     Left err -> return (Left err)
     Right (payload, sdDisclosures) -> do
-      -- Sign the JWT with optional typ header
-      signedJWTResult <- signJWTWithOptionalTyp mbTyp issuerPrivateKeyJWK (payloadValue payload)
+      -- Sign the JWT with optional typ and kid headers
+      signedJWTResult <- signJWTWithHeaders mbTyp mbKid issuerPrivateKeyJWK (payloadValue payload)
       case signedJWTResult of
         Left err -> return (Left err)
         Right signedJWT -> return $ Right $ SDJWT
@@ -412,15 +415,16 @@ createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 --
 createSDJWTWithDecoys
   :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt"). If @Nothing@, no typ header is added.
+  -> Maybe T.Text  -- ^ Optional kid header value (Key ID for key management). If @Nothing@, no kid header is added.
   -> HashAlgorithm  -- ^ Hash algorithm for digests
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
   -> Int  -- ^ Number of decoy digests to add (must be >= 0)
   -> IO (Either SDJWTError SDJWT)
-createSDJWTWithDecoys mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims decoyCount
+createSDJWTWithDecoys mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimNames claims decoyCount
   | decoyCount < 0 = return $ Left $ InvalidDisclosureFormat "decoyCount must be >= 0"
-  | decoyCount == 0 = createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims
+  | decoyCount == 0 = createSDJWT mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimNames claims
   | otherwise = do
       -- Build the initial payload
       result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
@@ -441,8 +445,8 @@ createSDJWTWithDecoys mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames clai
                   let updatedObj = KeyMap.insert (Key.fromText "_sd") (Aeson.Array updatedSDArray) obj
                   let updatedPayload = payload { payloadValue = Aeson.Object updatedObj }
                   
-                  -- Sign the updated payload
-                  signedJWTResult <- signJWTWithOptionalTyp mbTyp issuerPrivateKeyJWK (payloadValue updatedPayload)
+                  -- Sign the updated payload with optional typ and kid headers
+                  signedJWTResult <- signJWTWithHeaders mbTyp mbKid issuerPrivateKeyJWK (payloadValue updatedPayload)
                   case signedJWTResult of
                     Left err -> return (Left err)
                     Right signedJWT -> return $ Right $ SDJWT
@@ -451,6 +455,49 @@ createSDJWTWithDecoys mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames clai
                       }
                 _ -> return $ Left $ InvalidDisclosureFormat "Payload does not contain _sd array"
             _ -> return $ Left $ InvalidDisclosureFormat "Payload is not an object"
+
+-- | Add holder's public key to claims as a @cnf@ claim (RFC 7800).
+--
+-- This convenience function adds the holder's public key to the claims map
+-- in the format required by RFC 7800 for key confirmation:
+--
+-- @
+-- {
+--   "cnf": {
+--     "jwk": "<holderPublicKeyJWK>"
+--   }
+-- }
+-- @
+--
+-- The @cnf@ claim is used during key binding to prove that the holder
+-- possesses the corresponding private key.
+--
+-- == Example
+--
+-- @
+-- let holderPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"...\",\"y\":\"...\"}"
+-- let claimsWithCnf = addHolderKeyToClaims holderPublicKeyJWK claims
+-- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithCnf
+-- @
+--
+-- == See Also
+--
+-- * RFC 7800: Proof-of-Possession Key Semantics for JSON Web Tokens (JWT)
+-- * RFC 9901 Section 4.3: Key Binding
+addHolderKeyToClaims
+  :: T.Text  -- ^ Holder's public key as a JWK JSON string
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims map
+  -> Map.Map T.Text Aeson.Value  -- ^ Claims map with @cnf@ claim added
+addHolderKeyToClaims holderPublicKeyJWK claims =
+  let
+    -- Parse the JWK JSON string to ensure it's valid JSON
+    -- We'll store it as a JSON object value
+    jwkValue = case Aeson.eitherDecodeStrict (TE.encodeUtf8 holderPublicKeyJWK) :: Either String Aeson.Value of
+      Left _ -> Aeson.String holderPublicKeyJWK  -- If parsing fails, store as string (let verification catch errors)
+      Right parsedJWK -> parsedJWK  -- Store as parsed JSON value
+    cnfValue = Aeson.Object $ KeyMap.fromList [("jwk", jwkValue)]
+  in
+    Map.insert "cnf" cnfValue claims
 
 -- | Generate a decoy digest.
 --

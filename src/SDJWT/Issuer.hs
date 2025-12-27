@@ -31,17 +31,21 @@
 -- * Core data types (HashAlgorithm, SDJWT, SDJWTPayload, etc.)
 -- * Serialization functions ('serializeSDJWT', 'deserializeSDJWT')
 -- * Issuance functions ('createSDJWT', 'createSDJWTWithDecoys')
+-- * Helper functions ('addHolderKeyToClaims')
 --
 -- == Creating SD-JWTs
 --
 -- The main function for creating SD-JWTs is 'createSDJWT':
 --
 -- @
--- -- Create SD-JWT without typ header
--- result <- createSDJWT Nothing SHA256 issuerKey ["given_name", "family_name"] claims
+-- -- Create SD-JWT without typ or kid headers
+-- result <- createSDJWT Nothing Nothing SHA256 issuerKey ["given_name", "family_name"] claims
 --
 -- -- Create SD-JWT with typ header (recommended)
--- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name", "family_name"] claims
+-- result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerKey ["given_name", "family_name"] claims
+--
+-- -- Create SD-JWT with typ and kid headers
+-- result <- createSDJWT (Just "sd-jwt") (Just "key-1") SHA256 issuerKey ["given_name"] claims
 -- @
 --
 -- == Standard JWT Claims
@@ -54,8 +58,15 @@
 -- -- Create SD-JWT with expiration time
 -- let expirationTime = currentTime + 3600  -- 1 hour from now
 -- let claimsWithExp = Map.insert "exp" (Aeson.Number (fromIntegral expirationTime)) claims
--- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithExp
+-- result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerKey ["given_name"] claimsWithExp
 -- @
+--
+-- == JWT Headers
+--
+-- Both @typ@ and @kid@ headers are supported natively through jose's API:
+--
+-- * @typ@: Recommended by RFC 9901 Section 9.11 for explicit typing (e.g., "sd-jwt")
+-- * @kid@: Key ID for key management (useful when rotating keys)
 --
 -- == Decoy Digests
 --
@@ -63,16 +74,30 @@
 -- use 'createSDJWTWithDecoys':
 --
 -- @
--- -- Create SD-JWT with 5 decoy digests, no typ header
--- result <- createSDJWTWithDecoys Nothing SHA256 issuerKey ["given_name", "email"] claims 5
+-- -- Create SD-JWT with 5 decoy digests, no typ or kid headers
+-- result <- createSDJWTWithDecoys Nothing Nothing SHA256 issuerKey ["given_name", "email"] claims 5
 --
 -- -- Create SD-JWT with 5 decoy digests and typ header
--- result <- createSDJWTWithDecoys (Just "sd-jwt") SHA256 issuerKey ["given_name", "email"] claims 5
+-- result <- createSDJWTWithDecoys (Just "sd-jwt") Nothing SHA256 issuerKey ["given_name", "email"] claims 5
+--
+-- -- Create SD-JWT with 5 decoy digests, typ and kid headers
+-- result <- createSDJWTWithDecoys (Just "sd-jwt") (Just "key-1") SHA256 issuerKey ["given_name"] claims 5
 -- @
 --
 -- For advanced use cases (e.g., adding decoys to nested @_sd@ arrays or custom
 -- placement logic), import 'SDJWT.Internal.Issuance' to access 'buildSDJWTPayload'
 -- and other low-level functions.
+--
+-- == Key Binding Support
+--
+-- To include the holder's public key in the SD-JWT (for key binding), use
+-- 'addHolderKeyToClaims' to add the @cnf@ claim:
+--
+-- @
+-- let holderPublicKeyJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"...\",\"y\":\"...\"}"
+-- let claimsWithCnf = addHolderKeyToClaims holderPublicKeyJWK claims
+-- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithCnf
+-- @
 --
 -- == Example
 --
@@ -95,6 +120,9 @@ module SDJWT.Issuer
     -- | Functions for creating SD-JWTs from claims sets.
   , createSDJWT
   , createSDJWTWithDecoys
+    -- * Helper Functions
+    -- | Convenience functions for common operations.
+  , addHolderKeyToClaims
   ) where
 
 import SDJWT.Internal.Types
@@ -102,5 +130,6 @@ import SDJWT.Internal.Serialization
 import SDJWT.Internal.Issuance
   ( createSDJWT
   , createSDJWTWithDecoys
+  , addHolderKeyToClaims
   )
 

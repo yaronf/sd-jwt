@@ -8,6 +8,7 @@
 module SDJWT.Internal.JWT
   ( signJWT
   , signJWTWithOptionalTyp
+  , signJWTWithHeaders
   , signJWTWithTyp
   , verifyJWT
   , parseJWKFromText
@@ -15,7 +16,7 @@ module SDJWT.Internal.JWT
   ) where
 
 import SDJWT.Internal.Types (SDJWTError(..))
-import SDJWT.Internal.Utils (base64urlEncode)
+import SDJWT.Internal.Utils (base64urlEncode, base64urlDecode)
 import qualified Crypto.JOSE as Jose
 import qualified Crypto.JOSE.JWS as JWS
 import qualified Crypto.JOSE.JWK as JWK
@@ -35,6 +36,7 @@ import Data.Functor.Identity (Identity(..))
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Scientific (toBoundedInteger)
 import Data.Int (Int64)
+import Data.Maybe (isJust)
 
 -- | Type class for types that can be converted to a jose JWK.
 --
@@ -130,7 +132,22 @@ signJWTWithOptionalTyp
   -> jwk  -- ^ Private key JWK (Text or jose JWK object)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
-signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
+signJWTWithOptionalTyp mbTyp privateKeyJWK payload = 
+  signJWTWithHeaders mbTyp Nothing privateKeyJWK payload
+
+-- | Sign a JWT payload with optional typ and kid header parameters.
+--
+-- This function allows setting @typ@ and @kid@ headers for issuer-signed JWTs.
+-- Both headers are supported natively through jose's API.
+--
+-- Returns the signed JWT as a compact string, or an error.
+signJWTWithHeaders
+  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing, e.g., "sd-jwt")
+  -> Maybe T.Text  -- ^ Optional kid header value (Key ID for key management)
+  -> jwk  -- ^ Private key JWK (Text or jose JWK object)
+  -> Aeson.Value  -- ^ JWT payload
+  -> IO (Either SDJWTError T.Text)
+signJWTWithHeaders mbTyp mbKid privateKeyJWK payload = do
   -- Convert to jose JWK
   case toJWK privateKeyJWK of
     Left err -> return $ Left err
@@ -151,48 +168,45 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
           case jwsAlgResult of
             Left err -> return $ Left err
             Right jwsAlg -> do
-                  -- Create header with algorithm (Protected header)
-                  let baseHeader = JWS.newJWSHeader (Header.Protected, jwsAlg)
-                  -- Add typ header if specified (native support in jose!)
-                  let header = case mbTyp of
-                        Just typValue -> baseHeader & Header.typ ?~ Header.HeaderParam Header.Protected typValue
-                        Nothing -> baseHeader
-                  
-                  -- Encode payload to ByteString
-                  let payloadBS = LBS.toStrict $ Aeson.encode payload
-                  
-                  -- Sign the JWT using Identity container to get FlattenedJWS (single signature)
-                  -- With native typ support, jose handles everything!
-                  -- Note: Header.Protection is deprecated in newer jose versions but required for jose-0.10 compatibility
-                  result <- Jose.runJOSE $ JWS.signJWS payloadBS (Identity (header, jwk)) :: IO (Either JoseError.Error (JWS.JWS Identity Header.Protection JWS.JWSHeader))
-                  
-                  case result of
-                    Left err -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show err)
-                    Right jws -> do
-                      -- Extract the three parts needed for compact JWT format
-                      -- The payload is already base64url encoded in the JWS structure
-                      -- We just need to extract header, payload, and signature and concatenate them
-                      let sig = jws ^.. JWS.signatures
-                      case sig of
-                        [] -> return $ Left $ InvalidSignature "No signatures in JWS"
-                        (sigHead:_) -> do
-                          -- Get payload using verifyJWSWithPayload (returns raw bytes, need to base64url encode)
-                          -- Note: This is inefficient but necessary since JWS constructor isn't exported
-                          payloadResult <- Jose.runJOSE $ JWS.verifyJWSWithPayload return JWS.defaultValidationSettings jwk jws :: IO (Either JoseError.Error BS.ByteString)
-                          case payloadResult of
-                            Left err -> return $ Left $ InvalidSignature $ "Failed to extract payload: " <> T.pack (show err)
-                            Right extractedPayloadBS -> do
-                              let headerBS = JWS.rawProtectedHeader sigHead
-                              let sigBS = sigHead ^. JWS.signature
-                              -- Construct compact JWT: base64url(header).base64url(payload).base64url(signature)
-                              -- We construct it manually because jose doesn't provide encodeCompact for FlattenedJWS
-                              -- Note: rawProtectedHeader returns base64url-encoded header bytes (already encoded)
-                              --       signature returns raw binary bytes (needs encoding)
-                              let headerB64 = TE.decodeUtf8 headerBS  -- Already base64url encoded
-                              let payloadB64 = base64urlEncode extractedPayloadBS
-                              let sigB64 = base64urlEncode sigBS  -- Raw binary, needs encoding
-                              let compactJWT = headerB64 <> "." <> payloadB64 <> "." <> sigB64
-                              return $ Right compactJWT
+              -- Create header with algorithm (Protected header)
+              let baseHeader = JWS.newJWSHeader (Header.Protected, jwsAlg)
+              -- Add typ header if specified (native support in jose!)
+              let headerWithTyp = case mbTyp of
+                    Just typValue -> baseHeader & Header.typ ?~ Header.HeaderParam Header.Protected typValue
+                    Nothing -> baseHeader
+              -- Add kid header if specified (native support in jose!)
+              let header = case mbKid of
+                    Just kidValue -> headerWithTyp & Header.kid ?~ Header.HeaderParam Header.Protected kidValue
+                    Nothing -> headerWithTyp
+              
+              -- Encode payload to ByteString
+              let payloadBS = LBS.toStrict $ Aeson.encode payload
+              
+              -- Sign the JWT using Identity container to get FlattenedJWS (single signature)
+              -- Note: Header.Protection is deprecated in newer jose versions but required for jose-0.10 compatibility
+              result <- Jose.runJOSE $ JWS.signJWS payloadBS (Identity (header, jwk)) :: IO (Either JoseError.Error (JWS.JWS Identity Header.Protection JWS.JWSHeader))
+              
+              case result of
+                Left err -> return $ Left $ InvalidSignature $ "JWT signing failed: " <> T.pack (show err)
+                Right jws -> do
+                  -- Extract the three parts needed for compact JWT format
+                  let sig = jws ^.. JWS.signatures
+                  case sig of
+                    [] -> return $ Left $ InvalidSignature "No signatures in JWS"
+                    (sigHead:_) -> do
+                      -- Get payload using verifyJWSWithPayload (returns raw bytes, need to base64url encode)
+                      payloadResult <- Jose.runJOSE $ JWS.verifyJWSWithPayload return JWS.defaultValidationSettings jwk jws :: IO (Either JoseError.Error BS.ByteString)
+                      case payloadResult of
+                        Left err -> return $ Left $ InvalidSignature $ "Failed to extract payload: " <> T.pack (show err)
+                        Right extractedPayloadBS -> do
+                          let headerBS = JWS.rawProtectedHeader sigHead
+                          let sigBS = sigHead ^. JWS.signature
+                          -- Construct compact JWT: base64url(header).base64url(payload).base64url(signature)
+                          let headerB64 = TE.decodeUtf8 headerBS  -- Already base64url encoded
+                          let payloadB64 = base64urlEncode extractedPayloadBS
+                          let sigB64 = base64urlEncode sigBS  -- Raw binary, needs encoding
+                          let compactJWT = headerB64 <> "." <> payloadB64 <> "." <> sigB64
+                          return $ Right compactJWT
 
 -- | Sign a JWT payload with a custom typ header parameter.
 --

@@ -287,7 +287,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -303,7 +303,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -319,7 +319,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header "sd-jwt"
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -340,7 +340,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT WITHOUT typ header (using regular createSDJWT)
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -361,7 +361,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with application-specific typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT (Just "example+sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "example+sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do

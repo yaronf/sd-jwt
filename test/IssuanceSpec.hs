@@ -158,7 +158,7 @@ spec = describe "SDJWT.Issuance" $ do
       let selectiveClaims = ["given_name"]
       
       -- Create SD-JWT with 3 decoy digests
-      result <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 3
+      result <- createSDJWTWithDecoys Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 3
       case result of
         Right sdjwt -> do
           -- Verify it was created successfully
@@ -188,8 +188,8 @@ spec = describe "SDJWT.Issuance" $ do
       let selectiveClaims = ["given_name"]
       
       -- Create SD-JWT with 0 decoy digests
-      result1 <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 0
-      result2 <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims
+      result1 <- createSDJWTWithDecoys Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 0
+      result2 <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims
       
       case (result1, result2) of
         (Right sdjwt1, Right sdjwt2) -> do
@@ -201,7 +201,7 @@ spec = describe "SDJWT.Issuance" $ do
       issuerKeyPair <- generateTestRSAKeyPair
       let claims = Map.fromList [("given_name", Aeson.String "John")]
       
-      result <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims (-1)
+      result <- createSDJWTWithDecoys Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims (-1)
       case result of
         Left (InvalidDisclosureFormat msg) ->
           T.isInfixOf "decoyCount must be >= 0" msg `shouldBe` True
@@ -420,7 +420,7 @@ spec = describe "SDJWT.Issuance" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with nested structures and sign it (using JSON Pointer syntax)
-        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
         
         case result of
           Right sdjwt -> do
@@ -527,7 +527,7 @@ spec = describe "SDJWT.Issuance" $ do
         
         -- Create SD-JWT with recursive disclosures (parent + children)
         -- Using JSON Pointer syntax: "/" separates path segments
-        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
         
         case result of
           Right sdjwt -> do
@@ -851,7 +851,7 @@ spec = describe "SDJWT.Issuance" $ do
         let selectiveClaimNames = ["given_name", "family_name"]
         
         -- Create SD-JWT with Ed25519 key signing
-        result <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT with Ed25519 key: " ++ show err
           Right sdJWT -> do
@@ -882,7 +882,7 @@ spec = describe "SDJWT.Issuance" $ do
         let selectiveClaimNames = ["given_name", "family_name"]
         
         -- Create SD-JWT with EC P-256 key signing (ES256)
-        result <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT with EC key: " ++ show err
           Right sdJWT -> do
