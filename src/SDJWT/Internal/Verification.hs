@@ -38,6 +38,7 @@ import Data.Text.Encoding (decodeUtf8)
 -- | Complete SD-JWT verification.
 --
 -- This function performs all verification steps:
+--
 -- 1. Parses the presentation
 -- 2. Verifies issuer signature (required)
 -- 3. Extracts hash algorithm
@@ -154,6 +155,7 @@ verifyKeyBinding hashAlg holderKey presentation = do
 -- | Verify that all disclosures match digests in the payload.
 --
 -- This function:
+--
 -- 1. Computes digest for each disclosure
 -- 2. Verifies each digest exists in the payload's _sd array
 -- 3. Checks for duplicate disclosures
@@ -194,6 +196,7 @@ verifyDisclosures hashAlg presentation = do
 -- | Process SD-JWT payload by replacing digests with disclosure values.
 --
 -- This function reconstructs the full claims set by:
+--
 -- 1. Starting with regular (non-selectively disclosable) claims
 -- 2. Replacing digests in _sd arrays with actual claim values from disclosures
 processPayload
@@ -357,6 +360,7 @@ extractRegularClaims _ = Left $ JSONParseError "JWT payload must be a JSON objec
 
 -- | Build maps from digests to disclosure values.
 -- Returns two maps:
+--
 -- 1. Object disclosures: digest -> (claimName, claimValue)
 -- 2. Array disclosures: digest -> value
 buildDisclosureMap
@@ -382,6 +386,7 @@ buildDisclosureMap hashAlg sdDisclosures = do
 
 -- | Replace digests in payload with actual claim values.
 -- This function:
+--
 -- 1. Processes object claims (replaces digests in _sd arrays with values, recursively)
 -- 2. Recursively processes arrays to replace {"...": "<digest>"} objects with values
 replaceDigestsWithValues

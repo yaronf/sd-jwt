@@ -113,6 +113,7 @@ verifyDigest alg expectedDigest disclosure =
 -- | Recursively extract digests from JSON value (_sd arrays and array ellipsis objects).
 --
 -- This function extracts all digests from a JSON value by:
+--
 -- 1. Looking for _sd arrays in objects and extracting string digests
 -- 2. Looking for {"...": "<digest>"} objects in arrays
 -- 3. Recursively processing nested structures

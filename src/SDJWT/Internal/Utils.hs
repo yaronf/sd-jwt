@@ -104,6 +104,7 @@ hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 -- - "~0" represents a literal tilde "~"
 --
 -- Examples:
+--
 -- - "a/b" → ["a", "b"]
 -- - "a~1b" → ["a/b"] (escaped slash)
 -- - "a~0b" → ["a~b"] (escaped tilde)

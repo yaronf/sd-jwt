@@ -95,6 +95,7 @@ computeSDHash hashAlg presentation =
 -- | Verify a Key Binding JWT.
 --
 -- Verifies that:
+--
 -- 1. The KB-JWT signature is valid (using holder's public key)
 -- 2. The sd_hash in the KB-JWT matches the computed hash of the presentation
 -- 3. The nonce, audience, and iat claims are present and valid

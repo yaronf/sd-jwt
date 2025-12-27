@@ -17,6 +17,7 @@
 -- * 'SDJWT.Verifier' - For verifiers (handles disclosure verification internally)
 --
 -- These utilities may be useful for:
+--
 -- * Advanced use cases requiring custom disclosure handling
 -- * Library developers building on top of SD-JWT
 -- * Testing and debugging
@@ -43,6 +44,7 @@ import qualified Data.Vector as V
 --
 -- Creates a disclosure for a selectively disclosable object property.
 -- The disclosure is a JSON array containing:
+--
 -- 1. The salt (base64url-encoded)
 -- 2. The claim name
 -- 3. The claim value
@@ -69,6 +71,7 @@ createObjectDisclosure salt name value =
 --
 -- Creates a disclosure for a selectively disclosable array element.
 -- The disclosure is a JSON array containing:
+--
 -- 1. The salt (base64url-encoded)
 -- 2. The array element value
 --

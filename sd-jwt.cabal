@@ -105,7 +105,7 @@ test-suite sd-jwt-test
       TestKeys
   hs-source-dirs:
       test
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       QuickCheck >=2.14
     , aeson >=2.0 && <2.3

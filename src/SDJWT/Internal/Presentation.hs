@@ -48,6 +48,7 @@ createPresentation (SDJWT jwt _) selectedDisclos =
 -- | Select disclosures from an SD-JWT based on claim names.
 --
 -- This function:
+--
 -- 1. Decodes all disclosures from the SD-JWT
 -- 2. Filters disclosures to include only those matching the provided claim names
 -- 3. Handles recursive disclosures (Section 6.3): when selecting nested claims,

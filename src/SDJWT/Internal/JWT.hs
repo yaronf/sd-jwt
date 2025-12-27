@@ -105,6 +105,7 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 -- | Sign a JWT payload using a private key.
 --
 -- Parameters:
+--
 -- - privateKeyJWK: Private key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
 --
@@ -126,6 +127,7 @@ signJWT privateKeyJWK payload = signJWTWithOptionalTyp Nothing privateKeyJWK pay
 -- explicit typing, e.g., "sd-jwt" or "example+sd-jwt"). Use 'signJWT' for default behavior (no typ header).
 --
 -- Parameters:
+--
 -- - mbTyp: Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing for issuer-signed JWTs)
 -- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
@@ -209,6 +211,7 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
 -- Supports all algorithms: EC P-256 (ES256), RSA (PS256 default, RS256 also supported), and Ed25519 (EdDSA).
 --
 -- Parameters:
+--
 -- - typ: The typ header value (e.g., "kb+jwt" for KB-JWT)
 -- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
 -- - payload: The JWT payload as Aeson Value
@@ -224,6 +227,7 @@ signJWTWithTyp typValue privateKeyJWK payload = signJWTWithOptionalTyp (Just typ
 -- | Verify a JWT signature using a public key.
 --
 -- Parameters:
+--
 -- - publicKeyJWK: Public key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
 -- - jwtText: The JWT to verify as a compact string
 -- - requiredTyp: Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")

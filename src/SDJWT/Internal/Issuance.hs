@@ -82,7 +82,7 @@ import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDis
 import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
 import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
-import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp, JWKLike)
+import SDJWT.Internal.JWT (signJWTWithOptionalTyp, JWKLike)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -98,6 +98,7 @@ import Data.Maybe (mapMaybe)
 -- | Create an SD-JWT from a claims set, marking specified claims as selectively disclosable.
 --
 -- This is a high-level function that takes:
+--
 -- - A list of claim names to mark as selectively disclosable
 -- - A hash algorithm (defaults to SHA-256)
 -- - A claims set (Map Text Value)
@@ -114,6 +115,7 @@ createSDJWTFromClaims = buildSDJWTPayload
 -- | Mark a claim as selectively disclosable.
 --
 -- This function:
+--
 -- 1. Generates a salt for the claim
 -- 2. Creates a disclosure
 -- 3. Computes the digest
@@ -125,6 +127,7 @@ createSDJWTFromClaims = buildSDJWTPayload
 -- and the full SD-JWT creation process.
 --
 -- This function:
+--
 -- 1. Generates a salt for the claim
 -- 2. Creates an object disclosure
 -- 3. Computes the digest
@@ -152,6 +155,7 @@ markSelectivelyDisclosable hashAlg claimName claimValue = do
 -- | Mark an array element as selectively disclosable.
 --
 -- This function:
+--
 -- 1. Generates a salt for the array element
 -- 2. Creates an array disclosure (without claim name)
 -- 3. Computes the digest
@@ -219,6 +223,7 @@ processArrayForSelectiveDisclosure hashAlg arr indices = do
 -- | Build SD-JWT payload from claims, marking specified claims as selectively disclosable.
 --
 -- This function:
+--
 -- 1. Separates selectively disclosable claims from regular claims
 -- 2. Creates disclosures for selectively disclosable claims
 -- 3. Computes digests
@@ -310,25 +315,16 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 --
 -- This function creates an SD-JWT and signs it using the issuer's key.
 -- Creates a complete SD-JWT with signed JWT using jose.
+--
+-- This is a convenience function that calls 'createSDJWTWithTyp' with @Nothing@
+-- for the typ header. Use 'createSDJWTWithTyp' if you need to specify a typ header.
 createSDJWT
   :: JWKLike jwk => HashAlgorithm
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError SDJWT)
-createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
-  result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
-  case result of
-    Left err -> return (Left err)
-    Right (payload, sdDisclosures) -> do
-      -- Sign the JWT using jose
-      signedJWTResult <- signJWT issuerPrivateKeyJWK (payloadValue payload)
-      case signedJWTResult of
-        Left err -> return (Left err)
-        Right signedJWT -> return $ Right $ SDJWT
-          { issuerSignedJWT = signedJWT
-          , disclosures = sdDisclosures
-          }
+createSDJWT = createSDJWTWithTyp Nothing
 
 -- | Create an SD-JWT with optional typ header (RFC 9901 Section 9.11).
 --
@@ -338,6 +334,7 @@ createSDJWT hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 -- format "example+sd-jwt" (without the "application/" prefix).
 --
 -- Parameters:
+--
 -- - mbTyp: Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt")
 -- - hashAlg: Hash algorithm for digests
 -- - issuerPrivateKeyJWK: Issuer private key JWK - can be Text (JSON string) or jose JWK object
