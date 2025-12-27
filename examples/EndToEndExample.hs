@@ -178,9 +178,10 @@ main = do
               let nonce = "random-nonce-from-verifier-12345"
               let issuedAt = 1683000000 :: Int64
               
+              let emptyClaims = case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty
               kbResult <- addKeyBindingToPresentation SHA256 holderPrivateKey 
                                                        audience nonce issuedAt 
-                                                       presentation
+                                                       presentation emptyClaims
               case kbResult of
                 Left err -> do
                   hPutStrLn stderr $ "ERROR: Failed to add key binding: " ++ show err

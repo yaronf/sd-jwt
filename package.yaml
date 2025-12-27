@@ -33,6 +33,8 @@ dependencies:
 - base64-bytestring >= 1.2 && < 1.3
 - containers >= 0.6 && < 0.7
 - vector >= 0.13 && < 0.14
+- time >= 1.9 && < 1.13
+- scientific >= 0.3 && < 0.4
 
 ghc-options:
 - -Wall                    # Enable all standard warnings
@@ -133,6 +135,7 @@ tests:
     - process >= 1.6
     - filepath >= 1.4
     - directory >= 1.3
+    - time >= 1.9
 
 executables:
   sd-jwt-example:

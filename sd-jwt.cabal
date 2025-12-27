@@ -56,7 +56,9 @@ library
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
+    , scientific ==0.3.*
     , text ==2.0.*
+    , time >=1.9 && <1.13
     , vector ==0.13.*
   default-language: Haskell2010
 
@@ -78,8 +80,10 @@ executable sd-jwt-example
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
+    , scientific ==0.3.*
     , sd-jwt
     , text ==2.0.*
+    , time >=1.9 && <1.13
     , vector ==0.13.*
   default-language: Haskell2010
 
@@ -123,7 +127,9 @@ test-suite sd-jwt-test
     , markdown-unlit >=0.5
     , memory ==0.18.*
     , process >=1.6
+    , scientific ==0.3.*
     , sd-jwt
     , text ==2.0.*
+    , time >=1.9
     , vector ==0.13.*
   default-language: Haskell2010

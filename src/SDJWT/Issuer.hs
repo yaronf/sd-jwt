@@ -44,6 +44,19 @@
 -- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name", "family_name"] claims
 -- @
 --
+-- == Standard JWT Claims
+--
+-- Standard JWT claims (RFC 7519) can be included in the @claims@ map and will be preserved
+-- in the issuer-signed JWT payload. During verification, standard claims like @exp@ (expiration time)
+-- and @nbf@ (not before) are automatically validated if present. See RFC 9901 Section 4.1.
+--
+-- @
+-- -- Create SD-JWT with expiration time
+-- let expirationTime = currentTime + 3600  -- 1 hour from now
+-- let claimsWithExp = Map.insert "exp" (Aeson.Number (fromIntegral expirationTime)) claims
+-- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithExp
+-- @
+--
 -- == Decoy Digests
 --
 -- To add decoy digests (to obscure the number of selectively disclosable claims),

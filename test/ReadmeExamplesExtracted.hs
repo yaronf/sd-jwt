@@ -43,7 +43,7 @@ case deserializeSDJWT sdjwtText of
         let audience = "verifier.example.com"
         let nonce = "random-nonce-12345"
         let issuedAt = 1683000000 :: Int64
-        result <- addKeyBindingToPresentation SHA256 holderPrivateKeyJWK audience nonce issuedAt presentation
+        result <- addKeyBindingToPresentation SHA256 holderPrivateKeyJWK audience nonce issuedAt presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
         case result of
           Right presentationWithKB -> do
             -- Serialize the presentation: JWT~disclosure1~disclosure2~...~KB-JWT

@@ -343,17 +343,13 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 -- This function creates an SD-JWT and signs it using the issuer's key.
 -- Creates a complete SD-JWT with signed JWT using jose.
 --
--- Parameters:
---
--- - mbTyp: Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing).
---   If @Nothing@, no typ header is added. If @Just "sd-jwt"@ or @Just "example+sd-jwt"@,
---   the typ header is included in the JWT header.
--- - hashAlg: Hash algorithm for digests
--- - issuerPrivateKeyJWK: Issuer private key JWK - can be Text (JSON string) or jose JWK object
--- - selectiveClaimNames: Claim names to mark as selectively disclosable
--- - claims: Original claims set
---
 -- Returns the created SD-JWT or an error.
+--
+-- == Standard JWT Claims
+--
+-- Standard JWT claims (RFC 7519) can be included in the @claims@ map and will be preserved
+-- in the issuer-signed JWT payload. During verification, standard claims like @exp@ and @nbf@
+-- are automatically validated if present. See RFC 9901 Section 4.1 for details.
 --
 -- == Example
 --
@@ -363,14 +359,18 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
 --
 -- -- Create SD-JWT with typ header
 -- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name", "family_name"] claims
+--
+-- -- Create SD-JWT with expiration time
+-- let claimsWithExp = Map.insert "exp" (Aeson.Number (fromIntegral expirationTime)) claims
+-- result <- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithExp
 -- @
 --
 createSDJWT
-  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing)
-  -> HashAlgorithm
+  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing). If @Nothing@, no typ header is added. If @Just "sd-jwt"@ or @Just "example+sd-jwt"@, the typ header is included in the JWT header.
+  -> HashAlgorithm  -- ^ Hash algorithm for digests
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
   -> IO (Either SDJWTError SDJWT)
 createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
   result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
@@ -392,17 +392,13 @@ createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 -- a specified number of decoy digests to the @_sd@ array to obscure the
 -- actual number of selectively disclosable claims.
 --
--- Parameters:
---
--- - mbTyp: Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt").
---   If @Nothing@, no typ header is added.
--- - hashAlg: Hash algorithm for digests
--- - issuerPrivateKeyJWK: Issuer private key JWK - can be Text (JSON string) or jose JWK object
--- - selectiveClaimNames: Claim names to mark as selectively disclosable
--- - claims: Original claims set
--- - decoyCount: Number of decoy digests to add (must be >= 0)
---
 -- Returns the created SD-JWT or an error.
+--
+-- == Standard JWT Claims
+--
+-- Standard JWT claims (RFC 7519) can be included in the @claims@ map and will be preserved
+-- in the issuer-signed JWT payload. During verification, standard claims like @exp@ and @nbf@
+-- are automatically validated if present. See RFC 9901 Section 4.1 for details.
 --
 -- == Example
 --
@@ -415,12 +411,12 @@ createSDJWT mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
 -- @
 --
 createSDJWTWithDecoys
-  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value
-  -> HashAlgorithm
-  -> jwk  -- ^ Issuer private key JWK
+  :: JWKLike jwk => Maybe T.Text  -- ^ Optional typ header value (e.g., Just "sd-jwt" or Just "example+sd-jwt"). If @Nothing@, no typ header is added.
+  -> HashAlgorithm  -- ^ Hash algorithm for digests
+  -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
-  -> Int  -- ^ Number of decoy digests to add
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
+  -> Int  -- ^ Number of decoy digests to add (must be >= 0)
   -> IO (Either SDJWTError SDJWT)
 createSDJWTWithDecoys mbTyp hashAlg issuerPrivateKeyJWK selectiveClaimNames claims decoyCount
   | decoyCount < 0 = return $ Left $ InvalidDisclosureFormat "decoyCount must be >= 0"
@@ -663,4 +659,5 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
       let allDisclosures = parentDisclosures ++ allChildDisclosures
       
       return (Right (parentInfo, allDisclosures, remainingClaims))
+
 

@@ -167,7 +167,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
               let nonce = "test-nonce-12345"
               let issuedAt = 1683000000 :: Int64
               kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK holderKeyPair) 
-                                                          audience nonce issuedAt presentation
+                                                          audience nonce issuedAt presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
               case kbResult of
                 Left err -> expectationFailure $ "Key binding failed: " ++ show err
                 Right kbPresentation -> do
@@ -216,7 +216,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             Left err -> expectationFailure $ "Presentation creation failed: " ++ show err
             Right presentation -> do
               kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK holderKeyPair) 
-                                                          "verifier.example.com" "nonce-123" 1683000000 presentation
+                                                          "verifier.example.com" "nonce-123" 1683000000 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
               case kbResult of
                 Left err -> expectationFailure $ "Key binding failed: " ++ show err
                 Right kbPresentation -> do

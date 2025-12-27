@@ -231,7 +231,7 @@ spec = describe "SDJWT.Verification" $ do
         -- Create presentation first (without KB-JWT)
         let presentationWithoutKB = SDJWTPresentation jwt [disclosure] Nothing
         -- Create a KB-JWT using the presentation without KB-JWT
-        kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
+        kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
         case kbResult of
           Right kbJWT -> do
             -- Now add the KB-JWT to create the final presentation
@@ -426,7 +426,7 @@ spec = describe "SDJWT.Verification" $ do
             let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
             
             -- Create KB-JWT signed with holder's private key
-            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
             case kbResult of
               Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
               Right kbJWT -> do
@@ -458,7 +458,7 @@ spec = describe "SDJWT.Verification" $ do
             -- Create KB-JWT
             let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
             let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
-            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
             case kbResult of
               Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
               Right kbJWT -> do

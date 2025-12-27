@@ -113,24 +113,18 @@ selectDisclosures sdjwt@(SDJWT _ allDisclosures) selectedDisclos = do
 -- Creates a Key Binding JWT and adds it to the presentation, converting it
 -- to SD-JWT+KB format. The KB-JWT proves that the holder possesses a specific key.
 --
--- Parameters:
--- - hashAlg: Hash algorithm to use for sd_hash computation
--- - holderPrivateKey: Private key for signing the KB-JWT - can be Text (JSON string) or jose JWK object
--- - audience: Audience claim (verifier identifier)
--- - nonce: Nonce provided by verifier
--- - issuedAt: Issued at timestamp (Unix epoch seconds)
--- - presentation: The SD-JWT presentation to add key binding to
---
 -- Returns the presentation with key binding added, or an error if KB-JWT creation fails.
 addKeyBinding
-  :: JWKLike jwk => HashAlgorithm
+  :: JWKLike jwk => HashAlgorithm  -- ^ Hash algorithm to use for sd_hash computation
   -> jwk  -- ^ Holder private key (Text or jose JWK object)
-  -> T.Text  -- ^ Audience
-  -> T.Text  -- ^ Nonce
-  -> Int64   -- ^ Issued at (Unix epoch seconds)
-  -> SDJWTPresentation
+  -> T.Text  -- ^ Audience claim (verifier identifier)
+  -> T.Text  -- ^ Nonce provided by verifier
+  -> Int64   -- ^ Issued at timestamp (Unix epoch seconds)
+  -> SDJWTPresentation  -- ^ The SD-JWT presentation to add key binding to
+  -> Aeson.Object  -- ^ Optional additional claims (e.g., exp, nbf). Default: empty object
   -> IO (Either SDJWTError SDJWTPresentation)
-addKeyBinding = addKeyBindingToPresentation
+addKeyBinding hashAlg holderKey audience nonce issuedAt presentation optionalClaims = 
+  addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentation optionalClaims
 
 -- | Build a map of claim name -> (decoded disclosure, encoded disclosure).
 -- Also identifies recursive disclosures (disclosures containing _sd arrays).

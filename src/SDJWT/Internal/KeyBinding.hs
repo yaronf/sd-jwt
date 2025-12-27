@@ -30,35 +30,36 @@ import Data.Int (Int64)
 -- - nonce: Nonce provided by verifier
 -- - iat: Issued at timestamp
 -- - sd_hash: Hash of the SD-JWT presentation
+-- - Optional additional claims (e.g., exp for expiration time)
 --
--- Parameters:
--- - hashAlg: Hash algorithm for computing sd_hash
--- - holderPrivateKey: Private key for signing - can be Text (JSON string) or jose JWK object
--- - audience: Audience claim
--- - nonce: Nonce from verifier
--- - issuedAt: Issued at timestamp (Unix epoch seconds)
--- - presentation: The SD-JWT presentation to bind
+-- Note: RFC 9901 Section 4.3 states that additional claims in @optionalClaims@ SHOULD be avoided
+-- unless there is a compelling reason, as they may harm interoperability.
 --
 -- Returns the signed KB-JWT as a compact JWT string.
 createKeyBindingJWT
-  :: JWKLike jwk => HashAlgorithm
+  :: JWKLike jwk => HashAlgorithm  -- ^ Hash algorithm for computing sd_hash
   -> jwk  -- ^ Holder private key (Text or jose JWK object)
-  -> T.Text  -- ^ Audience
-  -> T.Text  -- ^ Nonce
-  -> Int64   -- ^ Issued at (Unix epoch seconds)
-  -> SDJWTPresentation
+  -> T.Text  -- ^ Audience claim (verifier identifier)
+  -> T.Text  -- ^ Nonce from verifier
+  -> Int64   -- ^ Issued at timestamp (Unix epoch seconds)
+  -> SDJWTPresentation  -- ^ The SD-JWT presentation to bind
+  -> Aeson.Object  -- ^ Optional additional claims (e.g., exp, nbf). These will be validated during verification if present. Pass @KeyMap.empty@ for no additional claims.
   -> IO (Either SDJWTError T.Text)
-createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentation = do
+createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentation optionalClaims = do
   -- Compute sd_hash of the presentation
   let sdHash = computeSDHash hashAlg presentation
   
-  -- Build KB-JWT payload
-  let kbPayload = Aeson.object
-        [ ("aud", Aeson.String audience)
-        , ("nonce", Aeson.String nonce)
-        , ("iat", Aeson.Number (fromIntegral issuedAt))
-        , ("sd_hash", Aeson.String (unDigest sdHash))
+  -- Build base KB-JWT payload with required claims
+  let basePayloadObj = KeyMap.fromList
+        [ (Key.fromText "aud", Aeson.String audience)
+        , (Key.fromText "nonce", Aeson.String nonce)
+        , (Key.fromText "iat", Aeson.Number (fromIntegral issuedAt))
+        , (Key.fromText "sd_hash", Aeson.String (unDigest sdHash))
         ]
+  
+  -- Merge optional claims into payload (optional claims override base claims if keys conflict)
+  let kbPayloadObj = KeyMap.union optionalClaims basePayloadObj  -- optionalClaims takes precedence
+      kbPayload = Aeson.Object kbPayloadObj
   
   -- Sign the KB-JWT with typ: "kb+jwt" header (RFC 9901 Section 4.3 requirement)
   -- Supports all key types: RSA (PS256 default, RS256 also supported), EC P-256 (ES256), and Ed25519 (EdDSA).
@@ -100,18 +101,12 @@ computeSDHash hashAlg presentation =
 -- 2. The sd_hash in the KB-JWT matches the computed hash of the presentation
 -- 3. The nonce, audience, and iat claims are present and valid
 --
--- Parameters:
--- - hashAlg: Hash algorithm for verifying sd_hash
--- - holderPublicKey: Public key for verification - can be Text (JSON string) or jose JWK object
--- - kbJWT: The Key Binding JWT to verify
--- - presentation: The SD-JWT presentation
---
 -- Returns 'Right ()' if verification succeeds, 'Left' with error otherwise.
 verifyKeyBindingJWT
-  :: JWKLike jwk => HashAlgorithm
+  :: JWKLike jwk => HashAlgorithm  -- ^ Hash algorithm for verifying sd_hash
   -> jwk  -- ^ Holder public key (Text or jose JWK object)
   -> T.Text  -- ^ KB-JWT to verify
-  -> SDJWTPresentation
+  -> SDJWTPresentation  -- ^ The SD-JWT presentation
   -> IO (Either SDJWTError ())
 verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
   -- RFC 9901 Section 4.3: Validate KB-JWT header first
@@ -174,16 +169,23 @@ verifyKeyBindingJWT hashAlg holderPublicKey kbJWT presentation = do
 -- | Add key binding to a presentation.
 --
 -- Creates a KB-JWT and adds it to the presentation, converting it to SD-JWT+KB format.
+-- The KB-JWT includes required claims (@aud@, @nonce@, @iat@, @sd_hash@) plus any optional
+-- claims provided. Standard JWT claims like @exp@ (expiration time) and @nbf@ (not before)
+-- will be automatically validated during verification if present.
+--
+-- Note: RFC 9901 Section 4.3 states that additional claims in @optionalClaims@ SHOULD be avoided
+-- unless there is a compelling reason, as they may harm interoperability.
 addKeyBindingToPresentation
-  :: JWKLike jwk => HashAlgorithm
+  :: JWKLike jwk => HashAlgorithm  -- ^ Hash algorithm for computing sd_hash
   -> jwk  -- ^ Holder private key (Text or jose JWK object)
-  -> T.Text  -- ^ Audience
-  -> T.Text  -- ^ Nonce
-  -> Int64   -- ^ Issued at
-  -> SDJWTPresentation
+  -> T.Text  -- ^ Audience claim (verifier identifier)
+  -> T.Text  -- ^ Nonce provided by verifier
+  -> Int64   -- ^ Issued at timestamp (Unix epoch seconds)
+  -> SDJWTPresentation  -- ^ The SD-JWT presentation to bind
+  -> Aeson.Object  -- ^ Optional additional claims (e.g., exp, nbf). Standard JWT claims will be validated during verification if present. Pass @KeyMap.empty@ for no additional claims.
   -> IO (Either SDJWTError SDJWTPresentation)
-addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentation = do
-  kbJWT <- createKeyBindingJWT hashAlg holderKey audience nonce issuedAt presentation
+addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentation optionalClaims = do
+  kbJWT <- createKeyBindingJWT hashAlg holderKey audience nonce issuedAt presentation optionalClaims
   case kbJWT of
     Left err -> return (Left err)
     Right kb -> return $ Right presentation { keyBindingJWT = Just kb }

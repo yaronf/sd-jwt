@@ -32,6 +32,9 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString as BS
 import Control.Lens ((&), (?~), (^.), (^..))
 import Data.Functor.Identity (Identity(..))
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Scientific (toBoundedInteger)
+import Data.Int (Int64)
 
 -- | Type class for types that can be converted to a jose JWK.
 --
@@ -104,11 +107,6 @@ toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (
 
 -- | Sign a JWT payload using a private key.
 --
--- Parameters:
---
--- - privateKeyJWK: Private key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
--- - payload: The JWT payload as Aeson Value
---
 -- Returns the signed JWT as a compact string, or an error.
 -- Automatically detects key type and uses:
 --
@@ -125,12 +123,6 @@ signJWT privateKeyJWK payload = signJWTWithOptionalTyp Nothing privateKeyJWK pay
 --
 -- This function allows setting a typ header for issuer-signed JWTs (RFC 9901 Section 9.11 recommends
 -- explicit typing, e.g., "sd-jwt" or "example+sd-jwt"). Use 'signJWT' for default behavior (no typ header).
---
--- Parameters:
---
--- - mbTyp: Optional typ header value (RFC 9901 Section 9.11 recommends explicit typing for issuer-signed JWTs)
--- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
--- - payload: The JWT payload as Aeson Value
 --
 -- Returns the signed JWT as a compact string, or an error.
 signJWTWithOptionalTyp
@@ -210,15 +202,9 @@ signJWTWithOptionalTyp mbTyp privateKeyJWK payload = do
 --
 -- Supports all algorithms: EC P-256 (ES256), RSA (PS256 default, RS256 also supported), and Ed25519 (EdDSA).
 --
--- Parameters:
---
--- - typ: The typ header value (e.g., "kb+jwt" for KB-JWT)
--- - privateKeyJWK: Private key JWK - can be Text (JSON string) or jose JWK object
--- - payload: The JWT payload as Aeson Value
---
 -- Returns the signed JWT as a compact string, or an error.
 signJWTWithTyp
-  :: JWKLike jwk => T.Text  -- ^ typ header value
+  :: JWKLike jwk => T.Text  -- ^ typ header value (e.g., "kb+jwt" for KB-JWT)
   -> jwk  -- ^ Private key JWK (Text or jose JWK object)
   -> Aeson.Value  -- ^ JWT payload
   -> IO (Either SDJWTError T.Text)
@@ -226,16 +212,10 @@ signJWTWithTyp typValue privateKeyJWK payload = signJWTWithOptionalTyp (Just typ
 
 -- | Verify a JWT signature using a public key.
 --
--- Parameters:
---
--- - publicKeyJWK: Public key as JSON Web Key (JWK) - can be Text (JSON string) or jose JWK object
--- - jwtText: The JWT to verify as a compact string
--- - requiredTyp: Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
---
 -- Returns the decoded payload if verification succeeds, or an error.
 verifyJWT
   :: JWKLike jwk => jwk  -- ^ Public key JWK (Text or jose JWK object)
-  -> T.Text  -- ^ JWT to verify
+  -> T.Text  -- ^ JWT to verify as a compact string
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError Aeson.Value)
 verifyJWT publicKeyJWK jwtText requiredTyp = do
@@ -301,8 +281,10 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
                                   case typValidation of
                                     Left err -> return $ Left err
                                     Right () -> do
-                                      -- Verify JWT signature (algorithm already validated above)
-                                      result <- Jose.runJOSE $ JWS.verifyJWS' jwk jws :: IO (Either JoseError.Error BS.ByteString)
+                                      -- Verify JWT signature and validate standard claims (exp, nbf, iat) if present
+                                      -- Using verifyJWSWithPayload with defaultValidationSettings ensures automatic validation
+                                      -- of standard JWT claims per RFC 7519
+                                      result <- Jose.runJOSE $ JWS.verifyJWSWithPayload return JWS.defaultValidationSettings jwk jws :: IO (Either JoseError.Error BS.ByteString)
                                       
                                       case result of
                                         Left err -> return $ Left $ InvalidSignature $ "JWT verification failed: " <> T.pack (show err)
@@ -310,7 +292,52 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
                                           -- Parse payload as JSON
                                           case Aeson.eitherDecodeStrict payloadBS of
                                             Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
-                                            Right payload -> return $ Right payload
+                                            Right payload -> do
+                                              -- Validate standard JWT claims (exp, nbf) if present
+                                              validationResult <- validateStandardClaims payload
+                                              case validationResult of
+                                                Left err -> return $ Left err
+                                                Right () -> return $ Right payload
+
+-- | Validate standard JWT claims (exp, nbf) if present in the payload.
+--
+-- Per RFC 7519:
+-- - exp (expiration time): Token is rejected if current time >= exp
+-- - nbf (not before): Token is rejected if current time < nbf
+--
+-- Returns Right () if validation passes or if claims are not present.
+validateStandardClaims :: Aeson.Value -> IO (Either SDJWTError ())
+validateStandardClaims (Aeson.Object obj) = do
+  currentTime <- round <$> getPOSIXTime
+  
+  -- Validate exp claim if present
+  expValidation <- case KeyMap.lookup "exp" obj of
+    Just (Aeson.Number expNum) -> do
+      case toBoundedInteger expNum :: Maybe Int64 of
+        Just expTime -> do
+          if currentTime >= expTime
+            then return $ Left $ InvalidSignature "JWT has expired (exp claim)"
+            else return $ Right ()
+        Nothing -> return $ Left $ InvalidSignature "Invalid exp claim: value out of range for Int64"
+    Just _ -> return $ Left $ InvalidSignature "Invalid exp claim format: must be a number"
+    Nothing -> return $ Right ()  -- exp not present, skip validation
+  
+  -- If exp validation failed, return early
+  case expValidation of
+    Left err -> return $ Left err
+    Right () -> do
+      -- Validate nbf claim if present
+      case KeyMap.lookup "nbf" obj of
+        Just (Aeson.Number nbfNum) -> do
+          case toBoundedInteger nbfNum :: Maybe Int64 of
+            Just nbfTime -> do
+              if currentTime < nbfTime
+                then return $ Left $ InvalidSignature "JWT not yet valid (nbf claim)"
+                else return $ Right ()
+            Nothing -> return $ Left $ InvalidSignature "Invalid nbf claim: value out of range for Int64"
+        Just _ -> return $ Left $ InvalidSignature "Invalid nbf claim format: must be a number"
+        Nothing -> return $ Right ()  -- nbf not present, skip validation
+validateStandardClaims _ = return $ Right ()  -- Not an object, skip validation
 
 -- | Parse a JWK from JSON Text.
 --

@@ -45,15 +45,23 @@ import Data.Text.Encoding (decodeUtf8)
 --
 -- 1. Parses the presentation
 -- 2. Verifies issuer signature (required)
--- 3. Extracts hash algorithm
--- 4. Verifies disclosures match digests
--- 5. Verifies key binding (if present)
--- 6. Processes payload to reconstruct claims
+-- 3. Validates standard JWT claims (if present): @exp@ (expiration time), @nbf@ (not before), etc.
+-- 4. Extracts hash algorithm
+-- 5. Verifies disclosures match digests
+-- 6. Verifies key binding (if present)
+-- 7. Processes payload to reconstruct claims
 --
 -- Returns the processed payload with all claims (both regular non-selectively-disclosable
 -- claims and disclosed selectively-disclosable claims). If a KB-JWT was present and verified,
 -- the 'keyBindingInfo' field will contain the holder's public key extracted from the
 -- @cnf@ claim, allowing the verifier to use it for subsequent operations.
+--
+-- == Standard JWT Claims Validation
+--
+-- Standard JWT claims (RFC 7519) included in the issuer-signed JWT are automatically validated:
+-- - @exp@ (expiration time): Token is rejected if expired
+-- - @nbf@ (not before): Token is rejected if not yet valid
+-- - Other standard claims are preserved but not validated by this library
 --
 -- For testing or debugging purposes where signature verification should be skipped,
 -- use 'verifySDJWTWithoutSignature' instead.
@@ -127,15 +135,10 @@ verifySDJWTAfterSignature presentation = do
 -- | Verify SD-JWT issuer signature.
 --
 -- Verifies the signature on the issuer-signed JWT using the issuer's public key.
---
--- Parameters:
--- - issuerKey: Issuer public key - can be Text (JSON string) or jose JWK object
--- - presentation: SD-JWT presentation to verify
--- - requiredTyp: If Nothing, allow any typ or none (liberal). If Just typValue, require typ to be exactly that value.
 verifySDJWTSignature
   :: JWKLike jwk => jwk  -- ^ Issuer public key (Text or jose JWK object)
-  -> SDJWTPresentation
-  -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
+  -> SDJWTPresentation  -- ^ SD-JWT presentation to verify
+  -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any typ or none, Just typValue = require typ to be exactly that value)
   -> IO (Either SDJWTError ())
 verifySDJWTSignature issuerKey presentation requiredTyp = do
   -- Verify JWT signature using verifyJWT
