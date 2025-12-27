@@ -165,13 +165,19 @@ jobs:
           git checkout --orphan gh-pages
         fi
         
-        # Clean up the branch: remove all files except .git
+        # Clean up the branch: remove all files except .git, deploy-temp, .nojekyll, and CNAME
         # Preserve .nojekyll and CNAME if they exist
-        find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.nojekyll' ! -name 'CNAME' -exec rm -rf {} +
+        # Preserve deploy-temp so we can copy from it
+        find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.nojekyll' ! -name 'CNAME' ! -name 'deploy-temp' -exec rm -rf {} +
         
         # Copy documentation files to root of gh-pages from temporary location
-        cp -r deploy-temp/* .
-        rm -rf deploy-temp
+        if [ -d "deploy-temp" ]; then
+          cp -r deploy-temp/* .
+          rm -rf deploy-temp
+        else
+          echo "ERROR: deploy-temp directory not found!"
+          exit 1
+        fi
         
         # Ensure .nojekyll exists (needed for GitHub Pages to serve files starting with underscore)
         touch .nojekyll
