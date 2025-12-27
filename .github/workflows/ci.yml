@@ -148,9 +148,15 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
         
+        # Fetch all branches including gh-pages
+        git fetch origin
+        
         # Checkout or create gh-pages branch
         if git show-ref --verify --quiet refs/heads/gh-pages; then
           git checkout gh-pages
+          git pull origin gh-pages || true
+        elif git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+          git checkout -b gh-pages origin/gh-pages
         else
           git checkout --orphan gh-pages
           git rm -rf .
