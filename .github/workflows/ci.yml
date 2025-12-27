@@ -151,12 +151,16 @@ jobs:
         # Fetch all branches including gh-pages
         git fetch origin
         
+        # Preserve deploy directory by moving it temporarily
+        mv deploy deploy-temp || true
+        rm -rf haddock-docs
+        
         # Checkout or create gh-pages branch
         if git show-ref --verify --quiet refs/heads/gh-pages; then
-          git checkout gh-pages
+          git checkout -f gh-pages
           git pull origin gh-pages || true
         elif git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
-          git checkout -b gh-pages origin/gh-pages
+          git checkout -f -b gh-pages origin/gh-pages
         else
           git checkout --orphan gh-pages
         fi
@@ -165,8 +169,9 @@ jobs:
         # Preserve .nojekyll and CNAME if they exist
         find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.nojekyll' ! -name 'CNAME' -exec rm -rf {} +
         
-        # Copy documentation files to root of gh-pages
-        cp -r deploy/* .
+        # Copy documentation files to root of gh-pages from temporary location
+        cp -r deploy-temp/* .
+        rm -rf deploy-temp
         
         # Ensure .nojekyll exists (needed for GitHub Pages to serve files starting with underscore)
         touch .nojekyll
