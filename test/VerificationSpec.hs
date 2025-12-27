@@ -287,7 +287,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -303,7 +303,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -319,7 +319,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with typ header "sd-jwt"
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWTWithTyp (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -340,7 +340,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT WITHOUT typ header (using regular createSDJWT)
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -361,7 +361,7 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create SD-JWT with application-specific typ header
         let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
-        result <- createSDJWTWithTyp (Just "example+sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+        result <- createSDJWT (Just "example+sd-jwt") SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
           Right sdjwt -> do
@@ -806,6 +806,127 @@ spec = describe "SDJWT.Verification" $ do
             T.isInfixOf "Duplicate disclosures" msg `shouldBe` True
           Left err -> expectationFailure $ "Expected DuplicateDisclosure, got: " ++ show err
           Right _ -> expectationFailure "Expected verification to fail with DuplicateDisclosure"
+    
+    describe "Decoy digests" $ do
+      it "ignores decoy digests that don't match any disclosure" $ do
+        -- Create a valid disclosure
+        let disclosure = EncodedDisclosure "WyJlbHVWNU9nM2dTTklJOEVZbnN4QV9BIiwgImZhbWlseV9uYW1lIiwgIkRvZSJd"
+        let disclosureDigest = computeDigest SHA256 disclosure
+        
+        -- Generate decoy digests
+        decoy1 <- addDecoyDigest SHA256
+        decoy2 <- addDecoyDigest SHA256
+        
+        -- Create a JWT payload with both real and decoy digests
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+                  [ unDigest disclosureDigest  -- Real digest
+                  , unDigest decoy1             -- Decoy 1
+                  , unDigest decoy2             -- Decoy 2
+                  ])
+              , ("sub", Aeson.String "user_42")
+              ]
+        
+        -- Encode JWT payload
+        let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode jwtPayloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        
+        -- Create presentation with only the real disclosure (not the decoys)
+        let presentation = SDJWTPresentation mockJWT [disclosure] Nothing
+        
+        -- Verify should succeed - decoy digests are ignored
+        result <- verifySDJWTWithoutSignature presentation
+        case result of
+          Right processed -> do
+            -- Verify the real claim is present
+            case Map.lookup "family_name" (processedClaims processed) of
+              Just (Aeson.String "Doe") -> return ()
+              _ -> expectationFailure "Expected family_name claim to be present"
+            -- Verify sub claim is present
+            case Map.lookup "sub" (processedClaims processed) of
+              Just (Aeson.String "user_42") -> return ()
+              _ -> expectationFailure "Expected sub claim to be present"
+          Left err -> expectationFailure $ "Verification should succeed with decoy digests, got: " ++ show err
+      
+      it "handles multiple decoy digests correctly" $ do
+        -- Create two valid disclosures
+        let disclosure1 = EncodedDisclosure "WyJlbHVWNU9nM2dTTklJOEVZbnN4QV9BIiwgImZhbWlseV9uYW1lIiwgIkRvZSJd"
+        let disclosure2 = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
+        let digest1 = computeDigest SHA256 disclosure1
+        let digest2 = computeDigest SHA256 disclosure2
+        
+        -- Generate multiple decoy digests
+        decoys <- replicateM 10 (addDecoyDigest SHA256)
+        
+        -- Create a JWT payload with real and decoy digests
+        let realDigests = [unDigest digest1, unDigest digest2]
+        let decoyDigests = map unDigest decoys
+        let allDigests = realDigests ++ decoyDigests
+        
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String allDigests)
+              , ("sub", Aeson.String "user_42")
+              ]
+        
+        -- Encode JWT payload
+        let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode jwtPayloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        
+        -- Create presentation with only the real disclosures
+        let presentation = SDJWTPresentation mockJWT [disclosure1, disclosure2] Nothing
+        
+        -- Verify should succeed - all decoy digests are ignored
+        result <- verifySDJWTWithoutSignature presentation
+        case result of
+          Right processed -> do
+            -- Verify both real claims are present
+            case Map.lookup "family_name" (processedClaims processed) of
+              Just (Aeson.String "Doe") -> return ()
+              _ -> expectationFailure "Expected family_name claim to be present"
+            case Map.lookup "given_name" (processedClaims processed) of
+              Just (Aeson.String "John") -> return ()
+              _ -> expectationFailure "Expected given_name claim to be present"
+          Left err -> expectationFailure $ "Verification should succeed with multiple decoy digests, got: " ++ show err
+      
+      it "decoy digests don't cause MissingDisclosure errors" $ do
+        -- Create a valid disclosure
+        let disclosure = EncodedDisclosure "WyJlbHVWNU9nM2dTTklJOEVZbnN4QV9BIiwgImZhbWlseV9uYW1lIiwgIkRvZSJd"
+        let disclosureDigest = computeDigest SHA256 disclosure
+        
+        -- Generate decoy digests
+        decoy1 <- addDecoyDigest SHA256
+        decoy2 <- addDecoyDigest SHA256
+        decoy3 <- addDecoyDigest SHA256
+        
+        -- Create a JWT payload with real and decoy digests
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+                  [ unDigest disclosureDigest  -- Real digest
+                  , unDigest decoy1             -- Decoy 1
+                  , unDigest decoy2             -- Decoy 2
+                  , unDigest decoy3             -- Decoy 3
+                  ])
+              ]
+        
+        -- Encode JWT payload
+        let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode jwtPayloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        
+        -- Create presentation with only the real disclosure
+        let presentation = SDJWTPresentation mockJWT [disclosure] Nothing
+        
+        -- Verify should succeed - decoy digests are ignored, not treated as missing disclosures
+        result <- verifySDJWTWithoutSignature presentation
+        case result of
+          Right _ -> return ()  -- Success - decoys ignored
+          Left (MissingDisclosure _) -> expectationFailure "Decoy digests should be ignored, not cause MissingDisclosure"
+          Left err -> expectationFailure $ "Verification should succeed, got: " ++ show err
     
     describe "Invalid disclosure format" $ do
       it "fails when disclosure cannot be decoded during processing" $ do

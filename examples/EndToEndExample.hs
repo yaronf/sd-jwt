@@ -129,7 +129,7 @@ main = do
   putStrLn ""
   
   -- Issuer creates SD-JWT
-  issuerResult <- createSDJWT SHA256 issuerPrivateKey 
+  issuerResult <- createSDJWT Nothing SHA256 issuerPrivateKey 
                                 ["given_name", "family_name", "email"] 
                                 issuerClaims
   

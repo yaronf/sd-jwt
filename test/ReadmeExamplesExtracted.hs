@@ -17,7 +17,7 @@ issuerPrivateKeyJWK <- loadPrivateKeyJWK  -- Your function to load the key (retu
 
 -- Create SD-JWT with selective disclosure
 -- PS256 (RSA-PSS) is used by default for RSA keys
-result <- createSDJWT SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
+result <- createSDJWT Nothing SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
 case result of
   Right sdjwt -> do
     let serialized = serializeSDJWT sdjwt
@@ -95,8 +95,8 @@ result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality"
 result <- buildSDJWTPayload SHA256 ["address", "address/street_address", "address/locality"] claims
 #line 206 "haskell"
 let issuerKey :: T.Text = "{\"kty\":\"RSA\",\"n\":\"...\",\"e\":\"AQAB\",\"d\":\"...\"}"
-result <- createSDJWT SHA256 issuerKey ["claim"] claims
+result <- createSDJWT Nothing SHA256 issuerKey ["claim"] claims
 #line 212 "haskell"
 import Crypto.JOSE.JWK as JWK
 jwk <- loadJWK  -- Your function that returns JWK.JWK
-result <- createSDJWT SHA256 jwk ["claim"] claims
+result <- createSDJWT Nothing SHA256 jwk ["claim"] claims

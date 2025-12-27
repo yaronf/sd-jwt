@@ -49,7 +49,7 @@ spec = describe "SDJWT.Presentation" $ do
       keyPair <- generateTestRSAKeyPair
       
       -- Create SD-JWT with recursive disclosures (parent + children)
-      result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
+      result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
       
       case result of
         Right sdjwt -> do
@@ -105,7 +105,7 @@ spec = describe "SDJWT.Presentation" $ do
       keyPair <- generateTestRSAKeyPair
       
       -- Create SD-JWT with structured nested disclosures (Section 6.2: parent stays, children are selectively disclosable)
-      result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
+      result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
       
       case result of
         Right sdjwt -> do
@@ -190,7 +190,7 @@ spec = describe "SDJWT.Presentation" $ do
         case result of
           Right (_payload, _sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
-            sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+            sdjwtResult <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of
               Right sdjwt -> do
                 case selectDisclosuresByNames sdjwt [] of
@@ -389,7 +389,7 @@ spec = describe "SDJWT.Presentation" $ do
         case result of
           Right (_payload, _sdDisclosures) -> do
             keyPair <- generateTestRSAKeyPair
-            sdjwtResult <- createSDJWT SHA256 (privateKeyJWK keyPair) ["given_name"] claims
+            sdjwtResult <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
             case sdjwtResult of
               Right sdjwt -> do
                 case selectDisclosuresByNames sdjwt ["nonexistent_claim"] of
@@ -409,7 +409,7 @@ spec = describe "SDJWT.Presentation" $ do
                   ])
               ]
         keyPair <- generateTestRSAKeyPair
-        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address"] claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address/street_address"] claims
         case result of
           Right sdjwt -> do
             -- Try to select nested claim - should work (parent stays in payload for Section 6.2)

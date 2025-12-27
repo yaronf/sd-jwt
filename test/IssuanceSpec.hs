@@ -15,7 +15,7 @@ import SDJWT.Internal.Disclosure
 import SDJWT.Internal.Serialization
 import SDJWT.Internal.Issuance
 import SDJWT.Internal.Presentation
-import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
+import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm, parsePayloadFromJWT)
 import SDJWT.Internal.KeyBinding
 import SDJWT.Internal.JWT
 import qualified Data.Vector as V
@@ -34,15 +34,15 @@ import Control.Monad (replicateM)
 
 spec :: Spec
 spec = describe "SDJWT.Issuance" $ do
-  describe "createSDJWTFromClaims" $ do
-    it "is an alias for buildSDJWTPayload and works identically" $ do
+  describe "buildSDJWTPayload" $ do
+    it "creates SD-JWT payload correctly" $ do
       let claims = Map.fromList
             [ ("sub", Aeson.String "user_42")
             , ("given_name", Aeson.String "John")
             , ("family_name", Aeson.String "Doe")
             ]
       let selectiveClaims = ["given_name", "family_name"]
-      result <- createSDJWTFromClaims SHA256 selectiveClaims claims
+      result <- buildSDJWTPayload SHA256 selectiveClaims claims
       case result of
         Right (payload, payloadDisclosures) -> do
           sdAlg payload `shouldBe` Just SHA256
@@ -146,6 +146,160 @@ spec = describe "SDJWT.Issuance" $ do
         unDigest decoy256 `shouldNotBe` unDigest decoy384
         unDigest decoy256 `shouldNotBe` unDigest decoy512
         unDigest decoy384 `shouldNotBe` unDigest decoy512
+
+  describe "createSDJWTWithDecoys" $ do
+    it "creates SD-JWT with specified number of decoy digests" $ do
+      issuerKeyPair <- generateTestRSAKeyPair
+      let claims = Map.fromList
+            [ ("sub", Aeson.String "user_42")
+            , ("given_name", Aeson.String "John")
+            , ("family_name", Aeson.String "Doe")
+            ]
+      let selectiveClaims = ["given_name"]
+      
+      -- Create SD-JWT with 3 decoy digests
+      result <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 3
+      case result of
+        Right sdjwt -> do
+          -- Verify it was created successfully
+          issuerSignedJWT sdjwt `shouldSatisfy` (not . T.null)
+          length (disclosures sdjwt) `shouldBe` 1  -- Only one real disclosure
+          
+          -- Parse the JWT payload to verify decoy digests were added
+          case parsePayloadFromJWT (issuerSignedJWT sdjwt) of
+            Right payload -> do
+              case payloadValue payload of
+                Aeson.Object obj -> do
+                  case KeyMap.lookup (Key.fromText "_sd") obj of
+                    Just (Aeson.Array sdArray) -> do
+                      -- Should have 1 real digest + 3 decoy digests = 4 total
+                      V.length sdArray `shouldBe` 4
+                    _ -> expectationFailure "Payload should contain _sd array"
+                _ -> expectationFailure "Payload should be an object"
+            Left err -> expectationFailure $ "Failed to parse JWT: " ++ show err
+        Left err -> expectationFailure $ "Failed to create SD-JWT with decoys: " ++ show err
+    
+    it "creates SD-JWT with 0 decoy digests (same as createSDJWT)" $ do
+      issuerKeyPair <- generateTestRSAKeyPair
+      let claims = Map.fromList
+            [ ("sub", Aeson.String "user_42")
+            , ("given_name", Aeson.String "John")
+            ]
+      let selectiveClaims = ["given_name"]
+      
+      -- Create SD-JWT with 0 decoy digests
+      result1 <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims 0
+      result2 <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaims claims
+      
+      case (result1, result2) of
+        (Right sdjwt1, Right sdjwt2) -> do
+          -- Both should have the same number of disclosures
+          length (disclosures sdjwt1) `shouldBe` length (disclosures sdjwt2)
+        _ -> expectationFailure "Both should succeed"
+    
+    it "rejects negative decoy count" $ do
+      issuerKeyPair <- generateTestRSAKeyPair
+      let claims = Map.fromList [("given_name", Aeson.String "John")]
+      
+      result <- createSDJWTWithDecoys Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims (-1)
+      case result of
+        Left (InvalidDisclosureFormat msg) ->
+          T.isInfixOf "decoyCount must be >= 0" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected InvalidDisclosureFormat, got: " ++ show err
+        Right _ -> expectationFailure "Should reject negative decoy count"
+
+  describe "Decoy Digests in SD-JWT" $ do
+    describe "creating SD-JWT with decoy digests" $ do
+      it "can manually add decoy digests to _sd array" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              , ("family_name", Aeson.String "Doe")
+              ]
+        let selectiveClaims = ["given_name"]
+        
+        -- Build the SD-JWT payload
+        result <- buildSDJWTPayload SHA256 selectiveClaims claims
+        case result of
+          Right (sdPayload, sdDisclosures) -> do
+            -- Generate decoy digests
+            decoy1 <- addDecoyDigest SHA256
+            decoy2 <- addDecoyDigest SHA256
+            
+            -- Manually add decoy digests to the _sd array
+            case payloadValue sdPayload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "_sd") payloadObj of
+                  Just (Aeson.Array sdArray) -> do
+                    -- Verify original array has 1 digest (for given_name)
+                    V.length sdArray `shouldBe` 1
+                    
+                    -- Add decoy digests to the array
+                    let decoyDigests = [Aeson.String (unDigest decoy1), Aeson.String (unDigest decoy2)]
+                    let updatedSDArray = sdArray <> V.fromList decoyDigests
+                    
+                    -- Verify the updated array has 3 digests (1 real + 2 decoys)
+                    V.length updatedSDArray `shouldBe` 3
+                    
+                    -- Verify all digests are strings
+                    V.all (\v -> case v of Aeson.String _ -> True; _ -> False) updatedSDArray `shouldBe` True
+                  _ -> expectationFailure "payload should contain _sd array"
+              _ -> expectationFailure "payload should be an object"
+            
+            -- Verify we still have only 1 disclosure (decoy digests don't create disclosures)
+            length sdDisclosures `shouldBe` 1
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+      
+      it "decoy digests don't interfere with real disclosures" $ do
+        let claims = Map.fromList
+              [ ("sub", Aeson.String "user_42")
+              , ("given_name", Aeson.String "John")
+              , ("family_name", Aeson.String "Doe")
+              , ("email", Aeson.String "john@example.com")
+              ]
+        let selectiveClaims = ["given_name", "family_name"]
+        
+        -- Build the SD-JWT payload
+        result <- buildSDJWTPayload SHA256 selectiveClaims claims
+        case result of
+          Right (sdPayload, sdDisclosures) -> do
+            -- Generate multiple decoy digests
+            decoys <- replicateM 5 (addDecoyDigest SHA256)
+            
+            -- Extract the real digest from the first disclosure
+            let realDigest1 = unDigest $ computeDigest SHA256 (head sdDisclosures)
+            let realDigest2 = unDigest $ computeDigest SHA256 (sdDisclosures !! 1)
+            
+            -- Manually add decoy digests to the _sd array
+            case payloadValue sdPayload of
+              Aeson.Object payloadObj -> do
+                case KeyMap.lookup (Key.fromText "_sd") payloadObj of
+                  Just (Aeson.Array sdArray) -> do
+                    -- Verify original array has 2 digests
+                    V.length sdArray `shouldBe` 2
+                    
+                    -- Verify both real digests are present
+                    let sdDigests = mapMaybe (\v -> case v of Aeson.String s -> Just s; _ -> Nothing) (V.toList sdArray)
+                    realDigest1 `elem` sdDigests `shouldBe` True
+                    realDigest2 `elem` sdDigests `shouldBe` True
+                    
+                    -- Add decoy digests
+                    let decoyDigests = map (Aeson.String . unDigest) decoys
+                    let updatedSDArray = sdArray <> V.fromList decoyDigests
+                    
+                    -- Verify the updated array has 7 digests (2 real + 5 decoys)
+                    V.length updatedSDArray `shouldBe` 7
+                    
+                    -- Verify real digests are still present
+                    let updatedSDDigests = mapMaybe (\v -> case v of Aeson.String s -> Just s; _ -> Nothing) (V.toList updatedSDArray)
+                    realDigest1 `elem` updatedSDDigests `shouldBe` True
+                    realDigest2 `elem` updatedSDDigests `shouldBe` True
+                  _ -> expectationFailure "payload should contain _sd array"
+              _ -> expectationFailure "payload should be an object"
+            
+            -- Verify we still have only 2 disclosures
+            length sdDisclosures `shouldBe` 2
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
 
   describe "SDJWT.Issuance (Nested Structures)" $ do
     describe "RFC Section 6.2 - Structured SD-JWT with nested address claims" $ do
@@ -266,7 +420,7 @@ spec = describe "SDJWT.Issuance" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with nested structures and sign it (using JSON Pointer syntax)
-        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address/street_address", "address/locality"] claims
         
         case result of
           Right sdjwt -> do
@@ -373,7 +527,7 @@ spec = describe "SDJWT.Issuance" $ do
         
         -- Create SD-JWT with recursive disclosures (parent + children)
         -- Using JSON Pointer syntax: "/" separates path segments
-        result <- createSDJWT SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK keyPair) ["address", "address/street_address", "address/locality"] claims
         
         case result of
           Right sdjwt -> do
@@ -697,7 +851,7 @@ spec = describe "SDJWT.Issuance" $ do
         let selectiveClaimNames = ["given_name", "family_name"]
         
         -- Create SD-JWT with Ed25519 key signing
-        result <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT with Ed25519 key: " ++ show err
           Right sdJWT -> do
@@ -728,7 +882,7 @@ spec = describe "SDJWT.Issuance" $ do
         let selectiveClaimNames = ["given_name", "family_name"]
         
         -- Create SD-JWT with EC P-256 key signing (ES256)
-        result <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
+        result <- createSDJWT Nothing SHA256 (privateKeyJWK issuerKeyPair) selectiveClaimNames claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT with EC key: " ++ show err
           Right sdJWT -> do
