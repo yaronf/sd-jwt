@@ -111,8 +111,9 @@ data SDJWTPresentation = SDJWTPresentation
   deriving stock (Eq, Show, Generic)
 
 -- | Processed SD-JWT payload (after verification)
-newtype ProcessedSDJWTPayload = ProcessedSDJWTPayload
+data ProcessedSDJWTPayload = ProcessedSDJWTPayload
   { processedClaims :: Map Text Value
+  , keyBindingInfo :: Maybe KeyBindingInfo  -- ^ Key binding information if KB-JWT was present and verified
   }
   deriving stock (Eq, Show, Generic)
 

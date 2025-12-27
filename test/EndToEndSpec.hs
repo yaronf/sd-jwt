@@ -186,6 +186,12 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                           Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_kb_123")
                           Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Alice")
                           Map.lookup "email" extractedClaims `shouldBe` Nothing
+                          -- Verify key binding info is returned
+                          case keyBindingInfo processedPayload of
+                            Nothing -> expectationFailure "Expected key binding info but got Nothing"
+                            Just kbInfo -> do
+                              -- Verify the public key matches what was in the cnf claim
+                              kbPublicKey kbInfo `shouldBe` holderPublicKeyJWK
     
     it "works with Ed25519 keys" $ do
       issuerKeyPair <- generateTestEd25519KeyPair
@@ -224,6 +230,12 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Right processedPayload -> do
                           let extractedClaims = processedClaims processedPayload
                           Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Charlie")
+                          -- Verify key binding info is returned
+                          case keyBindingInfo processedPayload of
+                            Nothing -> expectationFailure "Expected key binding info but got Nothing"
+                            Just kbInfo -> do
+                              -- Verify the public key matches what was in the cnf claim
+                              kbPublicKey kbInfo `shouldBe` holderPublicKeyJWK
   
   describe "Error Paths" $ do
     it "fails when verifier uses wrong issuer key" $ do

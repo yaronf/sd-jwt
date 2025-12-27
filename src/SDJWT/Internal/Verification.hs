@@ -5,10 +5,14 @@
 -- This module provides functions for verifying SD-JWT presentations on the verifier side.
 -- It handles signature verification, disclosure validation, and payload processing.
 module SDJWT.Internal.Verification
-  ( verifySDJWT
+  ( -- * Public API
+    verifySDJWT
+  , verifyKeyBinding
+    -- * Internal/Test-only functions
+    -- These functions are exported primarily for testing purposes.
+    -- Most users should use 'verifySDJWT' instead.
   , verifySDJWTSignature
   , verifySDJWTWithoutSignature
-  , verifyKeyBinding
   , verifyDisclosures
   , processPayload
   , extractHashAlgorithm
@@ -47,7 +51,9 @@ import Data.Text.Encoding (decodeUtf8)
 -- 6. Processes payload to reconstruct claims
 --
 -- Returns the processed payload with all claims (both regular non-selectively-disclosable
--- claims and disclosed selectively-disclosable claims).
+-- claims and disclosed selectively-disclosable claims). If a KB-JWT was present and verified,
+-- the 'keyBindingInfo' field will contain the holder's public key extracted from the
+-- @cnf@ claim, allowing the verifier to use it for subsequent operations.
 --
 -- For testing or debugging purposes where signature verification should be skipped,
 -- use 'verifySDJWTWithoutSignature' instead.
@@ -101,20 +107,20 @@ verifySDJWTAfterSignature presentation = do
               holderKeyResult <- extractHolderKeyFromPayload presentation
               case holderKeyResult of
                 Left err -> return (Left err)
-                Right keyBindingInfo -> do
+                Right kbInfo -> do
                   -- Verify KB-JWT using holder's public key from cnf claim
                   -- kbPublicKey is compatible with JWKLike (Text implements JWKLike)
-                  kbVerifyResult <- verifyKeyBindingJWT alg (kbPublicKey keyBindingInfo) kbJWT presentation
+                  kbVerifyResult <- verifyKeyBindingJWT alg (kbPublicKey kbInfo) kbJWT presentation
                   case kbVerifyResult of
                     Left err -> return (Left err)
                     Right () -> do
-                      -- Process payload to reconstruct claims
-                      case processPayloadFromPresentation alg presentation of
+                      -- Process payload to reconstruct claims, including key binding info
+                      case processPayloadFromPresentation alg presentation (Just kbInfo) of
                         Left err -> return (Left err)
                         Right processed -> return (Right processed)
             Nothing -> do
-              -- Process payload to reconstruct claims
-              case processPayloadFromPresentation alg presentation of
+              -- Process payload to reconstruct claims (no key binding)
+              case processPayloadFromPresentation alg presentation Nothing of
                 Left err -> return (Left err)
                 Right processed -> return (Right processed)
 
@@ -203,8 +209,9 @@ processPayload
   :: HashAlgorithm
   -> SDJWTPayload
   -> [EncodedDisclosure]
+  -> Maybe KeyBindingInfo  -- ^ Key binding info if KB-JWT was present and verified
   -> Either SDJWTError ProcessedSDJWTPayload
-processPayload hashAlg sdPayload sdDisclosures = do
+processPayload hashAlg sdPayload sdDisclosures mbKeyBindingInfo = do
   -- Start with regular claims (non-selectively disclosable)
   regularClaims <- extractRegularClaims (payloadValue sdPayload)
   
@@ -214,7 +221,7 @@ processPayload hashAlg sdPayload sdDisclosures = do
   -- Replace digests in _sd arrays with actual values and process arrays
   let finalClaims = replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap
   
-  return $ ProcessedSDJWTPayload { processedClaims = finalClaims }
+  return $ ProcessedSDJWTPayload { processedClaims = finalClaims, keyBindingInfo = mbKeyBindingInfo }
 
 -- | Extract hash algorithm from presentation.
 --
@@ -490,9 +497,10 @@ processValueForArrays value _arrayDisclosureMap = value  -- Primitive values, ke
 processPayloadFromPresentation
   :: HashAlgorithm
   -> SDJWTPresentation
+  -> Maybe KeyBindingInfo  -- ^ Key binding info if KB-JWT was present and verified
   -> Either SDJWTError ProcessedSDJWTPayload
-processPayloadFromPresentation hashAlg presentation = do
+processPayloadFromPresentation hashAlg presentation mbKeyBindingInfo = do
   sdPayload <- parsePayloadFromJWT (presentationJWT presentation)
-  processPayload hashAlg sdPayload (selectedDisclosures presentation)
+  processPayload hashAlg sdPayload (selectedDisclosures presentation) mbKeyBindingInfo
 
 

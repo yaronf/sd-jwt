@@ -229,6 +229,19 @@ main = do
                                 (Map.toList verifiedClaims)
                           putStrLn ""
                           
+                          -- Show key binding info if present
+                          case keyBindingInfo processedPayload of
+                            Just kbInfo -> do
+                              putStrLn "Key Binding Information:"
+                              putStrLn "--------------------------------------------"
+                              putStrLn $ "  ✓ Holder's public key extracted from cnf claim"
+                              putStrLn $ "  ✓ Key binding verified (KB-JWT signature valid)"
+                              putStrLn $ "  ✓ Holder's public key: " ++ T.unpack (kbPublicKey kbInfo)
+                              putStrLn ""
+                            Nothing -> do
+                              putStrLn "Key Binding: Not present"
+                              putStrLn ""
+                          
                           -- Show what was NOT disclosed
                           putStrLn "Claims NOT disclosed (kept private by holder):"
                           putStrLn "--------------------------------------------"
