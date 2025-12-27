@@ -159,11 +159,17 @@ jobs:
           git checkout -b gh-pages origin/gh-pages
         else
           git checkout --orphan gh-pages
-          git rm -rf .
         fi
         
-        # Copy files to root of gh-pages
+        # Clean up the branch: remove all files except .git
+        # Preserve .nojekyll and CNAME if they exist
+        find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name '.nojekyll' ! -name 'CNAME' -exec rm -rf {} +
+        
+        # Copy documentation files to root of gh-pages
         cp -r deploy/* .
+        
+        # Ensure .nojekyll exists (needed for GitHub Pages to serve files starting with underscore)
+        touch .nojekyll
         
         # Commit and push
         git add -A
