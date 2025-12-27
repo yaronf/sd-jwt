@@ -107,32 +107,25 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     permissions:
-      contents: write  # Required for GitHub Pages deployment (only for this job)
+      contents: write  # Required to push to gh-pages branch
     
     steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all branches for gh-pages
+    
     - name: Download Haddock documentation
       uses: actions/download-artifact@v4
       with:
         name: haddock-docs
         path: haddock-docs/
     
-    - name: List downloaded files
-      run: |
-        echo "Contents of haddock-docs/:"
-        ls -la haddock-docs/ || echo "Directory not found"
-        echo ""
-        echo "Looking for HTML files:"
-        find haddock-docs -type f -name "*.html" | head -10 || echo "No HTML files found"
-        echo ""
-        echo "Directory structure:"
-        find haddock-docs -type d | head -10 || echo "No directories found"
-    
     - name: Prepare documentation for deployment
       run: |
-        # Deploy files to root of gh-pages branch (custom domain handles /sd-jwt/ path routing)
-        mkdir -p deploy
         # Copy all files from haddock-docs to deploy root
         # Handle both cases: haddock-docs contains files directly or has sd-jwt subdirectory
+        mkdir -p deploy
         if [ -d "haddock-docs/sd-jwt" ]; then
           cp -r haddock-docs/sd-jwt/* deploy/
         else
@@ -142,63 +135,37 @@ jobs:
         echo "Contents of deploy/:"
         ls -la deploy/ | head -20
         echo ""
-        echo "Looking for index.html:"
-        find deploy -name "index.html" | head -5
-        echo ""
         echo "Verifying index.html exists:"
         if [ -f "deploy/index.html" ]; then
           echo "✓ index.html found at deploy/index.html"
-          head -5 deploy/index.html
-        else
-          echo "✗ ERROR: index.html not found!"
-          echo "Available HTML files:"
-          find deploy -name "*.html" | head -10
-          exit 1
-        fi
-        echo ""
-        echo "Directory structure:"
-        find deploy -type d | head -10
-    
-    - name: Verify deployment structure before publishing
-      run: |
-        echo "Final structure to be deployed:"
-        echo "deploy/ directory contents:"
-        ls -la deploy/ | head -20
-        echo ""
-        echo "Checking index.html:"
-        if [ -f "deploy/index.html" ]; then
-          echo "✓ index.html exists at deploy/index.html"
-          echo "File size: $(wc -c < deploy/index.html) bytes"
         else
           echo "✗ ERROR: index.html not found!"
           exit 1
         fi
     
-    - name: Create CNAME file for custom domain
+    - name: Push to gh-pages branch
       run: |
-        echo "www.sheffer.org" > deploy/CNAME
-        echo "Created CNAME file:"
-        cat deploy/CNAME
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Checkout or create gh-pages branch
+        if git show-ref --verify --quiet refs/heads/gh-pages; then
+          git checkout gh-pages
+        else
+          git checkout --orphan gh-pages
+          git rm -rf .
+        fi
+        
+        # Copy files to root of gh-pages
+        cp -r deploy/* .
+        
+        # Commit and push
+        git add -A
+        git commit -m "Update Haddock documentation [skip ci]" || exit 0
+        git push origin gh-pages
     
-    - name: Deploy Haddock documentation to GitHub Pages
-      id: deploy
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: deploy/
-        keep_files: false  # Remove old files (like sd-jwt/ directory) since we're deploying to root
-        force_orphan: false  # Don't create orphan branch (preserve history)
-        allow_empty_commit: true  # Force commit even if files haven't changed (triggers GitHub Pages rebuild)
-    
-    - name: Output deployment status
+    - name: Output status
       run: |
-        echo "Deployment completed successfully!"
-        echo "::notice::GitHub Pages deployment finished"
-        echo ""
-        echo "Files have been deployed to the root of the gh-pages branch."
-        echo "GitHub Pages will serve them from the branch root."
-        echo ""
-        echo "To view your documentation:"
-        echo "1. Wait a few minutes for GitHub Pages to build"
-        echo "2. Visit: https://www.sheffer.org/sd-jwt/"
+        echo "✓ Haddock documentation pushed to gh-pages branch"
+        echo "GitHub Pages will automatically deploy from the gh-pages branch"
 
