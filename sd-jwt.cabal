@@ -25,6 +25,11 @@ source-repository head
   type: git
   location: https://github.com/yaronf/sd-jwt
 
+flag interop-tests
+  description: Build interoperability test executable (not built by default)
+  manual: True
+  default: False
+
 library
   exposed-modules:
       SDJWT.Issuer
@@ -86,6 +91,49 @@ executable sd-jwt-example
     , time >=1.9 && <1.13
     , vector ==0.13.*
   default-language: Haskell2010
+
+executable sd-jwt-interop-test
+  other-modules:
+      Paths_sd_jwt
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances
+  build-depends:
+      aeson >=2.0 && <2.3
+    , base >=4.14 && <5
+    , base64-bytestring ==1.2.*
+    , bytestring ==0.11.*
+    , containers ==0.6.*
+    , cryptonite ==0.30.*
+    , jose >=0.10 && <0.13
+    , lens >=4.16 && <5.4
+    , memory ==0.18.*
+    , scientific ==0.3.*
+    , text ==2.0.*
+    , time >=1.9 && <1.13
+    , vector ==0.13.*
+  default-language: Haskell2010
+  if flag(interop-tests)
+    main-is: InteropSpec.hs
+    other-modules:
+        TestCaseParser
+        TestCaseRunner
+        TestKeys
+    hs-source-dirs:
+        test/interop
+        test
+    ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
+    build-depends:
+        aeson >=2.0 && <2.3
+      , base >=4.14 && <5
+      , containers ==0.6.*
+      , directory >=1.3
+      , filepath >=1.4
+      , hspec >=2.10
+      , sd-jwt
+      , text ==2.0.*
+      , vector ==0.13.*
+      , yaml ==0.11.*
+  else
+    buildable: False
 
 test-suite sd-jwt-test
   type: exitcode-stdio-1.0
