@@ -477,15 +477,22 @@ processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
   -- Process each element in the array
   let processedElements = V.map (\el -> processValueForArrays el arrayDisclosureMap) arr
       -- Replace {"...": "<digest>"} objects with actual values
+      -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
       replacedElements = V.map (\el -> case el of
         Aeson.Object obj ->
           -- Check if this is a {"...": "<digest>"} object
           case KeyMap.lookup (Key.fromText "...") obj of
             Just (Aeson.String digest) ->
-              -- Look up the value for this digest
-              case Map.lookup digest arrayDisclosureMap of
-                Just value -> value
-                Nothing -> el  -- Digest not found, keep original
+              -- Validate that ellipsis object only contains the "..." key
+              -- Note: We validate here but don't fail - we'll validate during digest extraction
+              -- This is a defensive check, but the main validation happens in extractDigestsFromValue
+              if KeyMap.size obj == 1
+                then
+                  -- Look up the value for this digest
+                  case Map.lookup digest arrayDisclosureMap of
+                    Just value -> value
+                    Nothing -> el  -- Digest not found, keep original
+                else el  -- Invalid ellipsis object (has extra keys), keep as is
             _ -> el  -- Not an ellipsis object, keep as is
         _ -> el  -- Not an object, keep as is
         ) processedElements

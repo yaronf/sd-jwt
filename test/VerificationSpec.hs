@@ -719,6 +719,38 @@ spec = describe "SDJWT.Verification" $ do
           Left err -> expectationFailure $ "Verification failed: " ++ show err
 
   describe "SDJWT.Verification (Error Handling)" $ do
+    describe "Invalid ellipsis objects" $ do
+      it "rejects ellipsis objects with extra keys (RFC 9901 Section 4.2.4.2)" $ do
+        -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
+        -- Create a JWT payload with an ellipsis object that has extra keys
+        let jwtPayload = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("countries", Aeson.Array $ V.fromList
+                  [ Aeson.object
+                      [ ("...", Aeson.String "someDigest")
+                      , ("extra_key", Aeson.String "should_not_be_here")  -- Extra key - invalid!
+                      ]
+                  ])
+              ]
+        
+        -- Encode JWT payload
+        let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+        let encodedPayload = base64urlEncode jwtPayloadBS
+        let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+        
+        -- Create presentation (empty disclosures since we're just testing payload parsing)
+        let presentation = SDJWTPresentation mockJWT [] Nothing
+        
+        -- extractDigestsFromValue should reject the invalid ellipsis object
+        -- This happens during verifyDisclosures or extractDigestsFromJWTPayload
+        result <- verifySDJWTWithoutSignature presentation
+        case result of
+          Left (InvalidDigest msg) -> do
+            T.isInfixOf "only the" msg `shouldBe` True
+            T.isInfixOf "..." msg `shouldBe` True
+          Left err -> expectationFailure $ "Expected InvalidDigest error for ellipsis object with extra keys, got: " ++ show err
+          Right _ -> expectationFailure "Should reject ellipsis object with extra keys"
+    
     describe "Missing disclosures" $ do
       it "fails when disclosure digest is not found in payload" $ do
         -- Create a valid disclosure

@@ -136,11 +136,16 @@ extractDigestsFromValue (Aeson.Object obj) = do
   return $ topLevelDigests ++ concat nestedDigests
 extractDigestsFromValue (Aeson.Array arr) = do
   -- Check for array ellipsis objects {"...": "<digest>"}
+  -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
   let elements = V.toList arr
   results <- mapM (\el -> case el of
     Aeson.Object obj ->
       case KeyMap.lookup (Key.fromText "...") obj of
-        Just (Aeson.String digest) -> Right [Digest digest]
+        Just (Aeson.String digest) -> do
+          -- Validate that ellipsis object only contains the "..." key
+          if KeyMap.size obj == 1
+            then Right [Digest digest]
+            else Left $ InvalidDigest "Ellipsis object must contain only the \"...\" key (RFC 9901 Section 4.2.4.2)"
         _ -> extractDigestsFromValue el  -- Recursively check nested structures
     _ -> extractDigestsFromValue el  -- Recursively check nested structures
     ) elements
