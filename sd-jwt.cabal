@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.38.1.
+-- This file has been generated from package.yaml by hpack version 0.35.2.
 --
 -- see: https://github.com/sol/hpack
 
@@ -93,9 +93,15 @@ executable sd-jwt-example
   default-language: Haskell2010
 
 executable sd-jwt-interop-test
+  main-is: InteropSpec.hs
   other-modules:
-      Paths_sd_jwt
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances
+      TestCaseParser
+      TestCaseRunner
+      TestKeys
+  hs-source-dirs:
+      test/interop
+      test
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson >=2.0 && <2.3
     , base >=4.14 && <5
@@ -103,35 +109,21 @@ executable sd-jwt-interop-test
     , bytestring ==0.11.*
     , containers ==0.6.*
     , cryptonite ==0.30.*
+    , directory >=1.3
+    , filepath >=1.4
+    , hspec >=2.10
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
     , scientific ==0.3.*
+    , sd-jwt
     , text ==2.0.*
     , time >=1.9 && <1.13
     , vector ==0.13.*
+    , yaml ==0.11.*
   default-language: Haskell2010
   if flag(interop-tests)
-    main-is: InteropSpec.hs
-    other-modules:
-        TestCaseParser
-        TestCaseRunner
-        TestKeys
-    hs-source-dirs:
-        test/interop
-        test
-    ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N
-    build-depends:
-        aeson >=2.0 && <2.3
-      , base >=4.14 && <5
-      , containers ==0.6.*
-      , directory >=1.3
-      , filepath >=1.4
-      , hspec >=2.10
-      , sd-jwt
-      , text ==2.0.*
-      , vector ==0.13.*
-      , yaml ==0.11.*
+    buildable: True
   else
     buildable: False
 
