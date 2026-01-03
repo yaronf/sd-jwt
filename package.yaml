@@ -145,34 +145,36 @@ tests:
 
 executables:
   # Interoperability test executable - only builds with --flag interop-tests
+  # Note: main-is must be present unconditionally for Cabal compatibility
   sd-jwt-interop-test:
+    main:                InteropSpec.hs
+    source-dirs:
+    - test/interop
+    - test
+    ghc-options:
+    - -Wall
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    other-modules:
+    - TestCaseParser
+    - TestCaseRunner
+    - TestKeys
+    dependencies:
+    - sd-jwt
+    - hspec >= 2.10
+    - yaml >= 0.11 && < 0.12
+    - filepath >= 1.4
+    - directory >= 1.3
+    - base >= 4.14 && < 5
+    - text >= 2.0 && < 2.1
+    - aeson >= 2.0 && < 2.3
+    - containers >= 0.6 && < 0.7
+    - vector >= 0.13 && < 0.14
     when:
       condition: flag(interop-tests)
       then:
-        main:                InteropSpec.hs
-        source-dirs:
-        - test/interop
-        - test
-        ghc-options:
-        - -Wall
-        - -threaded
-        - -rtsopts
-        - -with-rtsopts=-N
-        other-modules:
-        - TestCaseParser
-        - TestCaseRunner
-        - TestKeys
-        dependencies:
-        - sd-jwt
-        - hspec >= 2.10
-        - yaml >= 0.11 && < 0.12
-        - filepath >= 1.4
-        - directory >= 1.3
-        - base >= 4.14 && < 5
-        - text >= 2.0 && < 2.1
-        - aeson >= 2.0 && < 2.3
-        - containers >= 0.6 && < 0.7
-        - vector >= 0.13 && < 0.14
+        buildable: True
       else:
         buildable: False
   sd-jwt-example:

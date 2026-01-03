@@ -656,17 +656,14 @@ spec = describe "SDJWT.Verification" $ do
             -- Verify array element disclosure (nationality) is processed correctly
             case Map.lookup "nationalities" claims of
               Just (Aeson.Array nationalitiesArr) -> do
-                -- Should have 2 elements: US (disclosed) and DE (not disclosed, still ellipsis)
-                V.length nationalitiesArr `shouldBe` 2
+                -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
+                -- for which they did not receive a Disclosure." So undisclosed elements are removed.
+                -- Should have 1 element: US (disclosed). DE (not disclosed) is removed.
+                V.length nationalitiesArr `shouldBe` 1
                 -- First element should be "US" (disclosed)
                 case nationalitiesArr V.!? 0 of
                   Just (Aeson.String "US") -> return ()
                   _ -> expectationFailure "First nationality element should be 'US'"
-                -- Second element should still be ellipsis object (not disclosed)
-                case nationalitiesArr V.!? 1 of
-                  Just (Aeson.Object ellipsisObj) -> do
-                    KeyMap.lookup (Key.fromText "...") ellipsisObj `shouldSatisfy` isJust
-                  _ -> expectationFailure "Second nationality element should be ellipsis object"
               _ -> expectationFailure "Nationalities claim not found or not an array"
           Left err -> expectationFailure $ "Verification failed: " ++ show err
       
@@ -701,7 +698,11 @@ spec = describe "SDJWT.Verification" $ do
             -- Verify array element disclosure is processed correctly
             case Map.lookup "countries" claims of
               Just (Aeson.Array countriesArr) -> do
-                V.length countriesArr `shouldBe` 3
+                -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
+                -- for which they did not receive a Disclosure." So undisclosed elements are removed.
+                -- Should have 2 elements: "US" (regular, unchanged) and "FR" (disclosed).
+                -- The third element (not disclosed) is removed.
+                V.length countriesArr `shouldBe` 2
                 -- First element should be "US" (unchanged)
                 case countriesArr V.!? 0 of
                   Just (Aeson.String "US") -> return ()
@@ -710,11 +711,6 @@ spec = describe "SDJWT.Verification" $ do
                 case countriesArr V.!? 1 of
                   Just (Aeson.String "FR") -> return ()
                   _ -> expectationFailure "Second element should be 'FR'"
-                -- Third element should still be ellipsis object (not disclosed)
-                case countriesArr V.!? 2 of
-                  Just (Aeson.Object ellipsisObj) -> do
-                    KeyMap.lookup (Key.fromText "...") ellipsisObj `shouldSatisfy` isJust
-                  _ -> expectationFailure "Third element should be ellipsis object"
               _ -> expectationFailure "Countries claim not found or not an array"
           Left err -> expectationFailure $ "Verification failed: " ++ show err
 
