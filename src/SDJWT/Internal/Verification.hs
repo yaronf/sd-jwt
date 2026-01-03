@@ -478,7 +478,9 @@ processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
   let processedElements = V.map (\el -> processValueForArrays el arrayDisclosureMap) arr
       -- Replace {"...": "<digest>"} objects with actual values
       -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
-      replacedElements = V.map (\el -> case el of
+      -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
+      -- for which they did not receive a Disclosure."
+      replacedElements = V.mapMaybe (\el -> case el of
         Aeson.Object obj ->
           -- Check if this is a {"...": "<digest>"} object
           case KeyMap.lookup (Key.fromText "...") obj of
@@ -490,11 +492,11 @@ processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
                 then
                   -- Look up the value for this digest
                   case Map.lookup digest arrayDisclosureMap of
-                    Just value -> value
-                    Nothing -> el  -- Digest not found, keep original
-                else el  -- Invalid ellipsis object (has extra keys), keep as is
-            _ -> el  -- Not an ellipsis object, keep as is
-        _ -> el  -- Not an object, keep as is
+                    Just value -> Just value  -- Replace with disclosed value
+                    Nothing -> Nothing  -- No disclosure found - ignore (remove) per RFC 9901 Section 7.3
+                else Just el  -- Invalid ellipsis object (has extra keys), keep as is
+            _ -> Just el  -- Not an ellipsis object, keep as is
+        _ -> Just el  -- Not an object, keep as is
         ) processedElements
   in Aeson.Array replacedElements
 processValueForArrays (Aeson.Object obj) arrayDisclosureMap =
