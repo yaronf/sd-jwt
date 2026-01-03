@@ -714,6 +714,112 @@ spec = describe "SDJWT.Verification" $ do
               _ -> expectationFailure "Countries claim not found or not an array"
           Left err -> expectationFailure $ "Verification failed: " ++ show err
 
+      it "verifies array element disclosure with nested selective disclosure" $ do
+        -- Test that array element disclosures with nested selective disclosure are correctly processed
+        -- This tests processValueForArraysWithSD and removal of _sd_alg from array disclosure values
+        
+        -- Step 1: Create nested disclosure for "foo" claim
+        nestedDisclosureResult <- markSelectivelyDisclosable SHA256 "foo" (Aeson.String "bar")
+        case nestedDisclosureResult of
+          Left err -> expectationFailure $ "Failed to create nested disclosure: " ++ show err
+          Right (nestedDigest, nestedDisclosure) -> do
+            -- Step 2: Create an object with _sd array containing the nested digest
+            -- This simulates what buildSDJWTPayload creates for nested selective disclosure
+            let nestedObject = Aeson.object
+                  [ ("_sd_alg", Aeson.String "sha-256")
+                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest nestedDigest)])
+                  ]
+            
+            -- Step 3: Create array element disclosure for this nested object
+            arrayElementResult <- markArrayElementDisclosable SHA256 nestedObject
+            case arrayElementResult of
+              Left err -> expectationFailure $ "Failed to create array element disclosure: " ++ show err
+              Right (arrayDigest, arrayDisclosure) -> do
+                -- Step 4: Create JWT payload with array containing ellipsis object
+                let jwtPayload = Aeson.object
+                      [ ("_sd_alg", Aeson.String "sha-256")
+                      , ("array_with_one_sd_object", Aeson.Array $ V.fromList
+                          [ Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- Disclosed element
+                          ])
+                      ]
+                
+                -- Encode JWT payload
+                let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+                let encodedPayload = base64urlEncode jwtPayloadBS
+                let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+                
+                -- Step 5: Create presentation with both array element disclosure and nested disclosure
+                let presentation = SDJWTPresentation mockJWT [arrayDisclosure, nestedDisclosure] Nothing
+                
+                -- Step 6: Verify the presentation
+                result <- verifySDJWTWithoutSignature presentation
+                case result of
+                  Right processed -> do
+                    let claims = processedClaims processed
+                    -- Verify array element disclosure is processed correctly
+                    case Map.lookup "array_with_one_sd_object" claims of
+                      Just (Aeson.Array arr) -> do
+                        -- Should have 1 element: the disclosed object
+                        V.length arr `shouldBe` 1
+                        -- The element should be an object with "foo": "bar"
+                        case arr V.!? 0 of
+                          Just (Aeson.Object obj) -> do
+                            -- Verify "foo" claim is present
+                            KeyMap.lookup (Key.fromText "foo") obj `shouldBe` Just (Aeson.String "bar")
+                            -- Verify _sd_alg is NOT present (should be removed during processing)
+                            KeyMap.lookup (Key.fromText "_sd_alg") obj `shouldBe` Nothing
+                            -- Verify _sd is NOT present (should be removed after processing nested claims)
+                            KeyMap.lookup (Key.fromText "_sd") obj `shouldBe` Nothing
+                          _ -> expectationFailure "Array element should be an object"
+                      _ -> expectationFailure "array_with_one_sd_object claim not found or not an array"
+                  Left err -> expectationFailure $ "Verification failed: " ++ show err
+
+      it "verifies that _sd_alg is removed from array disclosure values" $ do
+        -- Test specifically that _sd_alg is removed from array disclosure values
+        -- Create an array element disclosure where the value contains _sd_alg
+        let objectWithSDAlg = Aeson.object
+              [ ("_sd_alg", Aeson.String "sha-256")
+              , ("some_claim", Aeson.String "some_value")
+              ]
+        
+        arrayElementResult <- markArrayElementDisclosable SHA256 objectWithSDAlg
+        case arrayElementResult of
+          Left err -> expectationFailure $ "Failed to create array element disclosure: " ++ show err
+          Right (arrayDigest, arrayDisclosure) -> do
+            -- Create JWT payload with array containing ellipsis object
+            let jwtPayload = Aeson.object
+                  [ ("_sd_alg", Aeson.String "sha-256")
+                  , ("test_array", Aeson.Array $ V.fromList
+                      [ Aeson.object [("...", Aeson.String (unDigest arrayDigest))]
+                      ])
+                  ]
+            
+            -- Encode JWT payload
+            let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+            let encodedPayload = base64urlEncode jwtPayloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            
+            -- Create presentation with array element disclosure
+            let presentation = SDJWTPresentation mockJWT [arrayDisclosure] Nothing
+            
+            -- Verify the presentation
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let claims = processedClaims processed
+                case Map.lookup "test_array" claims of
+                  Just (Aeson.Array arr) -> do
+                    V.length arr `shouldBe` 1
+                    case arr V.!? 0 of
+                      Just (Aeson.Object obj) -> do
+                        -- Verify _sd_alg is NOT present
+                        KeyMap.lookup (Key.fromText "_sd_alg") obj `shouldBe` Nothing
+                        -- Verify the actual claim is present
+                        KeyMap.lookup (Key.fromText "some_claim") obj `shouldBe` Just (Aeson.String "some_value")
+                      _ -> expectationFailure "Array element should be an object"
+                  _ -> expectationFailure "test_array claim not found"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
+
   describe "SDJWT.Verification (Error Handling)" $ do
     describe "Invalid ellipsis objects" $ do
       it "rejects ellipsis objects with extra keys (RFC 9901 Section 4.2.4.2)" $ do

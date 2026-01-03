@@ -412,7 +412,9 @@ replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap =
   
   -- Process arrays recursively to replace {"...": "<digest>"} objects
   -- Also process nested _sd arrays recursively
-  in processArraysInClaims (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap
+  -- Note: Array disclosure values may contain _sd arrays (for nested selective disclosure),
+  -- so we need to process _sd arrays in those values too
+  in processArraysInClaimsWithSD (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap objectDisclosureMap
 
 -- | Recursively process _sd arrays in claims to replace digests with values.
 processSDArraysInClaims
@@ -439,8 +441,8 @@ processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
             _ -> Nothing  -- Not a string digest, skip
             ) (V.toList arr)
       
-      -- Build new object: remove _sd, add disclosed claims, keep other fields
-          objWithoutSD = KeyMap.delete "_sd" obj
+      -- Build new object: remove _sd and _sd_alg (metadata fields), add disclosed claims, keep other fields
+          objWithoutSD = KeyMap.delete "_sd_alg" $ KeyMap.delete "_sd" obj
           objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
                 KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
       
@@ -461,12 +463,22 @@ processSDArraysInValue (Aeson.Array arr) objectDisclosureMap =
 processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
+-- Also processes _sd arrays in array disclosure values (for nested selective disclosure).
 processArraysInClaims
   :: Map.Map T.Text Aeson.Value
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Map.Map T.Text Aeson.Value
 processArraysInClaims claims arrayDisclosureMap =
   Map.map (\value -> processValueForArrays value arrayDisclosureMap) claims
+
+-- | Process arrays in claims, also processing _sd arrays in array disclosure values.
+processArraysInClaimsWithSD
+  :: Map.Map T.Text Aeson.Value
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Map.Map T.Text Aeson.Value
+processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap =
+  Map.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
 
 -- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays.
 processValueForArrays
@@ -504,6 +516,53 @@ processValueForArrays (Aeson.Object obj) arrayDisclosureMap =
   let processedObj = KeyMap.map (\value -> processValueForArrays value arrayDisclosureMap) obj
   in Aeson.Object processedObj
 processValueForArrays value _arrayDisclosureMap = value  -- Primitive values, keep as is
+
+-- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays,
+-- and also process _sd arrays in array disclosure values (for nested selective disclosure).
+processValueForArraysWithSD
+  :: Aeson.Value
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Aeson.Value
+processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosureMap =
+  -- Process each element in the array
+  let processedElements = V.map (\el -> processValueForArraysWithSD el arrayDisclosureMap objectDisclosureMap) arr
+      -- Replace {"...": "<digest>"} objects with actual values
+      -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
+      -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
+      -- for which they did not receive a Disclosure."
+      replacedElements = V.mapMaybe (\el -> case el of
+        Aeson.Object obj ->
+          -- Check if this is a {"...": "<digest>"} object
+          case KeyMap.lookup (Key.fromText "...") obj of
+            Just (Aeson.String digest) ->
+              -- Validate that ellipsis object only contains the "..." key
+              if KeyMap.size obj == 1
+                then
+                  -- Look up the value for this digest
+                  case Map.lookup digest arrayDisclosureMap of
+                    Just value ->
+                      -- Process _sd arrays in the array disclosure value (for nested selective disclosure)
+                      -- Also remove _sd_alg (metadata field) from array disclosure values
+                      let processedValue = processSDArraysInValue value objectDisclosureMap
+                      in case processedValue of
+                        Aeson.Object obj ->
+                          -- Remove _sd_alg if present (it's a metadata field, not part of the claim value)
+                          Just $ Aeson.Object (KeyMap.delete "_sd_alg" obj)
+                        _ -> Just processedValue
+                    Nothing -> Nothing  -- No disclosure found - ignore (remove) per RFC 9901 Section 7.3
+                else Just el  -- Invalid ellipsis object (has extra keys), keep as is
+            _ -> Just el  -- Not an ellipsis object, keep as is
+        _ -> Just el  -- Not an object, keep as is
+        ) processedElements
+  in Aeson.Array replacedElements
+processValueForArraysWithSD (Aeson.Object obj) arrayDisclosureMap objectDisclosureMap =
+  -- Recursively process nested objects and _sd arrays
+  let processedObj = KeyMap.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) obj
+      -- Also process _sd arrays in this object
+      processedWithSD = processSDArraysInValue (Aeson.Object processedObj) objectDisclosureMap
+  in processedWithSD
+processValueForArraysWithSD value _arrayDisclosureMap _objectDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Process payload from presentation (convenience function).
 processPayloadFromPresentation
