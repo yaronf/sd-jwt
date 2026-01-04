@@ -16,7 +16,7 @@ import SDJWT.Internal.Presentation (selectDisclosuresByNames)
 import SDJWT.Internal.Verification (verifySDJWTWithoutSignature)
 import SDJWT.Internal.Utils (base64urlEncode)
 import SDJWT.Internal.JWT (signJWTWithHeaders)
-import TestKeys (generateTestRSAKeyPair)
+import TestKeys (generateTestRSAKeyPair, TestKeyPair(..))
 
 -- Test cases based on failing Python interop tests
 -- These tests reproduce the exact failing scenarios from the interop tests
@@ -381,6 +381,169 @@ spec = describe "Interop Failure Analysis" $ do
   describe "recursions" $ do
     it "should handle complex nested structures with multiple levels" $ do
       -- Test case: Multiple levels of nested selective disclosure
-      -- This is a complex test case that requires careful recursive processing
-      -- For now, we'll mark it as pending until we fix the other issues
-      pending
+      -- user_claims:
+      --   foo: [!sd "one", !sd "two"]
+      --   bar: {!sd "red": 1, !sd "green": 2}
+      --   qux: [!sd [!sd "blue", !sd "yellow"]]
+      --   baz: [!sd [!sd "orange", !sd "purple"], !sd [!sd "black"]]
+      --
+      -- This tests comprehensive recursive processing:
+      -- 1. Array element disclosures
+      -- 2. Nested object disclosures
+      -- 3. Nested array disclosures (arrays within arrays)
+      -- 4. Multiple levels of recursion
+      
+      -- Step 1: Create disclosures for foo array elements
+      fooOneResult <- markArrayElementDisclosable SHA256 (Aeson.String "one")
+      fooTwoResult <- markArrayElementDisclosable SHA256 (Aeson.String "two")
+      case (fooOneResult, fooTwoResult) of
+        (Right (fooOneDigest, fooOneDisclosure), Right (fooTwoDigest, fooTwoDisclosure)) -> do
+          -- Step 2: Create disclosures for bar object sub-claims
+          barRedResult <- markSelectivelyDisclosable SHA256 "red" (Aeson.Number 1)
+          barGreenResult <- markSelectivelyDisclosable SHA256 "green" (Aeson.Number 2)
+          case (barRedResult, barGreenResult) of
+            (Right (barRedDigest, barRedDisclosure), Right (barGreenDigest, barGreenDisclosure)) -> do
+              -- Step 3: Create disclosures for qux nested array elements
+              quxBlueResult <- markArrayElementDisclosable SHA256 (Aeson.String "blue")
+              quxYellowResult <- markArrayElementDisclosable SHA256 (Aeson.String "yellow")
+              case (quxBlueResult, quxYellowResult) of
+                (Right (quxBlueDigest, quxBlueDisclosure), Right (quxYellowDigest, quxYellowDisclosure)) -> do
+                  -- Create inner array with ellipsis objects
+                  let quxInnerArray = Aeson.Array $ V.fromList
+                        [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest quxBlueDigest))]
+                        , Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest quxYellowDigest))]
+                        ]
+                  -- Create disclosure for outer array element (which contains the inner array)
+                  quxOuterResult <- markArrayElementDisclosable SHA256 quxInnerArray
+                  case quxOuterResult of
+                    Right (quxOuterDigest, quxOuterDisclosure) -> do
+                      -- Step 4: Create disclosures for baz nested arrays
+                      bazOrangeResult <- markArrayElementDisclosable SHA256 (Aeson.String "orange")
+                      bazPurpleResult <- markArrayElementDisclosable SHA256 (Aeson.String "purple")
+                      case (bazOrangeResult, bazPurpleResult) of
+                        (Right (bazOrangeDigest, bazOrangeDisclosure), Right (bazPurpleDigest, bazPurpleDisclosure)) -> do
+                          -- Create first inner array
+                          let bazInnerArray1 = Aeson.Array $ V.fromList
+                                [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest bazOrangeDigest))]
+                                , Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest bazPurpleDigest))]
+                                ]
+                          bazOuter1Result <- markArrayElementDisclosable SHA256 bazInnerArray1
+                          case bazOuter1Result of
+                            Right (bazOuter1Digest, bazOuter1Disclosure) -> do
+                              bazBlackResult <- markArrayElementDisclosable SHA256 (Aeson.String "black")
+                              case bazBlackResult of
+                                Right (bazBlackDigest, bazBlackDisclosure) -> do
+                                  -- Create second inner array
+                                  let bazInnerArray2 = Aeson.Array $ V.fromList
+                                        [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest bazBlackDigest))]
+                                        ]
+                                  bazOuter2Result <- markArrayElementDisclosable SHA256 bazInnerArray2
+                                  case bazOuter2Result of
+                                    Right (bazOuter2Digest, bazOuter2Disclosure) -> do
+                                      -- Step 5: Create JWT payload manually
+                                      -- Create bar object with _sd array
+                                      let barObject = Aeson.object
+                                            [ ("_sd_alg", Aeson.String "sha-256")
+                                            , ("_sd", Aeson.Array $ V.fromList
+                                                [ Aeson.String (unDigest barRedDigest)
+                                                , Aeson.String (unDigest barGreenDigest)
+                                                ])
+                                            ]
+                                      
+                                      -- Build JWT payload with arrays containing ellipsis objects
+                                      let jwtPayload = Aeson.object
+                                            [ ("_sd_alg", Aeson.String "sha-256")
+                                            , ("foo", Aeson.Array $ V.fromList
+                                                [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest fooOneDigest))]
+                                                , Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest fooTwoDigest))]
+                                                ])
+                                            , ("bar", barObject)
+                                            , ("qux", Aeson.Array $ V.fromList
+                                                [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest quxOuterDigest))]
+                                                ])
+                                            , ("baz", Aeson.Array $ V.fromList
+                                                [ Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest bazOuter1Digest))]
+                                                , Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest bazOuter2Digest))]
+                                                ])
+                                            ]
+                                      
+                                      -- Encode JWT payload
+                                      let jwtPayloadBS = BSL.toStrict $ Aeson.encode jwtPayload
+                                      let encodedPayload = base64urlEncode jwtPayloadBS
+                                      let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+                                      
+                                      -- Collect all disclosures
+                                      let allDisclosures = [fooOneDisclosure, fooTwoDisclosure, barRedDisclosure, barGreenDisclosure,
+                                                            quxOuterDisclosure, quxBlueDisclosure, quxYellowDisclosure,
+                                                            bazOuter1Disclosure, bazOrangeDisclosure, bazPurpleDisclosure,
+                                                            bazOuter2Disclosure, bazBlackDisclosure]
+                                      let sdjwt = SDJWT mockJWT allDisclosures
+                                      
+                                      -- Step 6: Select disclosures for all claims
+                                      -- Select all claims to test comprehensive recursive processing
+                                      -- For bar (structured SD-JWT Section 6.2), selecting "bar" should include all sub-claims
+                                      -- But to be safe, let's explicitly select bar's sub-claims
+                                      case selectDisclosuresByNames sdjwt ["foo", "bar/red", "bar/green", "qux", "baz"] of
+                                        Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
+                                        Right presentation -> do
+                                          -- Step 7: Verify
+                                          result <- verifySDJWTWithoutSignature presentation
+                                          case result of
+                                            Left err -> expectationFailure $ "Verification failed: " ++ show err
+                                            Right processed -> do
+                                              let claims = processedClaims processed
+                                              
+                                              -- Verify foo: should have both elements
+                                              case Map.lookup "foo" claims of
+                                                Just (Aeson.Array fooArr) -> do
+                                                  V.length fooArr `shouldBe` 2
+                                                  fooArr V.!? 0 `shouldBe` Just (Aeson.String "one")
+                                                  fooArr V.!? 1 `shouldBe` Just (Aeson.String "two")
+                                                _ -> expectationFailure "foo should be an array with 2 elements"
+                                              
+                                              -- Verify bar: should have both sub-claims
+                                              case Map.lookup "bar" claims of
+                                                Just (Aeson.Object barObj) -> do
+                                                  KeyMap.size barObj `shouldBe` 2
+                                                  KeyMap.lookup (Key.fromText "red") barObj `shouldBe` Just (Aeson.Number 1)
+                                                  KeyMap.lookup (Key.fromText "green") barObj `shouldBe` Just (Aeson.Number 2)
+                                                _ -> expectationFailure "bar should be an object with 2 sub-claims"
+                                              
+                                              -- Verify qux: should have nested array with both elements
+                                              case Map.lookup "qux" claims of
+                                                Just (Aeson.Array quxArr) -> do
+                                                  V.length quxArr `shouldBe` 1
+                                                  case quxArr V.!? 0 of
+                                                    Just (Aeson.Array quxInnerArr) -> do
+                                                      V.length quxInnerArr `shouldBe` 2
+                                                      quxInnerArr V.!? 0 `shouldBe` Just (Aeson.String "blue")
+                                                      quxInnerArr V.!? 1 `shouldBe` Just (Aeson.String "yellow")
+                                                    _ -> expectationFailure "qux[0] should be an array with 2 elements"
+                                                _ -> expectationFailure "qux should be an array with 1 element"
+                                              
+                                              -- Verify baz: should have nested arrays
+                                              case Map.lookup "baz" claims of
+                                                Just (Aeson.Array bazArr) -> do
+                                                  V.length bazArr `shouldBe` 2
+                                                  -- First nested array
+                                                  case bazArr V.!? 0 of
+                                                    Just (Aeson.Array bazInner1) -> do
+                                                      V.length bazInner1 `shouldBe` 2
+                                                      bazInner1 V.!? 0 `shouldBe` Just (Aeson.String "orange")
+                                                      bazInner1 V.!? 1 `shouldBe` Just (Aeson.String "purple")
+                                                    _ -> expectationFailure "baz[0] should be an array with 2 elements"
+                                                  -- Second nested array
+                                                  case bazArr V.!? 1 of
+                                                    Just (Aeson.Array bazInner2) -> do
+                                                      V.length bazInner2 `shouldBe` 1
+                                                      bazInner2 V.!? 0 `shouldBe` Just (Aeson.String "black")
+                                                    _ -> expectationFailure "baz[1] should be an array with 1 element"
+                                                _ -> expectationFailure "baz should be an array with 2 elements"
+                                    Left err -> expectationFailure $ "Failed to create baz outer 2 disclosure: " ++ show err
+                                Left err -> expectationFailure $ "Failed to create baz black disclosure: " ++ show err
+                            Left err -> expectationFailure $ "Failed to create baz outer 1 disclosure: " ++ show err
+                        _ -> expectationFailure "Failed to create baz orange/purple disclosures"
+                    Left err -> expectationFailure $ "Failed to create qux outer disclosure: " ++ show err
+                _ -> expectationFailure "Failed to create qux blue/yellow disclosures"
+            _ -> expectationFailure "Failed to create bar red/green disclosures"
+        _ -> expectationFailure "Failed to create foo one/two disclosures"

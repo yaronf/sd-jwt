@@ -335,27 +335,42 @@ collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures = do
       
       -- Recursively collect nested array element disclosures
       -- For each selected array element disclosure, check if its value is an array
-      -- and extract digests from it
-      nestedDisclos <- mapM (\encDisclosure -> do
-          decoded <- decodeDisclosure encDisclosure
-          let value = getDisclosureValue decoded
-          case value of
-            Aeson.Array nestedArr -> do
-              -- Extract digests from nested array
-              nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
-              -- Find disclosures matching these digests
-              let matchingDisclos = mapMaybe (\encDisclosure2 ->
-                    let digest2 = computeDigest hashAlg encDisclosure2
-                        digestText2 = unDigest digest2
-                    in if any ((== digestText2) . unDigest) nestedDigests
-                      then Just encDisclosure2
-                      else Nothing
-                    ) allDisclosures
-              return matchingDisclos
-            _ -> return []
-        ) selectedArrayElementDisclos
+      -- and extract digests from it. This needs to be recursive to handle multiple levels.
+      let collectNestedRecursive :: [EncodedDisclosure] -> [EncodedDisclosure] -> Either SDJWTError [EncodedDisclosure]
+          collectNestedRecursive currentDisclos alreadyCollected = do
+            -- For each current disclosure, check if its value is an array
+            nestedDisclos <- mapM (\encDisclosure -> do
+                decoded <- decodeDisclosure encDisclosure
+                let value = getDisclosureValue decoded
+                case value of
+                  Aeson.Array nestedArr -> do
+                    -- Extract digests from nested array
+                    nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
+                    -- Find disclosures matching these digests that we haven't already collected
+                    let matchingDisclos = mapMaybe (\encDisclosure2 ->
+                          let digest2 = computeDigest hashAlg encDisclosure2
+                              digestText2 = unDigest digest2
+                          in if any ((== digestText2) . unDigest) nestedDigests &&
+                                not (encDisclosure2 `elem` alreadyCollected) &&
+                                not (encDisclosure2 `elem` currentDisclos)
+                            then Just encDisclosure2
+                            else Nothing
+                          ) allDisclosures
+                    return matchingDisclos
+                  _ -> return []
+              ) currentDisclos
+            
+            let newDisclos = concat nestedDisclos
+            if null newDisclos
+              then return []  -- No more nested disclosures to collect
+              else do
+                -- Recursively collect from the newly found disclosures
+                deeperDisclos <- collectNestedRecursive newDisclos (alreadyCollected ++ currentDisclos ++ newDisclos)
+                return (newDisclos ++ deeperDisclos)
+      
+      nestedDisclos <- collectNestedRecursive selectedArrayElementDisclos selectedArrayElementDisclos
       
       -- Combine all array element disclosures (including nested ones)
-      return $ selectedArrayElementDisclos ++ concat nestedDisclos
+      return $ selectedArrayElementDisclos ++ nestedDisclos
     _ -> return []  -- Payload is not an object, no arrays to process
 
