@@ -544,12 +544,15 @@ processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosur
                     Just value ->
                       -- Process _sd arrays in the array disclosure value (for nested selective disclosure)
                       -- Also remove _sd_alg (metadata field) from array disclosure values
-                      let processedValue = processSDArraysInValue value objectDisclosureMap
-                      in case processedValue of
-                        Aeson.Object obj ->
-                          -- Remove _sd_alg if present (it's a metadata field, not part of the claim value)
-                          Just $ Aeson.Object (KeyMap.delete "_sd_alg" obj)
-                        _ -> Just processedValue
+                      let processedSD = processSDArraysInValue value objectDisclosureMap
+                          -- Remove _sd_alg if it's an object
+                          processedWithoutSDAlg = case processedSD of
+                            Aeson.Object obj -> Aeson.Object (KeyMap.delete "_sd_alg" obj)
+                            _ -> processedSD
+                          -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
+                          -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
+                          recursivelyProcessed = processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
+                      in Just recursivelyProcessed
                     Nothing -> Nothing  -- No disclosure found - ignore (remove) per RFC 9901 Section 7.3
                 else Just el  -- Invalid ellipsis object (has extra keys), keep as is
             _ -> Just el  -- Not an ellipsis object, keep as is
