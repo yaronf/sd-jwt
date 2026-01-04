@@ -101,6 +101,7 @@ tests:
     - KeyBindingSpec
     - JWTSpec
     - RFCSpec
+    - InteropFailureAnalysisSpec
     - PropertySpec
     - EndToEndSpec
     - DoctestSpec

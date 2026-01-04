@@ -81,14 +81,24 @@ selectDisclosuresByNames sdjwt@(SDJWT issuerJWT allDisclosures) claimNames = do
   -- Filter disclosures that match the required claim names
   let selectedDisclos = filterDisclosuresByNames decodedDisclosures allDisclosures requiredClaimNames
   
+  -- Extract digests from JWT payload to find array element disclosures
+  issuerDigests <- extractDigestsFromJWTPayload issuerJWT
+  
+  -- For each selected claim name, if it's an array claim, include array element disclosures
+  -- that are referenced by digests in that array
+  arrayElementDisclos <- collectArrayElementDisclosures hashAlg topLevelNames issuerJWT allDisclosures
+  
+  -- Combine object disclosures and array element disclosures
+  let allSelectedDisclos = selectedDisclos ++ arrayElementDisclos
+  
   -- Validate disclosure dependencies per RFC 9901 Section 7.2, step 2b:
   -- Verify that each selected Disclosure satisfies one of:
   -- a. The hash is contained in the Issuer-signed JWT claims
   -- b. The hash is contained in the claim value of another selected Disclosure
-  validateDisclosureDependencies hashAlg selectedDisclos issuerJWT
+  validateDisclosureDependencies hashAlg allSelectedDisclos issuerJWT
   
   -- Create presentation
-  return $ createPresentation sdjwt selectedDisclos
+  return $ createPresentation sdjwt allSelectedDisclos
 
 -- | Select disclosures from an SD-JWT (more flexible version).
 --
@@ -284,4 +294,68 @@ extractDigestsFromJWTPayload jwt = do
   sdPayload <- parsePayloadFromJWT jwt
   digests <- extractDigestsFromValue (payloadValue sdPayload)
   return $ Set.fromList $ map unDigest digests
+
+-- | Collect array element disclosures for selected array claims.
+--
+-- When an array claim is selected, we need to include array element disclosures
+-- that are referenced by digests in that array. For nested arrays, we recursively
+-- process array disclosure values to find nested array element disclosures.
+collectArrayElementDisclosures
+  :: HashAlgorithm
+  -> [T.Text]  -- ^ Selected top-level claim names (may include array claims)
+  -> T.Text  -- ^ Issuer-signed JWT
+  -> [EncodedDisclosure]  -- ^ All available disclosures
+  -> Either SDJWTError [EncodedDisclosure]
+collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures = do
+  -- Parse JWT payload
+  sdPayload <- parsePayloadFromJWT issuerJWT
+  let payloadValueObj = payloadValue sdPayload
+  
+  -- Extract digests from selected array claims
+  case payloadValueObj of
+    Aeson.Object obj -> do
+      -- For each selected claim name, if it's an array, extract digests from it
+      arrayDigests <- mapM (\claimName ->
+        case KeyMap.lookup (Key.fromText claimName) obj of
+          Just (Aeson.Array arr) -> do
+            -- Extract digests from ellipsis objects in this array
+            digests <- extractDigestsFromValue (Aeson.Array arr)
+            return (claimName, digests)
+          _ -> return (claimName, [])
+        ) claimNames
+      
+      -- Find array element disclosures matching digests from selected arrays
+      let selectedArrayElementDisclos = mapMaybe (\encDisclosure ->
+            let digest = computeDigest hashAlg encDisclosure
+                digestText = unDigest digest
+            in if any (\(_, digests) -> any ((== digestText) . unDigest) digests) arrayDigests
+              then Just encDisclosure
+              else Nothing
+            ) allDisclosures
+      
+      -- Recursively collect nested array element disclosures
+      -- For each selected array element disclosure, check if its value is an array
+      -- and extract digests from it
+      nestedDisclos <- mapM (\encDisclosure -> do
+          decoded <- decodeDisclosure encDisclosure
+          let value = getDisclosureValue decoded
+          case value of
+            Aeson.Array nestedArr -> do
+              -- Extract digests from nested array
+              nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
+              -- Find disclosures matching these digests
+              let matchingDisclos = mapMaybe (\encDisclosure2 ->
+                    let digest2 = computeDigest hashAlg encDisclosure2
+                        digestText2 = unDigest digest2
+                    in if any ((== digestText2) . unDigest) nestedDigests
+                      then Just encDisclosure2
+                      else Nothing
+                    ) allDisclosures
+              return matchingDisclos
+            _ -> return []
+        ) selectedArrayElementDisclos
+      
+      -- Combine all array element disclosures (including nested ones)
+      return $ selectedArrayElementDisclos ++ concat nestedDisclos
+    _ -> return []  -- Payload is not an object, no arrays to process
 

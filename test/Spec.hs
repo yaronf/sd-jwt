@@ -16,6 +16,7 @@ import PropertySpec
 import EndToEndSpec
 import DoctestSpec
 import ExampleSpec
+import InteropFailureAnalysisSpec
 
 main :: IO ()
 main = hspec $ do
@@ -33,3 +34,4 @@ main = hspec $ do
   EndToEndSpec.spec
   DoctestSpec.spec
   ExampleSpec.spec
+  InteropFailureAnalysisSpec.spec
