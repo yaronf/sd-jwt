@@ -59,6 +59,7 @@ import Data.Text.Encoding (decodeUtf8)
 -- == Standard JWT Claims Validation
 --
 -- Standard JWT claims (RFC 7519) included in the issuer-signed JWT are automatically validated:
+--
 -- - @exp@ (expiration time): Token is rejected if expired
 -- - @nbf@ (not before): Token is rejected if not yet valid
 -- - Other standard claims are preserved but not validated by this library

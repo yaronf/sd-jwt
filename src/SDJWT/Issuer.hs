@@ -48,10 +48,10 @@
 -- result <- createSDJWT (Just "sd-jwt") (Just "key-1") SHA256 issuerKey ["given_name"] claims
 --
 -- -- Create SD-JWT with array elements (using JSON Pointer syntax)
--- result <- createSDJWT Nothing Nothing SHA256 issuerKey ["nationalities/0", "nationalities/2"] claims
+-- result <- createSDJWT Nothing Nothing SHA256 issuerKey ["nationalities\/0", "nationalities\/2"] claims
 --
 -- -- Create SD-JWT with mixed object and array paths
--- result <- createSDJWT Nothing Nothing SHA256 issuerKey ["address/street_address", "nationalities/1"] claims
+-- result <- createSDJWT Nothing Nothing SHA256 issuerKey ["address\/street_address", "nationalities\/1"] claims
 -- @
 --
 -- == Standard JWT Claims

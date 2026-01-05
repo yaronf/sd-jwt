@@ -105,10 +105,10 @@ hashToBytes SHA512 bs = BA.convert (Hash.hash bs :: Hash.Digest Hash.SHA512)
 --
 -- Examples:
 --
--- - "a/b" → ["a", "b"]
--- - "a~1b" → ["a/b"] (escaped slash)
+-- - "a\/b" → ["a", "b"]
+-- - "a~1b" → ["a\/b"] (escaped slash)
 -- - "a~0b" → ["a~b"] (escaped tilde)
--- - "a~1/b" → ["a/", "b"] (escaped slash becomes "/", then "/" is separator)
+-- - "a~1\/b" → ["a\/", "b"] (escaped slash becomes "\/", then "\/" is separator)
 -- 
 -- Note: This function is designed for relative JSON Pointer paths (without leading "/").
 -- Leading slashes are stripped, trailing slashes don't create empty segments,

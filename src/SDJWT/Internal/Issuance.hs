@@ -212,7 +212,7 @@ markSelectivelyDisclosable hashAlg claimName claimValue = do
 --
 -- This function is used internally by 'processArrayPaths' in the unified recursive path processing.
 -- External users should use 'buildSDJWTPayload' or 'createSDJWT' with JSON Pointer paths
--- like ["nested_array/0/0"] instead.
+-- like ["nested_array\/0\/0"] instead.
 markArrayElementDisclosable
   :: HashAlgorithm
   -> Aeson.Value  -- ^ Array element value
@@ -238,7 +238,7 @@ markArrayElementDisclosable hashAlg elementValue = do
 --
 -- Supports nested structures (Section 6.2, 6.3):
 --
--- - Use JSON Pointer syntax for nested paths: ["address/street_address", "address/locality"]
+-- - Use JSON Pointer syntax for nested paths: ["address\/street_address", "address\/locality"]
 -- - For Section 6.2 (structured): parent object stays, sub-claims get _sd array within parent
 -- - For Section 6.3 (recursive): parent is selectively disclosable, disclosure contains _sd array
 buildSDJWTPayload
