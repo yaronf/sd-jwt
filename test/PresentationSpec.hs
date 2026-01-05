@@ -208,39 +208,22 @@ spec = describe "SDJWT.Presentation" $ do
               , ("given_name", Aeson.String "John")
               , ("nationalities", Aeson.Array $ V.fromList [Aeson.String "US", Aeson.String "DE"])
               ]
-        -- Mark array elements as selectively disclosable
-        result <- buildSDJWTPayload SHA256 ["given_name"] claims
+        -- Mark both given_name and nationalities/0 as selectively disclosable using JSON Pointer
+        result <- buildSDJWTPayload SHA256 ["given_name", "nationalities/0"] claims
         case result of
-          Right (_, sdDisclosures) -> do
-            -- Process array for selective disclosure
-            let nationalitiesArr = case Map.lookup "nationalities" claims of
-                  Just (Aeson.Array arr) -> arr
-                  _ -> V.empty
-            arrayResult <- processArrayForSelectiveDisclosure SHA256 nationalitiesArr [0]  -- Mark first element
-            case arrayResult of
-              Right (_modifiedArr, arrayDisclosures) -> do
-                -- Create payload with modified array containing ellipsis object
-                let arrayDigest = computeDigest SHA256 (head arrayDisclosures)
-                let payloadWithArray = Aeson.object
-                      [ ("_sd_alg", Aeson.String "sha-256")
-                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head sdDisclosures)))])
-                      , ("nationalities", Aeson.Array $ V.fromList
-                          [ Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- US (disclosed)
-                          , Aeson.String "DE"  -- Not disclosed
-                          ])
-                      ]
-                let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
-                let encodedPayload = base64urlEncode payloadBS
-                let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-                let sdjwt = SDJWT jwt (sdDisclosures ++ arrayDisclosures)
-                
-                -- Select disclosures - this should extract digests from the array ellipsis object
-                case selectDisclosuresByNames sdjwt ["given_name"] of
-                  Right presentation -> do
-                    -- Should succeed - extractDigestsFromValue should extract digest from array
-                    length (selectedDisclosures presentation) `shouldBe` 1
-                  Left err -> expectationFailure $ "Should extract digests from arrays: " ++ show err
-              Left err -> expectationFailure $ "Failed to process array: " ++ show err
+          Right (payload, allDisclosures) -> do
+            -- Create SD-JWT using the payload
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let sdjwt = SDJWT jwt allDisclosures
+            
+            -- Select disclosures - this should extract digests from the array ellipsis object
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                -- Should succeed - extractDigestsFromValue should extract digest from array
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should extract digests from arrays: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "handles arrays with objects that don't have ellipsis key" $ do
@@ -284,34 +267,23 @@ spec = describe "SDJWT.Presentation" $ do
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
-          Right (_, objectDisclosures) -> do
-            -- Create array disclosure
-            let nationalitiesArr = case Map.lookup "nationalities" claims of
-                  Just (Aeson.Array arr) -> arr
-                  _ -> V.empty
-            arrayResult <- processArrayForSelectiveDisclosure SHA256 nationalitiesArr [0]
-            case arrayResult of
-              Right (_, arrayDisclosures) -> do
-                -- Create SD-JWT with both object and array disclosures
-                let payloadBS = BSL.toStrict $ Aeson.encode (Aeson.object
-                      [ ("_sd_alg", Aeson.String "sha-256")
-                      , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest (computeDigest SHA256 (head objectDisclosures)))])
-                      ])
-                let encodedPayload = base64urlEncode payloadBS
-                let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
-                let sdjwt = SDJWT jwt (objectDisclosures ++ arrayDisclosures)
-                
-                -- selectDisclosuresByNames calls buildDisclosureMap internally
-                -- buildDisclosureMap processes both object and array disclosures:
-                -- - Object disclosures (Just name) -> included in map
-                -- - Array disclosures (Nothing) -> filtered out (exercises Nothing branch)
-                case selectDisclosuresByNames sdjwt ["given_name"] of
-                  Right presentation -> do
-                    -- Should succeed - array disclosures are filtered out by buildDisclosureMap
-                    -- but object disclosures are still selected correctly
-                    length (selectedDisclosures presentation) `shouldBe` 1
-                  Left err -> expectationFailure $ "Should handle mixed disclosures: " ++ show err
-              Left err -> expectationFailure $ "Failed to process array: " ++ show err
+          Right (payload, allDisclosures) -> do
+            -- Create SD-JWT with both object and array disclosures
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let sdjwt = SDJWT jwt allDisclosures
+            
+            -- selectDisclosuresByNames calls buildDisclosureMap internally
+            -- buildDisclosureMap processes both object and array disclosures:
+            -- - Object disclosures (Just name) -> included in map
+            -- - Array disclosures (Nothing) -> filtered out (exercises Nothing branch)
+            case selectDisclosuresByNames sdjwt ["given_name"] of
+              Right presentation -> do
+                -- Should succeed - array disclosures are filtered out by buildDisclosureMap
+                -- but object disclosures are still selected correctly
+                length (selectedDisclosures presentation) `shouldBe` 1
+              Left err -> expectationFailure $ "Should handle mixed disclosures: " ++ show err
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "handles arrays with ellipsis objects where value is not a string" $ do

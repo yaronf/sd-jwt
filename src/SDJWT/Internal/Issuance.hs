@@ -114,12 +114,6 @@ module SDJWT.Internal.Issuance
   , addDecoyDigest
   , buildSDJWTPayload
   , addHolderKeyToClaims
-    -- * Internal/Test-only functions
-    -- These functions are exported primarily for testing purposes.
-    -- Most users should use 'createSDJWT' or 'buildSDJWTPayload' instead.
-  , markSelectivelyDisclosable
-  , markArrayElementDisclosable
-  , processArrayForSelectiveDisclosure
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWT(..), SDJWTError(..))
@@ -135,38 +129,18 @@ import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vector as V
-import Data.List (sortBy, partition)
+import Data.List (sortBy, partition, find)
 import Data.Ord (comparing)
+import Text.Read (readMaybe)
 import Data.Either (partitionEithers)
 import Data.Maybe (mapMaybe)
 import Control.Monad (replicateM)
 
--- | Mark a claim as selectively disclosable.
+-- | Mark a claim as selectively disclosable (internal use only).
 --
--- This function:
---
--- 1. Generates a salt for the claim
--- 2. Creates a disclosure
--- 3. Computes the digest
--- 4. Returns the digest and encoded disclosure
--- | Mark a single claim as selectively disclosable (advanced/low-level).
---
--- This is a low-level function that processes a single claim. Most users should
--- use 'buildSDJWTPayload' or 'createSDJWT' instead, which handle multiple claims
--- and the full SD-JWT creation process.
---
--- This function:
---
--- 1. Generates a salt for the claim
--- 2. Creates an object disclosure
--- 3. Computes the digest
--- 4. Returns the digest and encoded disclosure
---
--- == Advanced Use
---
--- Only use this function if you need fine-grained control over individual claim
--- processing, such as custom disclosure creation logic or testing.
---
+-- This function only works for object claims (JSON objects), not for array elements.
+-- It's used internally by 'buildSDJWTPayload' and 'processNestedStructures'.
+-- External users should use 'buildSDJWTPayload' or 'createSDJWT' with JSON Pointer paths.
 markSelectivelyDisclosable
   :: HashAlgorithm
   -> T.Text  -- ^ Claim name
@@ -181,17 +155,11 @@ markSelectivelyDisclosable hashAlg claimName claimValue = do
       let digest = computeDigest hashAlg encodedDisclosure
       return (Right (digest, encodedDisclosure))
 
--- | Mark an array element as selectively disclosable.
+-- | Mark an array element as selectively disclosable (internal use only).
 --
--- This function:
---
--- 1. Generates a salt for the array element
--- 2. Creates an array disclosure (without claim name)
--- 3. Computes the digest
--- 4. Returns the digest and encoded disclosure
---
--- The digest should be embedded in the array as {"...": "<digest>"}
--- at the same position as the original element.
+-- This function is used internally by 'processArrayForSelectiveDisclosure'.
+-- External users should use 'buildSDJWTPayload' or 'createSDJWT' with JSON Pointer paths
+-- like ["nested_array/0/0"] instead.
 markArrayElementDisclosable
   :: HashAlgorithm
   -> Aeson.Value  -- ^ Array element value
@@ -249,6 +217,205 @@ processArrayForSelectiveDisclosure hashAlg arr indices = do
       let arrayDisclosures = map snd (map snd successes)
       return (Right (arrWithDigests, arrayDisclosures))
 
+-- | Partition nested paths by actual claim type (array vs object).
+--
+-- Recursively checks the actual type of each segment in the path to determine
+-- if segments refer to array elements (by index) or object properties (by key).
+-- 
+-- Note: "x/22" is ambiguous - it could be array index 22 or object key "22".
+-- This function resolves the ambiguity by checking the actual claim type.
+--
+-- Returns: (array paths with indices, object paths with segments)
+-- Array paths: [(claimName, [indices])] - e.g., [("nested_array", [0, 1])] for "nested_array/0/1"
+-- Object paths: [[segments]] - e.g., [["user", "profile", "email"]]
+partitionPathsByType
+  :: [[T.Text]]  -- ^ Nested paths as segments
+  -> Map.Map T.Text Aeson.Value  -- ^ Claims to check types
+  -> IO ([(T.Text, [Int])], [[T.Text]])  -- ^ (array paths (claim, indices), object paths (segments))
+partitionPathsByType nestedPaths claims = do
+  results <- mapM (\segments -> partitionPathByType segments claims) nestedPaths
+  let (arrayPaths, objectPaths) = partitionEithers results
+  return (arrayPaths, objectPaths)
+  where
+    -- Recursively check a path and determine if it's an array path or object path
+    -- For paths like "nested_array/0/1", we collect consecutive array indices: ("nested_array", [0, 1])
+    -- For paths like "user/profile/email", we return the full path: ["user", "profile", "email"]
+    partitionPathByType :: [T.Text] -> Map.Map T.Text Aeson.Value -> IO (Either (T.Text, [Int]) [T.Text])
+    partitionPathByType [] _ = return $ Right []  -- Empty path (shouldn't happen)
+    partitionPathByType [single] _ = return $ Right [single]  -- Single segment (shouldn't happen, but handle gracefully)
+    partitionPathByType (claimName:rest) claims = do
+      case Map.lookup claimName claims of
+        Just (Aeson.Array arr) -> do
+          -- First segment is an array - collect consecutive numeric indices
+          let (indices, remaining) = collectArrayIndices rest
+          if null indices
+            then return $ Right (claimName:rest)  -- No numeric indices, treat as object path
+            else do
+              -- Check if there are remaining segments (deeper nesting)
+              case remaining of
+                [] -> return $ Left (claimName, indices)  -- Pure array path
+                _ -> do
+                  -- There are remaining segments - check if the element at the last index is an array
+                  let lastIdx = last indices
+                  if lastIdx >= 0 && lastIdx < V.length arr
+                    then case V.unsafeIndex arr lastIdx of
+                           Aeson.Array _ -> do
+                             -- Element is an array - recursively process remaining segments
+                             let nestedClaims = Map.singleton "temp" (V.unsafeIndex arr lastIdx)
+                             nestedResult <- partitionPathByType remaining nestedClaims
+                             case nestedResult of
+                               Left (_, nestedIndices) -> return $ Left (claimName, indices ++ nestedIndices)
+                               Right _ -> return $ Left (claimName, indices)  -- Fallback to current level
+                           _ -> return $ Right (claimName:rest)  -- Element is not an array, treat as object path
+                    else return $ Right (claimName:rest)  -- Invalid index
+        Just (Aeson.Object _) -> do
+          -- First segment is an object - continue as object path
+          return $ Right (claimName:rest)
+        _ -> do
+          -- Unknown type or not found - default to object path (will error later if invalid)
+          return $ Right (claimName:rest)
+    
+    -- Collect consecutive numeric segments from the start of a path
+    collectArrayIndices :: [T.Text] -> ([Int], [T.Text])
+    collectArrayIndices segments = go segments []
+      where
+        go [] acc = (reverse acc, [])
+        go (seg:rest) acc = case readMaybe (T.unpack seg) :: Maybe Int of
+          Just idx -> go rest (idx:acc)
+          Nothing -> (reverse acc, seg:rest)
+
+-- | Process arrays from JSON Pointer paths.
+--
+-- Takes array paths (claim name, indices) and processes the specified array elements
+-- as selectively disclosable. Only handles paths where the top-level claim is an array.
+-- Supports nested arrays (arrays within arrays), e.g., ("nested_array", [0, 1]) for
+-- "nested_array/0/1". Paths that traverse through objects are handled separately by
+-- 'processNestedStructures'. Groups paths by claim name and processes each array recursively.
+processArraysFromPaths
+  :: HashAlgorithm
+  -> [(T.Text, [Int])]  -- ^ Array paths (claim name, indices) - e.g., ("nested_array", [0, 1])
+  -> Map.Map T.Text Aeson.Value  -- ^ Original claims
+  -> IO (Either SDJWTError (Map.Map T.Text Aeson.Value, [EncodedDisclosure]))
+processArraysFromPaths hashAlg arrayPaths claims = do
+  -- Group array paths by claim name
+  let groupedByClaim = Map.fromListWith (++) $ map (\(claim, indices) -> (claim, [indices])) arrayPaths
+  
+  -- Process each array claim
+  results <- mapM (\(claimName, indicesList) -> do
+    case Map.lookup claimName claims of
+      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Array claim not found: " <> claimName
+      Just (Aeson.Array arr) -> do
+        -- Group paths by their first index to process nested arrays together
+        -- For example, [0,0] and [0,1] both start with 0, so process inner array at 0 with [0,1] together
+        let groupByFirstIndex :: [[Int]] -> Map.Map Int [[Int]]
+            groupByFirstIndex = Map.fromListWith (++) . map (\path -> case path of
+              [] -> (error "Empty path", [])
+              (first:rest) -> (first, [rest]))
+        
+        -- Process each group of paths that share the same first index
+        let groupedPaths = groupByFirstIndex indicesList
+        groupResults <- mapM (\(firstIdx, restPaths) -> do
+          if null restPaths || all null restPaths
+            then do
+              -- Single-level path (e.g., [0]) - process directly
+              processArrayForSelectiveDisclosure hashAlg arr [firstIdx]
+            else do
+              -- Nested paths (e.g., [0,0] and [0,1]) - process inner array first with all inner indices
+              case arr V.!? firstIdx of
+                Just (Aeson.Array innerArr) -> do
+                  -- Collect all inner indices from restPaths
+                  let innerIndices = concat restPaths
+                  -- Process inner array with all inner indices at once
+                  innerResult <- processArrayForSelectiveDisclosure hashAlg innerArr innerIndices
+                  case innerResult of
+                    Left err -> return $ Left err
+                    Right (modifiedInnerArr, innerDisclosures) -> do
+                      -- Replace the element at firstIdx with modified inner array
+                      let arrWithModifiedInner = arr V.// [(firstIdx, Aeson.Array modifiedInnerArr)]
+                      -- Now process the outer array at index firstIdx
+                      outerResult <- processArrayForSelectiveDisclosure hashAlg arrWithModifiedInner [firstIdx]
+                      case outerResult of
+                        Left err -> return $ Left err
+                        Right (modifiedOuterArr, outerDisclosures) -> do
+                          return $ Right (modifiedOuterArr, innerDisclosures ++ outerDisclosures)
+                Just _ -> return $ Left $ InvalidDisclosureFormat $ "Expected array at index " <> T.pack (show firstIdx) <> " but found other type"
+                Nothing -> return $ Left $ InvalidDisclosureFormat $ "Index " <> T.pack (show firstIdx) <> " out of bounds"
+          ) (Map.toList groupedPaths)
+        
+        let (errors, successes) = partitionEithers groupResults
+        case errors of
+          (err:_) -> return $ Left err
+          [] -> do
+            -- Merge all modified arrays: for each index, if any array has an ellipsis object, use it
+            let (modifiedArrays, allDisclosures) = unzip successes
+            let mergeArrays :: [V.Vector Aeson.Value] -> V.Vector Aeson.Value
+                mergeArrays [] = arr  -- Shouldn't happen, but fallback to original
+                mergeArrays [single] = single
+                mergeArrays arrays = 
+                  -- For each index, check if any array has an ellipsis object
+                  V.generate (V.length arr) (\idx ->
+                    -- Check if any modified array has an ellipsis object at this index
+                    case find (\modArr -> 
+                      idx < V.length modArr &&
+                      case modArr V.!? idx of
+                        Just (Aeson.Object obj) -> KeyMap.member (Key.fromText "...") obj
+                        _ -> False) arrays of
+                      Just modArr -> modArr V.! idx  -- Use ellipsis object from this array
+                      Nothing -> 
+                        -- No ellipsis object at this index, use original value
+                        arr V.! idx)
+            let finalArray = mergeArrays modifiedArrays
+            let combinedDisclosures = concat allDisclosures
+            return $ Right (claimName, Aeson.Array finalArray, combinedDisclosures)
+      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Claim is not an array: " <> claimName
+    ) (Map.toList groupedByClaim)
+  
+  -- Check for errors
+  let (errors, successes) = partitionEithers results
+  case errors of
+    (err:_) -> return (Left err)
+    [] -> do
+      -- Build map of modified arrays
+      let arrayModifications = Map.fromList $ map (\(name, arr, _) -> (name, arr)) successes
+      -- Combine all array disclosures
+      let allArrayDisclosures = concatMap (\(_, _, disclosures) -> disclosures) successes
+      -- Apply modifications to claims
+      let modifiedClaims = Map.foldlWithKey (\acc name arr -> Map.insert name arr acc) claims arrayModifications
+      return $ Right (modifiedClaims, allArrayDisclosures)
+  where
+    -- Recursively process an array path like [0, 1] on an array
+    -- For "nested_array/0/1", this processes the inner array first, then the outer
+    processArrayPathRecursive :: HashAlgorithm -> V.Vector Aeson.Value -> [Int] -> IO (Either SDJWTError (V.Vector Aeson.Value, [EncodedDisclosure]))
+    processArrayPathRecursive hashAlg arr [] = return $ Right (arr, [])  -- No indices, return as-is
+    processArrayPathRecursive hashAlg arr [idx] = do
+      -- Single index - process this array element
+      processArrayForSelectiveDisclosure hashAlg arr [idx]
+    processArrayPathRecursive hashAlg arr (idx:rest) = do
+      -- Multiple indices - process inner array first, then outer
+      if idx >= 0 && idx < V.length arr
+        then do
+          -- Get the element at this index (should be an array for nested paths)
+          case arr V.!? idx of
+            Just (Aeson.Array innerArr) -> do
+              -- Recursively process inner array first
+              innerResult <- processArrayPathRecursive hashAlg innerArr rest
+              case innerResult of
+                Left err -> return $ Left err
+                Right (modifiedInnerArr, innerDisclosures) -> do
+                  -- Replace the element at idx with modified inner array
+                  let arrWithModifiedInner = arr V.// [(idx, Aeson.Array modifiedInnerArr)]
+                  -- Now process the outer array at index idx
+                  -- But we need to mark the entire inner array as selectively disclosable
+                  -- Actually, we've already processed the inner array, so we just need to mark the outer element
+                  outerResult <- processArrayForSelectiveDisclosure hashAlg arrWithModifiedInner [idx]
+                  case outerResult of
+                    Left err -> return $ Left err
+                    Right (modifiedOuterArr, outerDisclosures) -> do
+                      return $ Right (modifiedOuterArr, innerDisclosures ++ outerDisclosures)
+            Just _ -> return $ Left $ InvalidDisclosureFormat $ "Expected array at index " <> T.pack (show idx) <> " but found other type"
+            Nothing -> return $ Left $ InvalidDisclosureFormat $ "Index " <> T.pack (show idx) <> " out of bounds"
+        else return $ Left $ InvalidDisclosureFormat $ "Array index " <> T.pack (show idx) <> " out of bounds"
+
 -- | Build SD-JWT payload from claims, marking specified claims as selectively disclosable.
 --
 -- This function:
@@ -273,15 +440,20 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
   -- Group claims by nesting level (top-level vs nested)
   let (topLevelClaims, nestedPaths) = partitionNestedPaths selectiveClaimNames
   
-  -- Group nested paths by parent to detect recursive disclosures (Section 6.3)
-  -- Create singleton lists for each child, then combine lists for same parent
-  let nestedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, c : [])) nestedPaths
-  let recursiveParents = Map.keysSet nestedByParent `Set.intersection` Set.fromList topLevelClaims
+  -- Process all nested paths together - the recursive function handles arrays and objects at each level
+  -- Group nested paths by first segment to detect recursive disclosures (Section 6.3)
+  -- A path is recursive if its first segment is also in topLevelClaims
+  let getFirstSegment [] = ""
+      getFirstSegment (seg:_) = seg
+  let recursiveParents = Set.fromList (map getFirstSegment nestedPaths) `Set.intersection` Set.fromList topLevelClaims
   
   -- Separate recursive disclosures (Section 6.3) from structured disclosures (Section 6.2)
-  let (recursivePaths, structuredPaths) = partition (\(p, _) -> Set.member p recursiveParents) nestedPaths
+  let (recursivePaths, structuredPaths) = partition (\path -> case path of
+        [] -> False
+        (first:_) -> Set.member first recursiveParents) nestedPaths
   
-  -- Process structured nested structures first (Section 6.2: structured SD-JWT)
+  -- Process structured nested structures (Section 6.2: structured SD-JWT)
+  -- This handles both objects and arrays at each level recursively
   structuredResults <- processNestedStructures hashAlg structuredPaths claims
   
   -- Check for errors in structured processing
@@ -300,6 +472,8 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
                 (\name _ -> name `elem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
           
           -- Create disclosures and digests for top-level selective claims
+          -- According to RFC 9901, top-level arrays are treated as object properties
+          -- (disclosure format: [salt, claim_name, claim_value])
           disclosureResults <- mapM (uncurry (markSelectivelyDisclosable hashAlg)) (Map.toList selectiveClaims)
           
           -- Check for errors
@@ -540,8 +714,15 @@ sortDigests = sortBy (comparing unDigest)
 --
 -- Nested paths use JSON Pointer syntax (RFC 6901) with forward slash as separator.
 -- Examples:
---   - "address/street_address" → parent="address", child="street_address"
---   - "user/profile/email" → parent="user/profile", child="email" (only supports 2-level nesting currently)
+--   - "address/street_address" → nested path: ["address", "street_address"]
+--   - "nationalities/1" → nested path: ["nationalities", "1"] (could be array index OR object key "1")
+--   - "user/profile/email" → nested path: ["user", "profile", "email"]
+--   - "nested_array/0/1" → nested path: ["nested_array", "0", "1"]
+--
+-- Note: The path "x/22" is ambiguous - it could refer to:
+--   - Array element at index 22 if "x" is an array
+--   - Object property "22" if "x" is an object
+-- The actual type is determined when processing the claims (see 'buildSDJWTPayload').
 --
 -- Escaping (RFC 6901):
 --   - "~1" represents a literal forward slash "/"
@@ -550,9 +731,8 @@ sortDigests = sortBy (comparing unDigest)
 --   - "contact~1email" → literal key "contact/email" (not a nested path)
 --   - "user~0name" → literal key "user~name" (not a nested path)
 --
--- Note: Only single-level nesting is currently supported (parent/child).
--- For deeper nesting, use multiple calls or extend the API.
-partitionNestedPaths :: [T.Text] -> ([T.Text], [(T.Text, T.Text)])
+-- Returns: (top-level claims, nested paths as list of segments)
+partitionNestedPaths :: [T.Text] -> ([T.Text], [[T.Text]])
 partitionNestedPaths claimNames =
   let (topLevel, nested) = partition (not . T.isInfixOf "/") claimNames
       nestedPaths = mapMaybe parseJSONPointerPath nested
@@ -561,132 +741,270 @@ partitionNestedPaths claimNames =
   in (unescapedTopLevel, nestedPaths)
   where
     -- Parse a JSON Pointer path, handling escaping
-    -- Returns Nothing if invalid, Just (parent, child) if valid nested path
-    parseJSONPointerPath :: T.Text -> Maybe (T.Text, T.Text)
+    -- Returns Nothing if invalid, Just [segments] if valid nested path
+    -- Supports arbitrary depth: ["a"], ["a", "b"], ["a", "b", "c"], etc.
+    parseJSONPointerPath :: T.Text -> Maybe [T.Text]
     parseJSONPointerPath path = do
       -- Split by "/" but handle escaped slashes
       let segments = splitJSONPointer path
       case segments of
-        [parent, child] -> Just (unescapeJSONPointer parent, unescapeJSONPointer child)
-        _ -> Nothing  -- Only support 2-level nesting (parent/child) for now
+        [] -> Nothing  -- Empty path is invalid
+        [_] -> Nothing  -- Single segment is top-level, not nested
+        _ -> Just (map unescapeJSONPointer segments)  -- Two or more segments = nested path
 
 -- | Process nested structures (Section 6.2: structured SD-JWT).
--- Creates _sd arrays within parent objects for sub-claims.
+-- Creates _sd arrays within parent objects for sub-claims, or ellipsis objects in arrays.
+-- Supports arbitrary depth paths like ["user", "profile", "email"] or ["user", "emails", "0"].
+-- Handles both objects and arrays at each level.
 -- Returns: (processed payload object, all disclosures, remaining unprocessed claims)
 processNestedStructures
   :: HashAlgorithm
-  -> [(T.Text, T.Text)]  -- ^ List of (parent, child) claim paths
+  -> [[T.Text]]  -- ^ List of path segments (e.g., [["user", "profile", "email"]])
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure], Map.Map T.Text Aeson.Value))
 processNestedStructures hashAlg nestedPaths claims = do
-  -- Group nested paths by parent
-  let groupedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) nestedPaths
+  -- Group nested paths by first segment (top-level claim)
+  let getFirstSegment [] = ""
+      getFirstSegment (seg:_) = seg
+  let groupedByTopLevel = Map.fromListWith (++) $ map (\path -> (getFirstSegment path, [path])) nestedPaths
   
-  -- Process each parent object
-  results <- mapM (\(parentName, childNames) -> do
-    case Map.lookup parentName claims of
-      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> parentName
-      Just (Aeson.Object parentObj) -> do
-        -- Extract child claims from parent object
-        let childClaims = mapMaybe (\childName -> do
-              let childKey = Key.fromText childName
-              childValue <- KeyMap.lookup childKey parentObj
-              return (childName, childValue)
-              ) childNames
-        
-        -- Create disclosures for child claims
-        disclosureResults <- mapM (\(childName, childValue) ->
-          markSelectivelyDisclosable hashAlg childName childValue) childClaims
-        
-        -- Check for errors
-        let (errors, successes) = partitionEithers disclosureResults
-        case errors of
-          (err:_) -> return $ Left err
-          [] -> do
-            let (childDigests, childDisclosures) = unzip successes
-            
-            -- Build new parent object with _sd array
-            -- Keep all keys except the selectively disclosable children
-            let childKeysToRemove = map Key.fromText childNames
-            let regularChildren = KeyMap.filterWithKey (\k _ -> not (k `elem` childKeysToRemove)) parentObj
-            
-            -- Add _sd array with sorted digests
-            let sortedChildDigests = map (Aeson.String . unDigest) (sortDigests childDigests)
-            let parentWithSD = KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedChildDigests)) regularChildren
-            
-            return $ Right (parentName, Aeson.Object parentWithSD, childDisclosures)
-      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Parent claim is not an object: " <> parentName
-    ) (Map.toList groupedByParent)
+  -- Process each top-level claim recursively (can be object or array)
+  results <- mapM (\(topLevelName, paths) -> do
+    case Map.lookup topLevelName claims of
+      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> topLevelName
+      Just topLevelValue -> do
+        -- Strip the first segment (topLevelName) from each path before processing
+        let strippedPaths = map (\path -> case path of
+              [] -> []
+              (_:rest) -> rest) paths
+        -- Process all paths under this top-level claim (handles both objects and arrays)
+        processResult <- processPathsRecursively hashAlg strippedPaths topLevelValue
+        case processResult of
+          Left err -> return $ Left err
+          Right (modifiedValue, disclosures) -> return $ Right (topLevelName, modifiedValue, disclosures)
+    ) (Map.toList groupedByTopLevel)
   
   -- Check for errors
   let (errors, successes) = partitionEithers results
   case errors of
     (err:_) -> return (Left err)
     [] -> do
-      -- Build processed payload object
-      let processedParents = Map.fromList $ map (\(name, obj, _) -> (name, obj)) successes
-      let allDisclosures = concatMap (\(_, _, childDisclosures) -> childDisclosures) successes
+      -- Separate objects and arrays
+      let (objects, arrays) = partition (\(_, val, _) -> case val of
+            Aeson.Object _ -> True
+            _ -> False) successes
+      let processedObjects = Map.fromList $ map (\(name, Aeson.Object obj, _) -> (name, obj)) objects
+      let processedArrays = Map.fromList $ map (\(name, Aeson.Array arr, _) -> (name, arr)) arrays
+      let allDisclosures = concatMap (\(_, _, disclosures) -> disclosures) successes
       
       -- Remove processed parents from remaining claims
+      let processedParents = Map.fromList $ map (\(name, _, _) -> (name, ())) successes
       let remainingClaims = Map.filterWithKey (\name _ -> not (Map.member name processedParents)) claims
       
-      -- Convert processed parents to KeyMap
+      -- Convert processed objects and arrays to KeyMap
       let processedPayload = foldl (\acc (name, obj) ->
-            KeyMap.insert (Key.fromText name) obj acc) KeyMap.empty (Map.toList processedParents)
+            KeyMap.insert (Key.fromText name) (Aeson.Object obj) acc) KeyMap.empty (Map.toList processedObjects)
+      -- Add processed arrays to payload
+      let processedPayloadWithArrays = Map.foldlWithKey (\acc name arr ->
+            KeyMap.insert (Key.fromText name) (Aeson.Array arr) acc) processedPayload processedArrays
       
-      return (Right (processedPayload, allDisclosures, remainingClaims))
+      return (Right (processedPayloadWithArrays, allDisclosures, remainingClaims))
+  
+  where
+    -- Helper function to recursively process paths, handling both objects and arrays at each level
+    -- This unified function checks the type at each level and handles accordingly
+    processPathsRecursively :: HashAlgorithm -> [[T.Text]] -> Aeson.Value -> IO (Either SDJWTError (Aeson.Value, [EncodedDisclosure]))
+    processPathsRecursively hashAlg paths value = case value of
+      Aeson.Object obj -> processObjectPaths hashAlg paths obj
+      Aeson.Array arr -> processArrayPaths hashAlg paths arr
+      _ -> return $ Left $ InvalidDisclosureFormat "Cannot process paths in primitive value (not an object or array)"
+    
+    -- Process paths within an object
+    processObjectPaths :: HashAlgorithm -> [[T.Text]] -> KeyMap.KeyMap Aeson.Value -> IO (Either SDJWTError (Aeson.Value, [EncodedDisclosure]))
+    processObjectPaths hashAlg paths obj = do
+      -- Group paths by their first segment
+      let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
+            [] -> ("", [])
+            (first:rest) -> (first, [rest])) paths
+      
+      -- Process each group
+      results <- mapM (\(firstSeg, remainingPaths) -> do
+        let firstKey = Key.fromText firstSeg
+        case KeyMap.lookup firstKey obj of
+          Nothing -> return $ Left $ InvalidDisclosureFormat $ "Path segment not found: " <> firstSeg
+          Just nestedValue -> do
+            -- Filter out empty paths (this segment is the target)
+            let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+            -- If there are remaining paths, the nested value must be an object or array
+            typeCheckResult <- if not (null nonEmptyPaths)
+              then case nestedValue of
+                Aeson.Object _ -> return $ Right ()
+                Aeson.Array _ -> return $ Right ()
+                _ -> return $ Left $ InvalidDisclosureFormat $ "Path segment is not an object: " <> firstSeg
+              else return $ Right ()  -- No remaining paths, value type doesn't matter
+            
+            case typeCheckResult of
+              Left err -> return $ Left err
+              Right () -> do
+                if null nonEmptyPaths
+                  then do
+                    -- This segment is the target - mark it as selectively disclosable
+                    result <- markSelectivelyDisclosable hashAlg firstSeg nestedValue
+                    case result of
+                      Left err -> return $ Left err
+                      Right (digest, disclosure) -> do
+                        -- Replace this key with _sd object
+                        -- When marking a claim as selectively disclosable, we replace it with {"_sd": ["digest"]}
+                        -- at the same level, not nest it under the original key
+                        let updatedObj = KeyMap.delete firstKey obj
+                        let sdArray = Aeson.Array (V.fromList [Aeson.String (unDigest digest)])
+                        let sdObj = KeyMap.insert "_sd" sdArray KeyMap.empty
+                        -- Return the _sd object merged with the updated object (without the original key)
+                        return $ Right (KeyMap.union sdObj updatedObj, [disclosure])
+                  else do
+                    -- Recurse into nested value (could be object or array)
+                    nestedResult <- processPathsRecursively hashAlg nonEmptyPaths nestedValue
+                    case nestedResult of
+                      Left err -> return $ Left err
+                      Right (modifiedNestedValue, nestedDisclosures) -> do
+                        -- Also handle empty paths (marking this level as selectively disclosable)
+                        if null emptyPaths
+                          then return $ Right (KeyMap.insert firstKey modifiedNestedValue obj, nestedDisclosures)
+                          else do
+                            -- Mark this level as selectively disclosable too
+                            result <- markSelectivelyDisclosable hashAlg firstSeg modifiedNestedValue
+                            case result of
+                              Left err -> return $ Left err
+                              Right (digest, disclosure) -> do
+                                let updatedObj = KeyMap.delete firstKey obj
+                                let sdArray = Aeson.Array (V.fromList [Aeson.String (unDigest digest)])
+                                let sdObj = KeyMap.insert "_sd" sdArray KeyMap.empty
+                                -- Return the _sd object merged with the updated object (without the original key)
+                                return $ Right (KeyMap.union sdObj updatedObj, disclosure:nestedDisclosures)
+        ) (Map.toList groupedByFirst)
+      
+      -- Combine results
+      let (errors, successes) = partitionEithers results
+      case errors of
+        (err:_) -> return $ Left err
+        [] -> do
+          -- Merge all modified objects and combine disclosures
+          -- Track which keys were deleted (marked as selectively disclosable)
+          let (modifiedObjs, disclosuresList) = unzip successes
+          let deletedKeys = Set.fromList $ map (\(firstSeg, _) -> Key.fromText firstSeg) (Map.toList groupedByFirst)
+          -- Start with original object and apply all modifications
+          -- When merging, combine _sd arrays instead of overwriting them
+          -- Also remove keys that were marked as selectively disclosable
+          let finalObj = foldl (\acc modifiedObj -> 
+                -- Merge modifiedObj into acc, combining _sd arrays if both have them
+                KeyMap.foldrWithKey (\k v acc2 -> 
+                  if k == Key.fromText "_sd"
+                    then case (KeyMap.lookup k acc2, v) of
+                      (Just (Aeson.Array existingArr), Aeson.Array newArr) ->
+                        -- Combine arrays, removing duplicates and sorting
+                        let allDigestsList = V.toList existingArr ++ V.toList newArr
+                            allDigests = mapMaybe (\el -> case el of
+                                Aeson.String s -> Just s
+                                _ -> Nothing
+                              ) allDigestsList
+                            uniqueDigests = Set.toList $ Set.fromList allDigests
+                            sortedDigests = map Aeson.String $ sortBy compare uniqueDigests
+                        in KeyMap.insert k (Aeson.Array (V.fromList sortedDigests)) acc2
+                      _ -> KeyMap.insert k v acc2
+                    else KeyMap.insert k v acc2
+                  ) acc modifiedObj) obj modifiedObjs
+          -- Remove keys that were marked as selectively disclosable
+          let finalObjWithoutDeleted = Set.foldr KeyMap.delete finalObj deletedKeys
+          return $ Right (Aeson.Object finalObjWithoutDeleted, concat disclosuresList)
+    
+    -- Process paths within an array
+    -- Paths should have numeric segments representing array indices
+    processArrayPaths :: HashAlgorithm -> [[T.Text]] -> V.Vector Aeson.Value -> IO (Either SDJWTError (Aeson.Value, [EncodedDisclosure]))
+    processArrayPaths hashAlg paths arr = do
+      -- Parse first segment of each path to extract array index
+      -- Group paths by first index
+      let groupedByFirstIndex = Map.fromListWith (++) $ mapMaybe (\path -> case path of
+            [] -> Nothing
+            (firstSeg:rest) -> case readMaybe (T.unpack firstSeg) :: Maybe Int of
+              Just idx -> Just (idx, [rest])
+              Nothing -> Nothing  -- Not a numeric segment, skip (shouldn't happen for array paths)
+            ) paths
+      
+      -- Process each group
+      results <- mapM (\(firstIdx, remainingPaths) -> do
+        if firstIdx < 0 || firstIdx >= V.length arr
+          then return $ Left $ InvalidDisclosureFormat $ "Array index " <> T.pack (show firstIdx) <> " out of bounds"
+          else do
+            let element = arr V.! firstIdx
+            -- Filter out empty paths (this element is the target)
+            let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+            
+            if null nonEmptyPaths
+              then do
+                -- This element is the target - mark it as selectively disclosable
+                result <- markArrayElementDisclosable hashAlg element
+                case result of
+                  Left err -> return $ Left err
+                  Right (digest, disclosure) -> return $ Right (firstIdx, digest, [disclosure])
+              else do
+                -- Recurse into nested value (could be object or array)
+                nestedResult <- processPathsRecursively hashAlg nonEmptyPaths element
+                case nestedResult of
+                  Left err -> return $ Left err
+                  Right (modifiedNestedValue, nestedDisclosures) -> do
+                    -- Mark this element as selectively disclosable (contains nested selective disclosure)
+                    outerResult <- markArrayElementDisclosable hashAlg modifiedNestedValue
+                    case outerResult of
+                      Left err -> return $ Left err
+                      Right (digest, outerDisclosure) -> return $ Right (firstIdx, digest, outerDisclosure:nestedDisclosures)
+        ) (Map.toList groupedByFirstIndex)
+      
+      let (errors, successes) = partitionEithers results
+      case errors of
+        (err:_) -> return $ Left err
+        [] -> do
+          -- Build modified array with ellipsis objects at specified indices
+          let (indices, digests, disclosuresList) = unzip3 successes
+          let arrWithDigests = foldl (\acc (idx, digest, _) ->
+                let ellipsisObj = Aeson.Object $ KeyMap.fromList
+                      [(Key.fromText "...", Aeson.String (unDigest digest))]
+                in V.unsafeUpd acc [(idx, ellipsisObj)]
+                ) arr (zip3 indices digests (repeat []))
+          return $ Right (Aeson.Array arrWithDigests, concat disclosuresList)
 
 -- | Process recursive disclosures (Section 6.3: recursive disclosures).
 -- Creates disclosures for parent claims where the disclosure value contains
 -- an _sd array with digests for sub-claims.
+-- Supports arbitrary depth paths like ["user", "profile", "email"].
 -- Returns: (parent digests and disclosures with recursive structure, all disclosures including children, remaining unprocessed claims)
 processRecursiveDisclosures
   :: HashAlgorithm
-  -> [(T.Text, T.Text)]  -- ^ List of (parent, child) claim paths for recursive disclosures
+  -> [[T.Text]]  -- ^ List of path segments for recursive disclosures (e.g., [["user", "profile", "email"]])
   -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
   -> IO (Either SDJWTError ([(T.Text, Digest, EncodedDisclosure)], [EncodedDisclosure], Map.Map T.Text Aeson.Value))
 processRecursiveDisclosures hashAlg recursivePaths claims = do
-  -- Group recursive paths by parent
-  let groupedByParent = Map.fromListWith (++) $ map (\(p, c) -> (p, [c])) recursivePaths
+  -- Group recursive paths by first segment (top-level claim)
+  let getFirstSegment [] = ""
+      getFirstSegment (seg:_) = seg
+  let groupedByTopLevel = Map.fromListWith (++) $ map (\path -> (getFirstSegment path, [path])) recursivePaths
   
-  -- Process each recursive parent
-  results <- mapM (\(parentName, childNames) -> do
-    case Map.lookup parentName claims of
-      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> parentName
-      Just (Aeson.Object parentObj) -> do
-        -- Extract child claims from parent object
-        let childClaims = mapMaybe (\childName -> do
-              let childKey = Key.fromText childName
-              childValue <- KeyMap.lookup childKey parentObj
-              return (childName, childValue)
-              ) childNames
-        
-        -- Create disclosures for child claims first
-        childDisclosureResults <- mapM (\(childName, childValue) ->
-          markSelectivelyDisclosable hashAlg childName childValue) childClaims
-        
-        -- Check for errors
-        let (errors, childSuccesses) = partitionEithers childDisclosureResults
-        case errors of
-          (err:_) -> return $ Left err
-          [] -> do
-            let (childDigests, childDisclosures) = unzip childSuccesses
-            
-            -- Build parent disclosure value: object with _sd array containing child digests
-            let sortedChildDigests = map (Aeson.String . unDigest) (sortDigests childDigests)
-            let parentDisclosureValue = Aeson.Object $ KeyMap.fromList
-                  [("_sd", Aeson.Array (V.fromList sortedChildDigests))]
-            
-            -- Create disclosure for parent claim with recursive structure
-            parentResult <- markSelectivelyDisclosable hashAlg parentName parentDisclosureValue
-            
-            case parentResult of
-              Left err -> return $ Left err
-              Right (parentDigest, parentDisclosure) -> do
-                -- Return parent name, digest, disclosure, and all child disclosures
-                return $ Right (parentName, parentDigest, parentDisclosure, childDisclosures)
-      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Parent claim is not an object: " <> parentName
-    ) (Map.toList groupedByParent)
+  -- Process each top-level claim recursively
+  results <- mapM (\(topLevelName, paths) -> do
+    case Map.lookup topLevelName claims of
+      Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> topLevelName
+      Just (Aeson.Object topLevelObj) -> do
+        -- Strip the first segment (topLevelName) from each path before processing
+        let strippedPaths = map (\path -> case path of
+              [] -> []
+              (_:rest) -> rest) paths
+        -- Process paths recursively - for recursive disclosures, the parent becomes selectively disclosable
+        processResult <- processRecursivePaths hashAlg strippedPaths topLevelObj topLevelName
+        case processResult of
+          Left err -> return $ Left err
+          Right (parentDigest, parentDisclosure, childDisclosures) -> 
+            return $ Right (topLevelName, parentDigest, parentDisclosure, childDisclosures)
+      Just _ -> return $ Left $ InvalidDisclosureFormat $ "Top-level claim is not an object: " <> topLevelName
+    ) (Map.toList groupedByTopLevel)
   
   -- Check for errors
   let (errors, successes) = partitionEithers results
@@ -706,5 +1024,77 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
       let allDisclosures = parentDisclosures ++ allChildDisclosures
       
       return (Right (parentInfo, allDisclosures, remainingClaims))
+  
+  where
+    -- Helper function to recursively process paths for recursive disclosures
+    processRecursivePaths :: HashAlgorithm -> [[T.Text]] -> KeyMap.KeyMap Aeson.Value -> T.Text -> IO (Either SDJWTError (Digest, EncodedDisclosure, [EncodedDisclosure]))
+    processRecursivePaths hashAlg paths obj parentName = do
+      -- Group paths by their first segment
+      let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
+            [] -> ("", [])
+            (first:rest) -> (first, [rest])) paths
+      
+      -- Process each group
+      results <- mapM (\(firstSeg, remainingPaths) -> do
+        let firstKey = Key.fromText firstSeg
+        case KeyMap.lookup firstKey obj of
+          Nothing -> return $ Left $ InvalidDisclosureFormat $ "Path segment not found: " <> firstSeg
+          Just (Aeson.Object nestedObj) -> do
+            -- Filter out empty paths (this segment is the target)
+            let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+            if null nonEmptyPaths
+              then do
+                -- This segment is the target - mark it as selectively disclosable
+                -- Return the digest and disclosure (will be combined into parent _sd array)
+                result <- markSelectivelyDisclosable hashAlg firstSeg (Aeson.Object nestedObj)
+                case result of
+                  Left err -> return $ Left err
+                  Right (digest, disclosure) -> return $ Right (digest, disclosure, [])
+              else do
+                -- Recurse into nested object
+                nestedResult <- processRecursivePaths hashAlg nonEmptyPaths nestedObj firstSeg
+                case nestedResult of
+                  Left err -> return $ Left err
+                  Right (childDigest, childDisclosure, grandchildDisclosures) -> do
+                    -- Return child digest and disclosure (will be combined into parent _sd array)
+                    return $ Right (childDigest, childDisclosure, grandchildDisclosures)
+          Just leafValue -> do
+            -- Leaf value (string, number, bool, etc.) - this is the target
+            -- Check if there are remaining paths (shouldn't happen for leaf values)
+            let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+            if not (null nonEmptyPaths)
+              then return $ Left $ InvalidDisclosureFormat $ "Cannot traverse into leaf value: " <> firstSeg
+              else do
+                -- Mark this leaf value as selectively disclosable
+                result <- markSelectivelyDisclosable hashAlg firstSeg leafValue
+                case result of
+                  Left err -> return $ Left err
+                  Right (digest, disclosure) -> return $ Right (digest, disclosure, [])
+        ) (Map.toList groupedByFirst)
+      
+      -- Combine results - for recursive disclosures, we need to combine all child digests
+      -- into one parent _sd array
+      let (errors, successes) = partitionEithers results
+      case errors of
+        (err:_) -> return $ Left err
+        [] -> do
+          case successes of
+            [] -> return $ Left $ InvalidDisclosureFormat "No paths to process"
+            _ -> do
+              -- Collect all child digests and disclosures
+              -- Each success is (digest, disclosure, grandchildDisclosures)
+              -- For leaf children, disclosure is the child disclosure itself
+              -- For nested children, disclosure is an intermediate parent, and grandchildDisclosures contains the actual children
+              let allChildDigests = map (\(digest, _, _) -> digest) successes
+              let allChildDisclosures = concatMap (\(_, disclosure, grandchildDiscs) -> disclosure:grandchildDiscs) successes
+              
+              -- Create parent disclosure with _sd array containing all child digests
+              let sdArray = Aeson.Array (V.fromList $ map (Aeson.String . unDigest) (sortDigests allChildDigests))
+              let parentDisclosureValue = Aeson.Object $ KeyMap.fromList [("_sd", sdArray)]
+              parentResult <- markSelectivelyDisclosable hashAlg parentName parentDisclosureValue
+              case parentResult of
+                Left err -> return $ Left err
+                Right (parentDigest, parentDisclosure) -> 
+                  return $ Right (parentDigest, parentDisclosure, allChildDisclosures)
 
 

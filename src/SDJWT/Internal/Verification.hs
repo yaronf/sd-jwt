@@ -445,8 +445,9 @@ processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
           objWithoutSD = KeyMap.delete "_sd_alg" $ KeyMap.delete "_sd" obj
           objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
                 KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
-      
       -- Recursively process nested objects (including the newly added claims)
+          -- Note: We process the entire object recursively, which will process nested objects
+          -- but won't affect primitive claim values (strings, numbers, etc.)
           processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
       in Aeson.Object processedObj
     Just _ ->
