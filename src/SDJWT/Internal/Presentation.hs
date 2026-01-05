@@ -59,10 +59,19 @@ createPresentation (SDJWT jwt _) selectedDisclos =
 -- 5. Returns a presentation with the selected disclosures
 --
 -- Note: This function validates that the selected disclosures exist in the SD-JWT.
--- Supports JSON Pointer syntax for nested paths (e.g., "address/street_address").
+-- Supports JSON Pointer syntax for nested paths:
+--
+-- * Object properties: @["address\/street_address", "address\/locality"]@
+-- * Array elements: @["nationalities\/0", "nationalities\/2"]@
+-- * Mixed paths: @["address\/street_address", "nationalities\/1"]@
+-- * Nested arrays: @["nested_array\/0\/0", "nested_array\/1\/1"]@
+--
+-- Paths with numeric segments (e.g., @["x\/22"]@) are resolved by checking the
+-- actual claim type: if @x@ is an array, it refers to index 22; if @x@ is an
+-- object, it refers to property @"22"@.
 selectDisclosuresByNames
   :: SDJWT
-  -> [T.Text]  -- ^ Claim names to include in presentation (supports JSON Pointer syntax for nested paths)
+  -> [T.Text]  -- ^ Claim names to include in presentation (supports JSON Pointer syntax for nested paths, including array indices)
   -> Either SDJWTError SDJWTPresentation
 selectDisclosuresByNames sdjwt@(SDJWT issuerJWT allDisclosures) claimNames = do
   -- Extract hash algorithm from JWT payload (RFC 9901 Section 7.2 requires this for validation)

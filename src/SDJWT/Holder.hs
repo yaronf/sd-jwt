@@ -29,6 +29,11 @@
 -- case deserializeSDJWT sdjwtText of
 --   Right sdjwt -> do
 --     -- 2. Select which disclosures to include
+--     -- Examples of different selection patterns:
+--     --   Top-level claims: ["given_name", "email"]
+--     --   Nested object claims: ["address\/street_address", "address\/locality"]
+--     --   Array elements: ["nationalities\/0", "nationalities\/2"]
+--     --   Mixed paths: ["address\/street_address", "nationalities\/1"]
 --     case selectDisclosuresByNames sdjwt ["given_name", "email"] of
 --       Right presentation -> do
 --         -- 3. Optionally add key binding for proof of possession

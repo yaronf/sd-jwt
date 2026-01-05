@@ -12,14 +12,42 @@
 --
 -- === JSON Pointer Syntax
 --
--- Nested paths use forward slash (@/@) as a separator:
+-- Nested paths use forward slash (@/@) as a separator. Paths can refer to both
+-- object properties and array elements:
 --
 -- @
+-- -- Object properties
 -- ["address\/street_address", "address\/locality"]
 -- @
 --
 -- This marks @street_address@ and @locality@ within the @address@ object as
 -- selectively disclosable.
+--
+-- @
+-- -- Array elements
+-- ["nationalities\/0", "nationalities\/2"]
+-- @
+--
+-- This marks elements at indices 0 and 2 in the @nationalities@ array as
+-- selectively disclosable.
+--
+-- @
+-- -- Mixed object and array paths
+-- ["address\/street_address", "nationalities\/1"]
+-- @
+--
+-- === Ambiguity Resolution
+--
+-- Paths with numeric segments (e.g., @["x\/22"]@) are ambiguous:
+-- they could refer to an array element at index 22, or an object property
+-- with key @"22"@. The library resolves this ambiguity by checking the actual
+-- claim type at runtime:
+--
+-- * If @x@ is an array → @["x\/22"]@ refers to array element at index 22
+-- * If @x@ is an object → @["x\/22"]@ refers to object property @"22"@
+--
+-- This follows JSON Pointer semantics (RFC 6901) where the path alone doesn't
+-- determine the type.
 --
 -- === Escaping Special Characters
 --
@@ -65,6 +93,31 @@
 --
 -- This creates a payload where @address@ digest is in top-level @_sd@, and the
 -- @address@ disclosure contains an @_sd@ array with sub-claim digests.
+--
+-- Array Elements:
+--
+-- @
+-- buildSDJWTPayload SHA256 ["nationalities\/0", "nationalities\/2"] claims
+-- @
+--
+-- This marks array elements at indices 0 and 2 as selectively disclosable.
+--
+-- Nested Arrays:
+--
+-- @
+-- buildSDJWTPayload SHA256 ["nested_array\/0\/0", "nested_array\/0\/1", "nested_array\/1\/0"] claims
+-- @
+--
+-- This marks nested array elements. The path @["nested_array\/0\/0"]@ refers to
+-- element at index 0 of the array at index 0 of @nested_array@.
+--
+-- Mixed Object and Array Paths:
+--
+-- @
+-- buildSDJWTPayload SHA256 ["address\/street_address", "nationalities\/1"] claims
+-- @
+--
+-- This marks both an object property and an array element as selectively disclosable.
 --
 -- == Decoy Digests
 --

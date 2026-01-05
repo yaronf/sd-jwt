@@ -157,7 +157,7 @@ import SDJWT.Internal.Issuance
 
 ### Nested Structures
 
-The library supports nested structures using JSON Pointer syntax (RFC 6901):
+The library supports nested structures using JSON Pointer syntax (RFC 6901), including both object properties and array elements:
 
 ```haskell
 let claims = Map.fromList
@@ -166,6 +166,11 @@ let claims = Map.fromList
           , (Key.fromText "locality", Aeson.String "City")
           , (Key.fromText "country", Aeson.String "US")
           ])
+      , ("nationalities", Aeson.Array $ V.fromList
+          [ Aeson.String "US"
+          , Aeson.String "CA"
+          , Aeson.String "UK"
+          ])
       ]
 
 -- Structured SD-JWT (Section 6.2): parent stays, sub-claims get _sd array
@@ -173,6 +178,15 @@ result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality"
 
 -- Recursive Disclosures (Section 6.3): parent is selectively disclosable
 result <- buildSDJWTPayload SHA256 ["address", "address/street_address", "address/locality"] claims
+
+-- Array elements: mark elements at indices 0 and 2 as selectively disclosable
+result <- buildSDJWTPayload SHA256 ["nationalities/0", "nationalities/2"] claims
+
+-- Mixed object and array paths
+result <- buildSDJWTPayload SHA256 ["address/street_address", "nationalities/1"] claims
+
+-- Nested arrays: mark element at index 0 of the array at index 0
+result <- buildSDJWTPayload SHA256 ["nested_array/0/0", "nested_array/1/1"] claims
 ```
 
 #### JSON Pointer Escaping
