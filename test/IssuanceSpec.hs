@@ -1053,3 +1053,84 @@ spec = describe "SDJWT.Issuance" $ do
             unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Should handle array value: " ++ show err
   
+  describe "addHolderKeyToClaims" $ do
+    it "adds cnf claim with valid JWK JSON string" $ do
+      let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
+      let claims = Map.fromList
+            [ ("sub", Aeson.String "user_123")
+            , ("given_name", Aeson.String "John")
+            ]
+      let claimsWithCnf = addHolderKeyToClaims validJWK claims
+      
+      -- Check that cnf claim was added
+      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
+      
+      -- Check that cnf has correct structure: {"jwk": <jwk_value>}
+      case Map.lookup "cnf" claimsWithCnf of
+        Just (Aeson.Object cnfObj) -> do
+          KeyMap.lookup (Key.fromText "jwk") cnfObj `shouldSatisfy` isJust
+          -- JWK should be parsed as an object, not a string
+          case KeyMap.lookup (Key.fromText "jwk") cnfObj of
+            Just (Aeson.Object _) -> return ()  -- Success - JWK parsed as object
+            Just (Aeson.String _) -> expectationFailure "JWK should be parsed as object, not string"
+            _ -> expectationFailure "JWK should be an object"
+        _ -> expectationFailure "cnf claim should be an object"
+      
+      -- Check that original claims are preserved
+      Map.lookup "sub" claimsWithCnf `shouldBe` Just (Aeson.String "user_123")
+      Map.lookup "given_name" claimsWithCnf `shouldBe` Just (Aeson.String "John")
+    
+    it "handles invalid JWK JSON string by storing as string" $ do
+      let invalidJWK = "not valid json"
+      let claims = Map.fromList [("sub", Aeson.String "user_123")]
+      let claimsWithCnf = addHolderKeyToClaims invalidJWK claims
+      
+      -- Check that cnf claim was added
+      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
+      
+      -- Check that invalid JWK is stored as string
+      case Map.lookup "cnf" claimsWithCnf of
+        Just (Aeson.Object cnfObj) -> do
+          case KeyMap.lookup (Key.fromText "jwk") cnfObj of
+            Just (Aeson.String jwkStr) -> jwkStr `shouldBe` invalidJWK
+            _ -> expectationFailure "Invalid JWK should be stored as string"
+        _ -> expectationFailure "cnf claim should be an object"
+    
+    it "overwrites existing cnf claim" $ do
+      let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
+      let existingCnf = Aeson.Object $ KeyMap.fromList [("jwk", Aeson.String "old_key")]
+      let claims = Map.fromList
+            [ ("sub", Aeson.String "user_123")
+            , ("cnf", existingCnf)
+            ]
+      let claimsWithCnf = addHolderKeyToClaims validJWK claims
+      
+      -- Check that cnf was overwritten
+      case Map.lookup "cnf" claimsWithCnf of
+        Just (Aeson.Object cnfObj) -> do
+          case KeyMap.lookup (Key.fromText "jwk") cnfObj of
+            Just (Aeson.Object newJWK) -> do
+              -- New JWK should have kty field
+              case KeyMap.lookup (Key.fromText "kty") newJWK of
+                Just (Aeson.String "EC") -> return ()  -- Success
+                _ -> expectationFailure "New JWK should have kty field"
+            _ -> expectationFailure "New cnf should have parsed JWK object"
+        _ -> expectationFailure "cnf claim should be an object"
+      
+      -- Verify old cnf is gone
+      case Map.lookup "cnf" claimsWithCnf of
+        Just (Aeson.Object cnfObj) -> do
+          case KeyMap.lookup (Key.fromText "jwk") cnfObj of
+            Just (Aeson.String "old_key") -> expectationFailure "Old cnf should be overwritten"
+            _ -> return ()  -- Success
+        _ -> expectationFailure "cnf claim should exist"
+    
+    it "works with empty claims map" $ do
+      let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
+      let claims = Map.empty
+      let claimsWithCnf = addHolderKeyToClaims validJWK claims
+      
+      -- Check that cnf claim was added
+      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
+      Map.size claimsWithCnf `shouldBe` 1
+  
