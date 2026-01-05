@@ -9,6 +9,7 @@ module SDJWT.Internal.Presentation
   , selectDisclosures
   , selectDisclosuresByNames
   , addKeyBinding
+  , collectArrayElementDisclosures
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))

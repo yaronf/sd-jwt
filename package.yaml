@@ -164,6 +164,7 @@ executables:
     dependencies:
     - sd-jwt
     - hspec >= 2.10
+    - hspec-core >= 2.10
     - yaml >= 0.11 && < 0.12
     - filepath >= 1.4
     - directory >= 1.3
