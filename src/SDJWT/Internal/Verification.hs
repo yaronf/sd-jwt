@@ -465,13 +465,6 @@ processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, 
 
 -- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
 -- Also processes _sd arrays in array disclosure values (for nested selective disclosure).
-processArraysInClaims
-  :: Map.Map T.Text Aeson.Value
-  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
-  -> Map.Map T.Text Aeson.Value
-processArraysInClaims claims arrayDisclosureMap =
-  Map.map (\value -> processValueForArrays value arrayDisclosureMap) claims
-
 -- | Process arrays in claims, also processing _sd arrays in array disclosure values.
 processArraysInClaimsWithSD
   :: Map.Map T.Text Aeson.Value
@@ -480,43 +473,6 @@ processArraysInClaimsWithSD
   -> Map.Map T.Text Aeson.Value
 processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap =
   Map.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
-
--- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays.
-processValueForArrays
-  :: Aeson.Value
-  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
-  -> Aeson.Value
-processValueForArrays (Aeson.Array arr) arrayDisclosureMap =
-  -- Process each element in the array
-  let processedElements = V.map (\el -> processValueForArrays el arrayDisclosureMap) arr
-      -- Replace {"...": "<digest>"} objects with actual values
-      -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
-      -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
-      -- for which they did not receive a Disclosure."
-      replacedElements = V.mapMaybe (\el -> case el of
-        Aeson.Object obj ->
-          -- Check if this is a {"...": "<digest>"} object
-          case KeyMap.lookup (Key.fromText "...") obj of
-            Just (Aeson.String digest) ->
-              -- Validate that ellipsis object only contains the "..." key
-              -- Note: We validate here but don't fail - we'll validate during digest extraction
-              -- This is a defensive check, but the main validation happens in extractDigestsFromValue
-              if KeyMap.size obj == 1
-                then
-                  -- Look up the value for this digest
-                  case Map.lookup digest arrayDisclosureMap of
-                    Just value -> Just value  -- Replace with disclosed value
-                    Nothing -> Nothing  -- No disclosure found - ignore (remove) per RFC 9901 Section 7.3
-                else Just el  -- Invalid ellipsis object (has extra keys), keep as is
-            _ -> Just el  -- Not an ellipsis object, keep as is
-        _ -> Just el  -- Not an object, keep as is
-        ) processedElements
-  in Aeson.Array replacedElements
-processValueForArrays (Aeson.Object obj) arrayDisclosureMap =
-  -- Recursively process nested objects
-  let processedObj = KeyMap.map (\value -> processValueForArrays value arrayDisclosureMap) obj
-  in Aeson.Object processedObj
-processValueForArrays value _arrayDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays,
 -- and also process _sd arrays in array disclosure values (for nested selective disclosure).
@@ -548,7 +504,7 @@ processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosur
                       let processedSD = processSDArraysInValue value objectDisclosureMap
                           -- Remove _sd_alg if it's an object
                           processedWithoutSDAlg = case processedSD of
-                            Aeson.Object obj -> Aeson.Object (KeyMap.delete "_sd_alg" obj)
+                            Aeson.Object obj' -> Aeson.Object (KeyMap.delete "_sd_alg" obj')
                             _ -> processedSD
                           -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
                           -- This handles cases where array disclosure values are themselves arrays with ellipsis objects

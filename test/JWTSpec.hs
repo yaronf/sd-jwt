@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module JWTSpec (spec) where
 
 import Test.Hspec
@@ -36,7 +37,7 @@ import Data.Int (Int64)
 import Data.Maybe (isJust, mapMaybe)
 import Data.List (find, nub)
 import Control.Monad (replicateM)
-import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Time.Clock.POSIX (getPOSIXTime, POSIXTime)
 import Data.Scientific (Scientific)
 
 spec :: Spec
@@ -320,7 +321,7 @@ spec = describe "SDJWT.JWT" $ do
       case result of
         Left (InvalidSignature msg) -> do
           T.isInfixOf "Failed to decode JWT" msg `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable
+        Left _ -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWT with invalid format"
     
     it "rejects JWT with no signatures" $ do
@@ -340,7 +341,7 @@ spec = describe "SDJWT.JWT" $ do
         Left (InvalidSignature msg) -> do
           -- Should fail during decode or verification (jose might catch it earlier)
           (T.isInfixOf "No signatures found" msg || T.isInfixOf "Failed to decode" msg || T.isInfixOf "JWT verification failed" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable
+        Left _ -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWT with no signatures"
     
     it "rejects JWT with missing typ header when required" $ do
@@ -357,7 +358,7 @@ spec = describe "SDJWT.JWT" $ do
           case verifyResult of
             Left (InvalidSignature msg) -> do
               T.isInfixOf "Missing typ header" msg `shouldBe` True
-            Left err -> return ()  -- Any error is acceptable
+            Left _ -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject JWT with missing typ header"
     
     it "rejects JWT with invalid typ header value" $ do
@@ -374,7 +375,7 @@ spec = describe "SDJWT.JWT" $ do
           case verifyResult of
             Left (InvalidSignature msg) -> do
               T.isInfixOf "Invalid typ header" msg `shouldBe` True
-            Left err -> return ()  -- Any error is acceptable
+            Left _ -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject JWT with invalid typ header"
     
     it "rejects JWT with invalid payload JSON" $ do
@@ -397,7 +398,7 @@ spec = describe "SDJWT.JWT" $ do
   describe "validateStandardClaims error paths" $ do
     it "rejects JWT with expired exp claim" $ do
       keyPair <- generateTestRSAKeyPair
-      currentTime <- round <$> getPOSIXTime
+      currentTime <- round . realToFrac @POSIXTime @Double <$> getPOSIXTime :: IO Int64
       let expiredTime = currentTime - 3600  -- 1 hour ago (expired)
       let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.Number (fromIntegral expiredTime))]
       
@@ -442,12 +443,12 @@ spec = describe "SDJWT.JWT" $ do
             Left (InvalidSignature msg) -> do
               T.isInfixOf "Invalid exp claim" msg `shouldBe` True
               T.isInfixOf "out of range" msg `shouldBe` True
-            Left err -> return ()  -- Any error is acceptable
+            Left _ -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject JWT with exp out of range"
     
     it "rejects JWT with nbf claim (not yet valid)" $ do
       keyPair <- generateTestRSAKeyPair
-      currentTime <- round <$> getPOSIXTime
+      currentTime <- round . realToFrac @POSIXTime @Double <$> getPOSIXTime :: IO Int64
       let futureTime = currentTime + 3600  -- 1 hour in the future (not yet valid)
       let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.Number (fromIntegral futureTime))]
       
@@ -492,7 +493,7 @@ spec = describe "SDJWT.JWT" $ do
             Left (InvalidSignature msg) -> do
               T.isInfixOf "Invalid nbf claim" msg `shouldBe` True
               T.isInfixOf "out of range" msg `shouldBe` True
-            Left err -> return ()  -- Any error is acceptable
+            Left _ -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject JWT with nbf out of range"
   describe "detectKeyAlgorithmFromJWK error paths" $ do
     it "rejects JWK with missing kty field" $ do
@@ -504,7 +505,7 @@ spec = describe "SDJWT.JWT" $ do
         Left (InvalidSignature msg) -> do
           -- jose might parse the JWK but our code should catch missing kty
           (T.isInfixOf "Missing 'kty' field" msg || T.isInfixOf "Failed to parse JWK" msg || T.isInfixOf "Failed to create JWK" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable (jose might catch it first)
+        Left _ -> return ()  -- Any error is acceptable (jose might catch it first)
         Right _ -> expectationFailure "Should reject JWK with missing kty"
     
     it "rejects JWK with unsupported EC curve" $ do
@@ -524,7 +525,7 @@ spec = describe "SDJWT.JWT" $ do
       case result of
         Left (InvalidSignature msg) -> do
           (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable
+        Left _ -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWK with missing crv for EC"
     
     it "rejects JWK with unsupported OKP curve" $ do
@@ -544,7 +545,7 @@ spec = describe "SDJWT.JWT" $ do
       case result of
         Left (InvalidSignature msg) -> do
           (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable
+        Left _ -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWK with missing crv for OKP"
     
     it "rejects JWK with unsupported key type" $ do
@@ -567,6 +568,6 @@ spec = describe "SDJWT.JWT" $ do
         Left (InvalidSignature msg) -> do
           -- jose will catch this during parsing, so error message might vary
           (T.isInfixOf "Invalid JWK format" msg || T.isInfixOf "Failed to parse JWK" msg || T.isInfixOf "Failed to create JWK" msg || T.isInfixOf "parse" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable
+        Left _ -> return ()  -- Any error is acceptable
         Right _ -> expectationFailure "Should reject JWK with invalid format"
 

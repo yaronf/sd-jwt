@@ -234,7 +234,7 @@ collectFromArray
   -> [EncodedDisclosure]  -- ^ All available disclosures
   -> [Disclosure]  -- ^ Decoded disclosures (for claim name lookup)
   -> Either SDJWTError [EncodedDisclosure]
-collectFromArray hashAlg topLevelNames nestedPaths arr allDisclosures decodedDisclosures = do
+collectFromArray hashAlg _topLevelNames nestedPaths arr allDisclosures decodedDisclosures = do
   -- Parse first segment of each path to extract array index
   -- Group paths by first index
   let groupedByFirstIndex = Map.fromListWith (++) $ mapMaybe (\path -> case path of
@@ -300,7 +300,7 @@ collectDisclosuresForValue
   -> Aeson.Value  -- ^ Value (object or array element)
   -> [EncodedDisclosure]  -- ^ All available disclosures
   -> Either SDJWTError [EncodedDisclosure]
-collectDisclosuresForValue hashAlg claimName value allDisclosures = do
+collectDisclosuresForValue hashAlg _claimName value allDisclosures = do
   case value of
     Aeson.Object obj -> do
       -- Extract digests from _sd array

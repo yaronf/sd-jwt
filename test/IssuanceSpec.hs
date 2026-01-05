@@ -1028,7 +1028,7 @@ spec = describe "SDJWT.Issuance" $ do
         let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [Aeson.Null])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
-          Right (payload, disclosures) -> do
+          Right (_payload, disclosures) -> do
             length disclosures `shouldBe` 1
             unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Should handle null value: " ++ show err
@@ -1038,7 +1038,7 @@ spec = describe "SDJWT.Issuance" $ do
         let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [objValue])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
-          Right (payload, disclosures) -> do
+          Right (_payload, disclosures) -> do
             length disclosures `shouldBe` 1
             unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Should handle object value: " ++ show err
@@ -1048,7 +1048,7 @@ spec = describe "SDJWT.Issuance" $ do
         let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [arrValue])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
-          Right (payload, disclosures) -> do
+          Right (_payload, disclosures) -> do
             length disclosures `shouldBe` 1
             unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Should handle array value: " ++ show err
