@@ -295,9 +295,9 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
                                   case typValidation of
                                     Left err -> return $ Left err
                                     Right () -> do
-                                      -- Verify JWT signature and validate standard claims (exp, nbf, iat) if present
-                                      -- Using verifyJWSWithPayload with defaultValidationSettings ensures automatic validation
-                                      -- of standard JWT claims per RFC 7519
+                                      -- Verify JWT signature
+                                      -- Note: jose's defaultValidationSettings does NOT validate exp/nbf claims,
+                                      -- so we must validate them ourselves (see validateStandardClaims below)
                                       result <- Jose.runJOSE $ JWS.verifyJWSWithPayload return JWS.defaultValidationSettings jwk jws :: IO (Either JoseError.Error BS.ByteString)
                                       
                                       case result of
@@ -308,6 +308,7 @@ verifyJWT publicKeyJWK jwtText requiredTyp = do
                                             Left jsonErr -> return $ Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack jsonErr
                                             Right payload -> do
                                               -- Validate standard JWT claims (exp, nbf) if present
+                                              -- jose library does not validate these, so we must do it ourselves
                                               validationResult <- validateStandardClaims payload
                                               case validationResult of
                                                 Left err -> return $ Left err

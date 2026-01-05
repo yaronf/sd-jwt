@@ -16,7 +16,13 @@ import SDJWT.Internal.Issuance
 import SDJWT.Internal.Presentation
 import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
 import SDJWT.Internal.KeyBinding
-import SDJWT.Internal.JWT
+import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp, verifyJWT, JWKLike(..))
+import qualified Crypto.JOSE as Jose
+import qualified Crypto.JOSE.JWS as JWS
+import qualified Crypto.JOSE.JWK as JWK
+import qualified Crypto.JOSE.Compact as Compact
+import qualified Crypto.JOSE.Error as JoseError
+import Control.Lens ((^..))
 import qualified Data.Vector as V
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
@@ -30,6 +36,8 @@ import Data.Int (Int64)
 import Data.Maybe (isJust, mapMaybe)
 import Data.List (find, nub)
 import Control.Monad (replicateM)
+import Data.Time.Clock.POSIX (getPOSIXTime)
+import Data.Scientific (Scientific)
 
 spec :: Spec
 spec = describe "SDJWT.JWT" $ do
@@ -302,4 +310,263 @@ spec = describe "SDJWT.JWT" $ do
               T.isInfixOf "RFC 8725bis" msg `shouldBe` True
             Left err -> expectationFailure $ "Expected algorithm mismatch error, got: " ++ show err
             Right _ -> expectationFailure "Should reject JWT with algorithm mismatch"
+  
+  describe "verifyJWT error paths" $ do
+    it "rejects JWT with invalid format (not 3 parts)" $ do
+      keyPair <- generateTestRSAKeyPair
+      let invalidJWT = "header.payload"  -- Only 2 parts instead of 3
+      
+      result <- verifyJWT (publicKeyJWK keyPair) invalidJWT Nothing
+      case result of
+        Left (InvalidSignature msg) -> do
+          T.isInfixOf "Failed to decode JWT" msg `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWT with invalid format"
+    
+    it "rejects JWT with no signatures" $ do
+      keyPair <- generateTestRSAKeyPair
+      -- Create a JWT-like string but with empty signature part
+      let header = Aeson.object [("alg", Aeson.String "PS256"), ("typ", Aeson.String "JWT")]
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let headerBS = BSL.toStrict $ Aeson.encode header
+      let payloadBS = BSL.toStrict $ Aeson.encode payload
+      let headerB64 = base64urlEncode headerBS
+      let payloadB64 = base64urlEncode payloadBS
+      -- Create JWT with empty signature (invalid)
+      let invalidJWT = T.concat [headerB64, ".", payloadB64, "."]
+      
+      result <- verifyJWT (publicKeyJWK keyPair) invalidJWT Nothing
+      case result of
+        Left (InvalidSignature msg) -> do
+          -- Should fail during decode or verification (jose might catch it earlier)
+          (T.isInfixOf "No signatures found" msg || T.isInfixOf "Failed to decode" msg || T.isInfixOf "JWT verification failed" msg) `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWT with no signatures"
+    
+    it "rejects JWT with missing typ header when required" $ do
+      keyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Sign JWT without typ header
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          -- Verify with required typ (should fail since typ is not present)
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT (Just "sd-jwt")
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Missing typ header" msg `shouldBe` True
+            Left err -> return ()  -- Any error is acceptable
+            Right _ -> expectationFailure "Should reject JWT with missing typ header"
+    
+    it "rejects JWT with invalid typ header value" $ do
+      keyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      -- Sign JWT with typ header
+      signedResult <- signJWTWithOptionalTyp (Just "wrong-typ") (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          -- Verify with different required typ (should fail)
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT (Just "sd-jwt")
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Invalid typ header" msg `shouldBe` True
+            Left err -> return ()  -- Any error is acceptable
+            Right _ -> expectationFailure "Should reject JWT with invalid typ header"
+    
+    it "rejects JWT with invalid payload JSON" $ do
+      keyPair <- generateTestRSAKeyPair
+      -- Create a JWT with invalid JSON in payload (valid base64url but invalid JSON)
+      let header = Aeson.object [("alg", Aeson.String "PS256"), ("typ", Aeson.String "JWT")]
+      let headerBS = BSL.toStrict $ Aeson.encode header
+      let headerB64 = base64urlEncode headerBS
+      -- Create invalid JSON payload
+      let invalidPayloadB64 = base64urlEncode (encodeUtf8 "not valid json")
+      -- Sign with a dummy signature (we'll fail at parsing anyway)
+      let signature = "dummy_signature"
+      let invalidJWT = T.concat [headerB64, ".", invalidPayloadB64, ".", signature]
+      
+      result <- verifyJWT (publicKeyJWK keyPair) invalidJWT Nothing
+      case result of
+        Left _ -> return ()  -- Any error is acceptable (might fail at signature verification or parsing)
+        Right _ -> expectationFailure "Should reject JWT with invalid payload JSON"
+  
+  describe "validateStandardClaims error paths" $ do
+    it "rejects JWT with expired exp claim" $ do
+      keyPair <- generateTestRSAKeyPair
+      currentTime <- round <$> getPOSIXTime
+      let expiredTime = currentTime - 3600  -- 1 hour ago (expired)
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.Number (fromIntegral expiredTime))]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "JWT has expired" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected expired JWT error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject expired JWT"
+    
+    it "rejects JWT with invalid exp claim format (not a number)" $ do
+      keyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.String "not a number")]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Invalid exp claim format" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected invalid exp format error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with invalid exp format"
+    
+    it "rejects JWT with exp claim value out of range" $ do
+      keyPair <- generateTestRSAKeyPair
+      -- Use a number that's too large for Int64
+      let hugeNumber = 1e20 :: Scientific
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.Number hugeNumber)]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Invalid exp claim" msg `shouldBe` True
+              T.isInfixOf "out of range" msg `shouldBe` True
+            Left err -> return ()  -- Any error is acceptable
+            Right _ -> expectationFailure "Should reject JWT with exp out of range"
+    
+    it "rejects JWT with nbf claim (not yet valid)" $ do
+      keyPair <- generateTestRSAKeyPair
+      currentTime <- round <$> getPOSIXTime
+      let futureTime = currentTime + 3600  -- 1 hour in the future (not yet valid)
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.Number (fromIntegral futureTime))]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "JWT not yet valid" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected nbf error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with nbf claim"
+    
+    it "rejects JWT with invalid nbf claim format (not a number)" $ do
+      keyPair <- generateTestRSAKeyPair
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.String "not a number")]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Invalid nbf claim format" msg `shouldBe` True
+            Left err -> expectationFailure $ "Expected invalid nbf format error, got: " ++ show err
+            Right _ -> expectationFailure "Should reject JWT with invalid nbf format"
+    
+    it "rejects JWT with nbf claim value out of range" $ do
+      keyPair <- generateTestRSAKeyPair
+      -- Use a number that's too large for Int64
+      let hugeNumber = 1e20 :: Double
+      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.Number (realToFrac hugeNumber))]
+      
+      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
+        Right signedJWT -> do
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left (InvalidSignature msg) -> do
+              T.isInfixOf "Invalid nbf claim" msg `shouldBe` True
+              T.isInfixOf "out of range" msg `shouldBe` True
+            Left err -> return ()  -- Any error is acceptable
+            Right _ -> expectationFailure "Should reject JWT with nbf out of range"
+  describe "detectKeyAlgorithmFromJWK error paths" $ do
+    it "rejects JWK with missing kty field" $ do
+      let invalidJWK = "{\"alg\":\"PS256\",\"n\":\"dGVzdA\",\"e\":\"AQAB\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT invalidJWK payload
+      case result of
+        Left (InvalidSignature msg) -> do
+          -- jose might parse the JWK but our code should catch missing kty
+          (T.isInfixOf "Missing 'kty' field" msg || T.isInfixOf "Failed to parse JWK" msg || T.isInfixOf "Failed to create JWK" msg) `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable (jose might catch it first)
+        Right _ -> expectationFailure "Should reject JWK with missing kty"
+    
+    it "rejects JWK with unsupported EC curve" $ do
+      let unsupportedCurveJWK = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT unsupportedCurveJWK payload
+      case result of
+        Left _ -> return ()  -- Any error is acceptable (jose might catch it before our code)
+        Right _ -> expectationFailure "Should reject JWK with unsupported EC curve"
+    
+    it "rejects JWK with missing crv field for EC" $ do
+      let missingCrvJWK = "{\"kty\":\"EC\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT missingCrvJWK payload
+      case result of
+        Left (InvalidSignature msg) -> do
+          (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWK with missing crv for EC"
+    
+    it "rejects JWK with unsupported OKP curve" $ do
+      let unsupportedOKPJWK = "{\"kty\":\"OKP\",\"crv\":\"Ed448\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT unsupportedOKPJWK payload
+      case result of
+        Left _ -> return ()  -- Any error is acceptable (jose might catch it before our code)
+        Right _ -> expectationFailure "Should reject JWK with unsupported OKP curve"
+    
+    it "rejects JWK with missing crv field for OKP" $ do
+      let missingCrvOKPJWK = "{\"kty\":\"OKP\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT missingCrvOKPJWK payload
+      case result of
+        Left (InvalidSignature msg) -> do
+          (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWK with missing crv for OKP"
+    
+    it "rejects JWK with unsupported key type" $ do
+      let unsupportedTypeJWK = "{\"kty\":\"oct\",\"k\":\"dGVzdA\"}" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT unsupportedTypeJWK payload
+      case result of
+        Left (InvalidSignature msg) -> do
+          T.isInfixOf "Unsupported key type" msg `shouldBe` True
+        Left err -> expectationFailure $ "Expected unsupported key type error, got: " ++ show err
+        Right _ -> expectationFailure "Should reject JWK with unsupported key type"
+    
+    it "rejects JWK with invalid format (not an object)" $ do
+      let invalidJWK = "\"not an object\"" :: T.Text
+      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      
+      result <- signJWT invalidJWK payload
+      case result of
+        Left (InvalidSignature msg) -> do
+          -- jose will catch this during parsing, so error message might vary
+          (T.isInfixOf "Invalid JWK format" msg || T.isInfixOf "Failed to parse JWK" msg || T.isInfixOf "Failed to create JWK" msg || T.isInfixOf "parse" msg) `shouldBe` True
+        Left err -> return ()  -- Any error is acceptable
+        Right _ -> expectationFailure "Should reject JWK with invalid format"
 
