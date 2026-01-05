@@ -30,6 +30,7 @@ import Data.Int (Int64)
 import Data.Maybe (isJust, mapMaybe)
 import Data.List (find, nub)
 import Control.Monad (replicateM)
+import Text.Read (readMaybe)
 
 spec :: Spec
 spec = describe "SDJWT.Utils" $ do
@@ -191,4 +192,122 @@ spec = describe "SDJWT.Utils" $ do
       it "handles escape at end" $ do
         unescapeJSONPointer "a~1" `shouldBe` "a/"
         unescapeJSONPointer "a~0" `shouldBe` "a~"
+    
+    describe "JSON Pointer path resolution (RFC 6901 Section 5)" $ do
+      -- Test document from RFC 6901 Section 5
+      let testDoc = Aeson.Object $ KeyMap.fromList
+            [ (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+            , (Key.fromText "", Aeson.Number 0)
+            , (Key.fromText "a/b", Aeson.Number 1)
+            , (Key.fromText "c%d", Aeson.Number 2)
+            , (Key.fromText "e^f", Aeson.Number 3)
+            , (Key.fromText "g|h", Aeson.Number 4)
+            , (Key.fromText "i\\j", Aeson.Number 5)
+            , (Key.fromText "k\"l", Aeson.Number 6)
+            , (Key.fromText " ", Aeson.Number 7)
+            , (Key.fromText "m~n", Aeson.Number 8)
+            ]
+      
+      -- Helper function to resolve a JSON Pointer path in a JSON document
+      let resolvePath :: [T.Text] -> Aeson.Value -> Maybe Aeson.Value
+          resolvePath [] value = Just value  -- Empty path = root
+          resolvePath (seg:rest) value = case value of
+            Aeson.Object obj -> do
+              let key = Key.fromText seg
+              nestedValue <- KeyMap.lookup key obj
+              resolvePath rest nestedValue
+            Aeson.Array arr -> do
+              idx <- readMaybe (T.unpack seg) :: Maybe Int
+              if idx >= 0 && idx < V.length arr
+                then resolvePath rest (arr V.! idx)
+                else Nothing
+            _ -> Nothing
+      
+      it "resolves empty path to entire document" $ do
+        resolvePath [] testDoc `shouldBe` Just testDoc
+      
+      it "resolves /foo to array" $ do
+        let segments = splitJSONPointer "foo"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+      
+      it "resolves /foo/0 to first array element" $ do
+        let segments = splitJSONPointer "foo/0"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.String "bar")
+      
+      it "resolves / (empty string key) to 0" $ do
+        -- Note: splitJSONPointer strips leading slashes, so "/" becomes []
+        -- For the empty string key, we need to manually construct the path
+        -- In RFC 6901, "/" refers to the empty string key, but our function
+        -- is designed for relative paths. We test the empty string key directly.
+        let segments = [""]  -- Single empty segment = empty string key
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 0)
+      
+      it "resolves /a~1b (escaped slash) to 1" $ do
+        let segments = splitJSONPointer "a~1b"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 1)
+      
+      it "resolves /c%d (percent sign) to 2" $ do
+        let segments = splitJSONPointer "c%d"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 2)
+      
+      it "resolves /e^f (caret) to 3" $ do
+        let segments = splitJSONPointer "e^f"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 3)
+      
+      it "resolves /g|h (pipe) to 4" $ do
+        let segments = splitJSONPointer "g|h"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 4)
+      
+      it "resolves /i\\j (backslash) to 5" $ do
+        let segments = splitJSONPointer "i\\j"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 5)
+      
+      it "resolves /k\"l (quote) to 6" $ do
+        let segments = splitJSONPointer "k\"l"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 6)
+      
+      it "resolves /  (space) to 7" $ do
+        let segments = splitJSONPointer " "
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 7)
+      
+      it "resolves /m~0n (escaped tilde) to 8" $ do
+        let segments = splitJSONPointer "m~0n"
+        resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 8)
+      
+      it "works with buildSDJWTPayload for RFC 6901 test document" $ do
+        let claims = Map.fromList
+              [ ("foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+              , ("", Aeson.Number 0)
+              , ("a/b", Aeson.Number 1)
+              , ("c%d", Aeson.Number 2)
+              , ("e^f", Aeson.Number 3)
+              , ("g|h", Aeson.Number 4)
+              , ("i\\j", Aeson.Number 5)
+              , ("k\"l", Aeson.Number 6)
+              , (" ", Aeson.Number 7)
+              , ("m~n", Aeson.Number 8)
+              ]
+        -- Test marking various paths as selectively disclosable
+        result <- buildSDJWTPayload SHA256 ["foo/0", "a~1b", "m~0n"] claims
+        case result of
+          Right (_payload, _disclosures) -> return ()  -- Success
+          Left err -> expectationFailure $ "Failed to build payload: " ++ show err
+      
+      it "works with selectDisclosuresByNames for RFC 6901 test document" $ do
+        let claims = Map.fromList
+              [ ("foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+              , ("", Aeson.Number 0)
+              , ("a/b", Aeson.Number 1)
+              , ("m~n", Aeson.Number 8)
+              ]
+        keyPair <- generateTestRSAKeyPair
+        -- Create SD-JWT with RFC 6901 paths
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair) ["foo/0", "a~1b", "m~0n"] claims
+        case result of
+          Right sdjwt -> do
+            -- Select disclosures using RFC 6901 paths
+            case selectDisclosuresByNames sdjwt ["foo/0", "a~1b", "m~0n"] of
+              Right _presentation -> return ()  -- Success
+              Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
 
