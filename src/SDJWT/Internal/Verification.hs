@@ -291,6 +291,7 @@ extractHolderKeyFromPayload presentation = do
 -- which handle payload parsing internally.
 --
 -- This function is used internally by:
+--
 -- * 'SDJWT.Presentation' - To parse payloads when selecting disclosures
 -- * 'verifyDisclosures' - To extract digests from payloads
 -- * 'extractHashAlgorithm' - To extract hash algorithm from payloads
@@ -359,14 +360,12 @@ extractDigestsFromRecursiveDisclosures disclosures = do
 --
 -- JWT payloads must be JSON objects (RFC 7519), so this function only accepts
 -- Aeson.Object values. Returns an error if given a non-object value.
-extractRegularClaims :: Aeson.Value -> Either SDJWTError (Map.Map T.Text Aeson.Value)
+extractRegularClaims :: Aeson.Value -> Either SDJWTError Aeson.Object
 extractRegularClaims (Aeson.Object obj) =
-  Right $ Map.fromList $ mapMaybe (\(k, v) ->
+  Right $ KeyMap.filterWithKey (\k _ ->
     let keyText = Key.toText k
-    in if keyText == "_sd" || keyText == "_sd_alg" || keyText == "cnf"
-      then Nothing  -- Skip SD-JWT internal claims
-      else Just (keyText, v)
-  ) (KeyMap.toList obj)
+    in keyText /= "_sd" && keyText /= "_sd_alg" && keyText /= "cnf"
+  ) obj
 extractRegularClaims _ = Left $ JSONParseError "JWT payload must be a JSON object"
 
 -- | Build maps from digests to disclosure values.
@@ -401,29 +400,28 @@ buildDisclosureMap hashAlg sdDisclosures = do
 -- 1. Processes object claims (replaces digests in _sd arrays with values, recursively)
 -- 2. Recursively processes arrays to replace {"...": "<digest>"} objects with values
 replaceDigestsWithValues
-  :: Map.Map T.Text Aeson.Value
+  :: Aeson.Object
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
-  -> Map.Map T.Text Aeson.Value
+  -> Aeson.Object
 replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap =
   -- Process object claims: replace digests in _sd arrays with values (including nested _sd arrays)
-  let disclosedPairs = Map.elems objectDisclosureMap  -- [(claimName, claimValue)]
-      disclosedClaims = Map.fromList disclosedPairs
-      objectClaims = Map.union disclosedClaims regularClaims
-  
-  -- Process arrays recursively to replace {"...": "<digest>"} objects
-  -- Also process nested _sd arrays recursively
-  -- Note: Array disclosure values may contain _sd arrays (for nested selective disclosure),
-  -- so we need to process _sd arrays in those values too
-  in processArraysInClaimsWithSD (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap objectDisclosureMap
+  let disclosedClaims = KeyMap.fromList $ map (\(claimName, claimValue) -> (Key.fromText claimName, claimValue)) (Map.elems objectDisclosureMap)
+      objectClaims = KeyMap.union disclosedClaims regularClaims
+  in
+    -- Process arrays recursively to replace {"...": "<digest>"} objects
+    -- Also process nested _sd arrays recursively
+    -- Note: Array disclosure values may contain _sd arrays (for nested selective disclosure),
+    -- so we need to process _sd arrays in those values too
+    processArraysInClaimsWithSD (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap objectDisclosureMap
 
 -- | Recursively process _sd arrays in claims to replace digests with values.
 processSDArraysInClaims
-  :: Map.Map T.Text Aeson.Value
+  :: Aeson.Object
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
-  -> Map.Map T.Text Aeson.Value
+  -> Aeson.Object
 processSDArraysInClaims claims objectDisclosureMap =
-  Map.map (\value -> processSDArraysInValue value objectDisclosureMap) claims
+  KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) claims
 
 -- | Recursively process a JSON value to replace digests in _sd arrays with values.
 processSDArraysInValue
@@ -468,12 +466,12 @@ processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, 
 -- Also processes _sd arrays in array disclosure values (for nested selective disclosure).
 -- | Process arrays in claims, also processing _sd arrays in array disclosure values.
 processArraysInClaimsWithSD
-  :: Map.Map T.Text Aeson.Value
+  :: Aeson.Object
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
-  -> Map.Map T.Text Aeson.Value
+  -> Aeson.Object
 processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap =
-  Map.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
+  KeyMap.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
 
 -- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays,
 -- and also process _sd arrays in array disclosure values (for nested selective disclosure).

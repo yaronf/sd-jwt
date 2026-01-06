@@ -36,22 +36,22 @@ spec :: Spec
 spec = describe "SDJWT.Verification" $ do
   describe "extractRegularClaims" $ do
     it "extracts regular claims from Object payload" $ do
-      let payload = Aeson.object
-            [ ("sub", Aeson.String "user_123")
-            , ("given_name", Aeson.String "John")
-            , ("_sd", Aeson.Array V.empty)
-            , ("_sd_alg", Aeson.String "sha-256")
-            , ("cnf", Aeson.object [("jwk", Aeson.String "key")])
+      let payload = Aeson.Object $ KeyMap.fromList
+            [  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "_sd", Aeson.Array V.empty)
+            ,  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+            ,  (Key.fromText "cnf", Aeson.Object $ KeyMap.fromList [ (Key.fromText "jwk", Aeson.String "key")])
             ]
       case extractRegularClaims payload of
         Right claims -> do
           -- Should include regular claims
-          Map.lookup "sub" claims `shouldBe` Just (Aeson.String "user_123")
-          Map.lookup "given_name" claims `shouldBe` Just (Aeson.String "John")
+          KeyMap.lookup (Key.fromText "sub") claims `shouldBe` Just (Aeson.String "user_123")
+          KeyMap.lookup (Key.fromText "given_name") claims `shouldBe` Just (Aeson.String "John")
           -- Should exclude SD-JWT internal claims
-          Map.lookup "_sd" claims `shouldBe` Nothing
-          Map.lookup "_sd_alg" claims `shouldBe` Nothing
-          Map.lookup "cnf" claims `shouldBe` Nothing
+          KeyMap.lookup (Key.fromText "_sd") claims `shouldBe` Nothing
+          KeyMap.lookup (Key.fromText "_sd_alg") claims `shouldBe` Nothing
+          KeyMap.lookup (Key.fromText "cnf") claims `shouldBe` Nothing
         Left err -> expectationFailure $ "Failed to extract claims: " ++ show err
     
     it "rejects non-Object values (JWT payloads must be objects)" $ do
@@ -83,7 +83,7 @@ spec = describe "SDJWT.Verification" $ do
   describe "extractHashAlgorithm" $ do
     it "extracts SHA256 hash algorithm from presentation" $ do
       -- Create a simple presentation with _sd_alg set to sha-256
-      let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256")]
+      let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256")]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -93,7 +93,7 @@ spec = describe "SDJWT.Verification" $ do
         Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
     
     it "extracts SHA384 hash algorithm from presentation" $ do
-      let payload = Aeson.object [("_sd_alg", Aeson.String "sha-384")]
+      let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-384")]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -103,7 +103,7 @@ spec = describe "SDJWT.Verification" $ do
         Left err -> expectationFailure $ "Failed to extract hash algorithm: " ++ show err
     
     it "extracts SHA512 hash algorithm from presentation" $ do
-      let payload = Aeson.object [("_sd_alg", Aeson.String "sha-512")]
+      let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-512")]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -114,7 +114,7 @@ spec = describe "SDJWT.Verification" $ do
     
     it "defaults to SHA256 when _sd_alg is missing" $ do
       -- Create a presentation without _sd_alg claim
-      let payload = Aeson.object [("sub", Aeson.String "user_42")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_42")]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -125,7 +125,7 @@ spec = describe "SDJWT.Verification" $ do
     
     it "defaults to SHA256 when _sd_alg is not a string" $ do
       -- Create a presentation with _sd_alg as non-string
-      let payload = Aeson.object [("_sd_alg", Aeson.Number 256)]
+      let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.Number 256)]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -136,7 +136,7 @@ spec = describe "SDJWT.Verification" $ do
     
     it "defaults to SHA256 when _sd_alg is invalid algorithm string" $ do
       -- Create a presentation with invalid _sd_alg value
-      let payload = Aeson.object [("_sd_alg", Aeson.String "invalid-algorithm")]
+      let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "invalid-algorithm")]
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let encodedPayload = base64urlEncode payloadBS
       let jwt = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
@@ -163,7 +163,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -184,7 +184,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestEd25519KeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT with Ed25519 key (EdDSA)
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -205,7 +205,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestECKeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT with EC P-256 key (ES256)
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -231,7 +231,7 @@ spec = describe "SDJWT.Verification" $ do
         -- Create presentation first (without KB-JWT)
         let presentationWithoutKB = SDJWTPresentation jwt [disclosure] Nothing
         -- Create a KB-JWT using the presentation without KB-JWT
-        kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB KeyMap.empty
         case kbResult of
           Right kbJWT -> do
             -- Now add the KB-JWT to create the final presentation
@@ -265,7 +265,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -286,7 +286,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with typ header
-        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "given_name", Aeson.String "John")]
         result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
@@ -302,7 +302,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with typ header
-        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "given_name", Aeson.String "John")]
         result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
@@ -318,7 +318,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with typ header "sd-jwt"
-        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "given_name", Aeson.String "John")]
         result <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
@@ -339,7 +339,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT WITHOUT typ header (using regular createSDJWT)
-        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "given_name", Aeson.String "John")]
         result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
@@ -360,7 +360,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create SD-JWT with application-specific typ header
-        let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
+        let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "given_name", Aeson.String "John")]
         result <- createSDJWT (Just "example+sd-jwt") Nothing SHA256 (privateKeyJWK keyPair) ["given_name"] claims
         case result of
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
@@ -378,7 +378,7 @@ spec = describe "SDJWT.Verification" $ do
         wrongKeyPair <- generateTestRSAKeyPair2
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT with one key
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -410,11 +410,11 @@ spec = describe "SDJWT.Verification" $ do
         -- Parse holder's public key JWK as JSON (holderPublicKeyJWK is already a JSON string)
         let holderPublicKeyJSON = case Aeson.eitherDecodeStrict (encodeUtf8 holderPublicKeyJWK) of
               Right jwk -> jwk
-              Left _ -> Aeson.object []  -- Fallback
-        let payload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
-              , ("cnf", Aeson.object [("jwk", holderPublicKeyJSON)])
+              Left _ -> Aeson.Object KeyMap.empty  -- Fallback
+        let payload = Aeson.Object $ KeyMap.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
+              ,  (Key.fromText "cnf", Aeson.Object $ KeyMap.fromList [ (Key.fromText "jwk", holderPublicKeyJSON)])
               ]
         
         -- Sign the JWT with issuer's key
@@ -426,7 +426,7 @@ spec = describe "SDJWT.Verification" $ do
             let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
             
             -- Create KB-JWT signed with holder's private key
-            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB KeyMap.empty
             case kbResult of
               Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
               Right kbJWT -> do
@@ -445,9 +445,9 @@ spec = describe "SDJWT.Verification" $ do
         holderKeyPair <- generateTestRSAKeyPair
         
         -- Create payload WITHOUT cnf claim
-        let payload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array V.empty)
+        let payload = Aeson.Object $ KeyMap.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array V.empty)
               ]
         
         -- Sign the JWT
@@ -458,7 +458,7 @@ spec = describe "SDJWT.Verification" $ do
             -- Create KB-JWT
             let disclosure = EncodedDisclosure "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImdpdmVuX25hbWUiLCAiSm9obiJd"
             let presentationWithoutKB = SDJWTPresentation signedJWT [disclosure] Nothing
-            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+            kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK holderKeyPair) "audience" "nonce" 1234567890 presentationWithoutKB KeyMap.empty
             case kbResult of
               Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
               Right kbJWT -> do
@@ -534,8 +534,8 @@ spec = describe "SDJWT.Verification" $ do
         let invalidDisclosure = EncodedDisclosure "WyJpbnZhbGlkLX salt!!!IiwgIm5hbWUiLCAidmFsdWUiXQ"
         let disclosureDigest = computeDigest SHA256 invalidDisclosure
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest disclosureDigest)])
               ]
         let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
         let encodedPayload = base64urlEncode payloadBS
@@ -551,8 +551,8 @@ spec = describe "SDJWT.Verification" $ do
       it "handles presentation with _sd array containing non-string values" $ do
         -- Create payload with _sd array containing non-string (should be strings)
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList [Aeson.Number 123])  -- Invalid: should be string
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.Number 123])  -- Invalid: should be string
               ]
         let payloadBS = BSL.toStrict $ Aeson.encode jwtPayload
         let encodedPayload = base64urlEncode payloadBS
@@ -570,8 +570,8 @@ spec = describe "SDJWT.Verification" $ do
         -- Per RFC 9901 Section 4.2.4.1, _sd arrays MUST contain only strings (digests).
         -- Non-string values are a violation of the spec and should be rejected.
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList
                   [ Aeson.String "validDigest1"
                   , Aeson.Number 123  -- Non-string, violates RFC 9901
                   , Aeson.String "validDigest2"
@@ -610,8 +610,8 @@ spec = describe "SDJWT.Verification" $ do
         -- Create a mock JWT payload matching RFC structure
         -- The JWT payload should contain _sd array with digests and nationalities array with ellipsis objects
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String
                   ["CrQe7S5kqBAHt-nMYXgc6bdt2SH5aTY1sU_M-PgkjPI",  -- updated_at
                    "JzYjH4svliH0R3PyEMfeZu6Jt69u5qehZo7F7EPYlSE",  -- email
                    "PorFbpKuVu6xymJagvkFsFXAbRoc2JGlAUA2BA4o7cI",  -- phone_number
@@ -620,10 +620,10 @@ spec = describe "SDJWT.Verification" $ do
                    "XzFrzwscM6Gn6CJDc6vVK8BkMnfG8vOSKfpPIZdAfdE",  -- address
                    "gbOsI4Edq2x2Kw-w5wPEzakob9hV1cRD0ATN3oQL9JM",  -- birthdate
                    "jsu9yVulwQQlhFlM_3JlzMaSFzglhQG0DpfayQwLUK4"]) -- given_name
-              , ("sub", Aeson.String "user_42")
-              , ("nationalities", Aeson.Array $ V.fromList
-                  [ Aeson.object [("...", Aeson.String (unDigest nationalityDigest))]  -- US (disclosed)
-                  , Aeson.object [("...", Aeson.String "7Cf6JkPudry3lcbwHgeZ8khAv1U1OSlerP0VkBJrWZ0")]]) -- DE (not disclosed)
+              ,  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "nationalities", Aeson.Array $ V.fromList
+                  [ Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.String (unDigest nationalityDigest))]  -- US (disclosed)
+                  , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.String "7Cf6JkPudry3lcbwHgeZ8khAv1U1OSlerP0VkBJrWZ0")]]) -- DE (not disclosed)
               ]
         
         -- Encode JWT payload
@@ -642,11 +642,11 @@ spec = describe "SDJWT.Verification" $ do
           Right processed -> do
             -- Verify that the processed claims contain the disclosed values
             let claims = processedClaims processed
-            Map.lookup "family_name" claims `shouldBe` Just (Aeson.String "Doe")
-            Map.lookup "given_name" claims `shouldBe` Just (Aeson.String "John")
-            Map.lookup "sub" claims `shouldBe` Just (Aeson.String "user_42")
+            KeyMap.lookup (Key.fromText "family_name") claims `shouldBe` Just (Aeson.String "Doe")
+            KeyMap.lookup (Key.fromText "given_name") claims `shouldBe` Just (Aeson.String "John")
+            KeyMap.lookup (Key.fromText "sub") claims `shouldBe` Just (Aeson.String "user_42")
             -- Verify address object is disclosed correctly
-            case Map.lookup "address" claims of
+            case KeyMap.lookup (Key.fromText "address") claims of
               Just (Aeson.Object addrObj) -> do
                 KeyMap.lookup (Key.fromText "street_address") addrObj `shouldBe` Just (Aeson.String "123 Main St")
                 KeyMap.lookup (Key.fromText "locality") addrObj `shouldBe` Just (Aeson.String "Anytown")
@@ -654,7 +654,7 @@ spec = describe "SDJWT.Verification" $ do
                 KeyMap.lookup (Key.fromText "country") addrObj `shouldBe` Just (Aeson.String "US")
               _ -> expectationFailure "Address claim not found or not an object"
             -- Verify array element disclosure (nationality) is processed correctly
-            case Map.lookup "nationalities" claims of
+            case KeyMap.lookup (Key.fromText "nationalities") claims of
               Just (Aeson.Array nationalitiesArr) -> do
                 -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
                 -- for which they did not receive a Disclosure." So undisclosed elements are removed.
@@ -675,11 +675,11 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with an array containing ellipsis objects
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("countries", Aeson.Array $ V.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "countries", Aeson.Array $ V.fromList
                   [ Aeson.String "US"  -- Regular element
-                  , Aeson.object [("...", Aeson.String (unDigest arrayDigest))]  -- Disclosed element
-                  , Aeson.object [("...", Aeson.String "someOtherDigest")]])  -- Not disclosed element
+                  , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.String (unDigest arrayDigest))]  -- Disclosed element
+                  , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.String "someOtherDigest")]])  -- Not disclosed element
               ]
         
         -- Encode JWT payload
@@ -696,7 +696,7 @@ spec = describe "SDJWT.Verification" $ do
           Right processed -> do
             let claims = processedClaims processed
             -- Verify array element disclosure is processed correctly
-            case Map.lookup "countries" claims of
+            case KeyMap.lookup (Key.fromText "countries") claims of
               Just (Aeson.Array countriesArr) -> do
                 -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
                 -- for which they did not receive a Disclosure." So undisclosed elements are removed.
@@ -719,9 +719,10 @@ spec = describe "SDJWT.Verification" $ do
         -- This tests processValueForArraysWithSD and removal of _sd_alg from array disclosure values
         
         -- Create claims with array containing object with nested selective disclosure
-        let nestedObject = Aeson.object [("foo", Aeson.String "bar")]
-        let claims = Map.fromList
-              [ ("array_with_one_sd_object", Aeson.Array $ V.fromList [nestedObject])
+        let nestedObject = Aeson.Object $ KeyMap.fromList [ (Key.fromText "foo", Aeson.String "bar")]
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "array_with_one_sd_object", Aeson.Array $ V.fromList [nestedObject])
               ]
         
         -- Use buildSDJWTPayload with JSON Pointer to mark array element and nested claim
@@ -743,7 +744,7 @@ spec = describe "SDJWT.Verification" $ do
               Right processed -> do
                 let claims = processedClaims processed
                 -- Verify array element disclosure is processed correctly
-                case Map.lookup "array_with_one_sd_object" claims of
+                case KeyMap.lookup (Key.fromText "array_with_one_sd_object") claims of
                   Just (Aeson.Array arr) -> do
                     -- Should have 1 element: the disclosed object
                     V.length arr `shouldBe` 1
@@ -764,11 +765,12 @@ spec = describe "SDJWT.Verification" $ do
         -- Test that _sd_alg is removed from array element disclosure values during verification
         -- Create claims with array containing object with _sd_alg
         let objectWithSDAlg = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("some_claim", Aeson.String "some_value")
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "some_claim", Aeson.String "some_value")
               ]
-        let claims = Map.fromList
-              [ ("test_array", Aeson.Array $ V.fromList [objectWithSDAlg])
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "test_array", Aeson.Array $ V.fromList [objectWithSDAlg])
               ]
         
         -- Use buildSDJWTPayload with JSON Pointer to mark array element as selectively disclosable
@@ -789,7 +791,7 @@ spec = describe "SDJWT.Verification" $ do
             case result of
               Right processed -> do
                 let claims = processedClaims processed
-                case Map.lookup "test_array" claims of
+                case KeyMap.lookup (Key.fromText "test_array") claims of
                   Just (Aeson.Array arr) -> do
                     V.length arr `shouldBe` 1
                     case arr V.!? 0 of
@@ -811,8 +813,9 @@ spec = describe "SDJWT.Verification" $ do
         -- Expected: [["foo"], ["qux"]]
         
         -- Create claims with nested array: [["foo", "bar"], ["baz", "qux"]]
-        let claims = Map.fromList
-              [ ("nested_array", Aeson.Array $ V.fromList
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "nested_array", Aeson.Array $ V.fromList
                   [ Aeson.Array $ V.fromList [Aeson.String "foo", Aeson.String "bar"]
                   , Aeson.Array $ V.fromList [Aeson.String "baz", Aeson.String "qux"]
                   ])
@@ -838,7 +841,7 @@ spec = describe "SDJWT.Verification" $ do
                 case verificationResult of
                   Right processed -> do
                     let processedClaimsMap = processedClaims processed
-                    case Map.lookup "nested_array" processedClaimsMap of
+                    case KeyMap.lookup (Key.fromText "nested_array") processedClaimsMap of
                       Just (Aeson.Array arr) -> do
                         -- Should have 2 outer elements
                         V.length arr `shouldBe` 2
@@ -868,9 +871,10 @@ spec = describe "SDJWT.Verification" $ do
                     -- - "boring" (not selectively disclosable)
         -- - Object with nested selective disclosure (selectively disclosable)
         -- - Array of strings (selectively disclosable)
-        let nestedObject = Aeson.object [("foo", Aeson.String "bar")]
-        let claims = Map.fromList
-              [ ("array_with_recursive_sd", Aeson.Array $ V.fromList
+        let nestedObject = Aeson.Object $ KeyMap.fromList [ (Key.fromText "foo", Aeson.String "bar")]
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "array_with_recursive_sd", Aeson.Array $ V.fromList
                   [ Aeson.String "boring"  -- Index 0: Not selectively disclosable
                   , nestedObject  -- Index 1: Selectively disclosable (with nested claim)
                   , Aeson.Array $ V.fromList [Aeson.String "foo", Aeson.String "bar"]  -- Index 2: Selectively disclosable
@@ -895,7 +899,7 @@ spec = describe "SDJWT.Verification" $ do
             case result of
               Right processed -> do
                 let claims = processedClaims processed
-                case Map.lookup "array_with_recursive_sd" claims of
+                case KeyMap.lookup (Key.fromText "array_with_recursive_sd") claims of
                   Just (Aeson.Array arr) -> do
                     -- Should have 1 element: "boring"
                     -- The two selectively disclosable elements should be removed
@@ -909,11 +913,12 @@ spec = describe "SDJWT.Verification" $ do
         -- When no sub-claims are disclosed, object should be empty {}
         
         -- Create claims with object containing sub-claims
-        let claims = Map.fromList
-              [ ("is_over", Aeson.object
-                  [ ("13", Aeson.Bool False)
-                  , ("18", Aeson.Bool True)
-                  , ("21", Aeson.Bool False)
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "is_over", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "13", Aeson.Bool False)
+                  ,  (Key.fromText "18", Aeson.Bool True)
+                  ,  (Key.fromText "21", Aeson.Bool False)
                   ])
               ]
         
@@ -935,7 +940,7 @@ spec = describe "SDJWT.Verification" $ do
             case result of
               Right processed -> do
                 let claims = processedClaims processed
-                case Map.lookup "is_over" claims of
+                case KeyMap.lookup (Key.fromText "is_over") claims of
                   Just (Aeson.Object obj) -> do
                     -- Object should be empty {} (no sub-claims disclosed)
                     KeyMap.size obj `shouldBe` 0
@@ -949,8 +954,9 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create claims with array containing null values
         -- We want indices 1 and 2 to be selectively disclosable
-        let claims = Map.fromList
-              [ ("null_values", Aeson.Array $ V.fromList
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "null_values", Aeson.Array $ V.fromList
                   [ Aeson.Null  -- Index 0: Not selectively disclosable
                   , Aeson.Null  -- Index 1: Selectively disclosable
                   , Aeson.Null  -- Index 2: Selectively disclosable
@@ -976,7 +982,7 @@ spec = describe "SDJWT.Verification" $ do
             case result of
               Right processed -> do
                 let claims = processedClaims processed
-                case Map.lookup "null_values" claims of
+                case KeyMap.lookup (Key.fromText "null_values") claims of
                   Just (Aeson.Array arr) -> do
                     -- Should have 2 elements: the two non-selectively disclosable nulls
                     -- The two selectively disclosable nulls should be removed
@@ -999,8 +1005,9 @@ spec = describe "SDJWT.Verification" $ do
               [ Aeson.String "foo"
               , Aeson.String "bar"
               ]
-        let claims = Map.fromList
-              [ ("nested_array", Aeson.Array $ V.fromList [innerArray])
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "nested_array", Aeson.Array $ V.fromList [innerArray])
               ]
         
         -- Use buildSDJWTPayload with JSON Pointer paths to mark nested array elements
@@ -1027,7 +1034,7 @@ spec = describe "SDJWT.Verification" $ do
                 case result of
                   Right processed -> do
                     let claims = processedClaims processed
-                    case Map.lookup "nested_array" claims of
+                    case KeyMap.lookup (Key.fromText "nested_array") claims of
                       Just (Aeson.Array arr) -> do
                         -- Should have 1 outer element
                         V.length arr `shouldBe` 1
@@ -1046,11 +1053,11 @@ spec = describe "SDJWT.Verification" $ do
         -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
         -- Create a JWT payload with an ellipsis object that has extra keys
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("countries", Aeson.Array $ V.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "countries", Aeson.Array $ V.fromList
                   [ Aeson.object
-                      [ ("...", Aeson.String "someDigest")
-                      , ("extra_key", Aeson.String "should_not_be_here")  -- Extra key - invalid!
+                      [  (Key.fromText "...", Aeson.String "someDigest")
+                      ,  (Key.fromText "extra_key", Aeson.String "should_not_be_here")  -- Extra key - invalid!
                       ]
                   ])
               ]
@@ -1081,10 +1088,10 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload that doesn't contain this digest
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String
                   ["differentDigest1", "differentDigest2"])  -- Different digests
-              , ("sub", Aeson.String "user_42")
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         
         -- Encode JWT payload
@@ -1110,10 +1117,10 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with array that doesn't contain this digest
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("countries", Aeson.Array $ V.fromList
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "countries", Aeson.Array $ V.fromList
                   [ Aeson.String "US"
-                  , Aeson.object [("...", Aeson.String "differentDigest")]])  -- Different digest
+                  , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.String "differentDigest")]])  -- Different digest
               ]
         
         -- Encode JWT payload
@@ -1140,9 +1147,9 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload containing this digest
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest disclosureDigest])
-              , ("sub", Aeson.String "user_42")
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest disclosureDigest])
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         
         -- Encode JWT payload
@@ -1173,13 +1180,13 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with both real and decoy digests
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String
                   [ unDigest disclosureDigest  -- Real digest
                   , unDigest decoy1             -- Decoy 1
                   , unDigest decoy2             -- Decoy 2
                   ])
-              , ("sub", Aeson.String "user_42")
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         
         -- Encode JWT payload
@@ -1195,11 +1202,11 @@ spec = describe "SDJWT.Verification" $ do
         case result of
           Right processed -> do
             -- Verify the real claim is present
-            case Map.lookup "family_name" (processedClaims processed) of
+            case KeyMap.lookup (Key.fromText "family_name") (processedClaims processed) of
               Just (Aeson.String "Doe") -> return ()
               _ -> expectationFailure "Expected family_name claim to be present"
             -- Verify sub claim is present
-            case Map.lookup "sub" (processedClaims processed) of
+            case KeyMap.lookup (Key.fromText "sub") (processedClaims processed) of
               Just (Aeson.String "user_42") -> return ()
               _ -> expectationFailure "Expected sub claim to be present"
           Left err -> expectationFailure $ "Verification should succeed with decoy digests, got: " ++ show err
@@ -1220,9 +1227,9 @@ spec = describe "SDJWT.Verification" $ do
         let allDigests = realDigests ++ decoyDigests
         
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String allDigests)
-              , ("sub", Aeson.String "user_42")
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String allDigests)
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         
         -- Encode JWT payload
@@ -1238,10 +1245,10 @@ spec = describe "SDJWT.Verification" $ do
         case result of
           Right processed -> do
             -- Verify both real claims are present
-            case Map.lookup "family_name" (processedClaims processed) of
+            case KeyMap.lookup (Key.fromText "family_name") (processedClaims processed) of
               Just (Aeson.String "Doe") -> return ()
               _ -> expectationFailure "Expected family_name claim to be present"
-            case Map.lookup "given_name" (processedClaims processed) of
+            case KeyMap.lookup (Key.fromText "given_name") (processedClaims processed) of
               Just (Aeson.String "John") -> return ()
               _ -> expectationFailure "Expected given_name claim to be present"
           Left err -> expectationFailure $ "Verification should succeed with multiple decoy digests, got: " ++ show err
@@ -1258,8 +1265,8 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with real and decoy digests
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String
                   [ unDigest disclosureDigest  -- Real digest
                   , unDigest decoy1             -- Decoy 1
                   , unDigest decoy2             -- Decoy 2
@@ -1296,8 +1303,8 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with the valid digest
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest validDigest])
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest validDigest])
               ]
         
         -- Encode JWT payload
@@ -1331,8 +1338,8 @@ spec = describe "SDJWT.Verification" $ do
         
         -- Create a JWT payload with this digest (so verifyDisclosures passes)
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-256")
-              , ("_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest invalidDigest])
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ,  (Key.fromText "_sd", Aeson.Array $ V.fromList $ map Aeson.String [unDigest invalidDigest])
               ]
         
         -- Encode JWT payload
@@ -1404,7 +1411,7 @@ spec = describe "SDJWT.Verification" $ do
         -- Verify that signature verification works correctly with the right key
         keyPair <- generateTestRSAKeyPair
         
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT with the key
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -1432,7 +1439,7 @@ spec = describe "SDJWT.Verification" $ do
         keyPair <- generateTestRSAKeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = Aeson.Object $ KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         
         -- Sign the JWT with one key
         signedJWTResult <- signJWT (privateKeyJWK keyPair) payload
@@ -1460,7 +1467,7 @@ spec = describe "SDJWT.Verification" $ do
       
       it "fails when JWT signature is missing" $ do
         -- Create a JWT without signature (only two parts)
-        let payload = Aeson.object [("_sd_alg", Aeson.String "sha-256"), ("_sd", Aeson.Array V.empty)]
+        let payload = KeyMap.fromList [ (Key.fromText "_sd_alg", Aeson.String "sha-256"),  (Key.fromText "_sd", Aeson.Array V.empty)]
         let payloadBS = BSL.toStrict $ Aeson.encode payload
         let encodedPayload = base64urlEncode payloadBS
         let jwtWithoutSignature = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload]
@@ -1484,8 +1491,8 @@ spec = describe "SDJWT.Verification" $ do
       it "defaults to SHA-256 when _sd_alg is missing" $ do
         -- Create a JWT payload without _sd_alg
         let jwtPayload = Aeson.object
-              [ ("_sd", Aeson.Array V.empty)
-              , ("sub", Aeson.String "user_42")
+              [  (Key.fromText "_sd", Aeson.Array V.empty)
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         
         -- Encode JWT payload
@@ -1505,8 +1512,8 @@ spec = describe "SDJWT.Verification" $ do
       it "handles unsupported hash algorithm gracefully" $ do
         -- Create a JWT payload with unsupported hash algorithm
         let jwtPayload = Aeson.object
-              [ ("_sd_alg", Aeson.String "sha-1")  -- SHA-1 is not supported
-              , ("_sd", Aeson.Array V.empty)
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-1")  -- SHA-1 is not supported
+              ,  (Key.fromText "_sd", Aeson.Array V.empty)
               ]
         
         -- Encode JWT payload

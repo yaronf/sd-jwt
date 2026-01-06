@@ -195,17 +195,17 @@ spec = describe "SDJWT.Utils" $ do
     
     describe "JSON Pointer path resolution (RFC 6901 Section 5)" $ do
       -- Test document from RFC 6901 Section 5
-      let testDoc = Aeson.Object $ KeyMap.fromList
-            [ (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
-            , (Key.fromText "", Aeson.Number 0)
-            , (Key.fromText "a/b", Aeson.Number 1)
-            , (Key.fromText "c%d", Aeson.Number 2)
-            , (Key.fromText "e^f", Aeson.Number 3)
-            , (Key.fromText "g|h", Aeson.Number 4)
-            , (Key.fromText "i\\j", Aeson.Number 5)
+      let testDoc = Aeson.object
+            [  (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+            ,  (Key.fromText "", Aeson.Number 0)
+            ,  (Key.fromText "a/b", Aeson.Number 1)
+            ,  (Key.fromText "c%d", Aeson.Number 2)
+            ,  (Key.fromText "e^f", Aeson.Number 3)
+            ,  (Key.fromText "g|h", Aeson.Number 4)
+            ,  (Key.fromText "i\\j", Aeson.Number 5)
             , (Key.fromText "k\"l", Aeson.Number 6)
-            , (Key.fromText " ", Aeson.Number 7)
-            , (Key.fromText "m~n", Aeson.Number 8)
+            ,  (Key.fromText " ", Aeson.Number 7)
+            ,  (Key.fromText "m~n", Aeson.Number 8)
             ]
       
       -- Helper function to resolve a JSON Pointer path in a JSON document
@@ -275,17 +275,18 @@ spec = describe "SDJWT.Utils" $ do
         resolvePath (map unescapeJSONPointer segments) testDoc `shouldBe` Just (Aeson.Number 8)
       
       it "works with buildSDJWTPayload for RFC 6901 test document" $ do
-        let claims = Map.fromList
-              [ ("foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
-              , ("", Aeson.Number 0)
-              , ("a/b", Aeson.Number 1)
-              , ("c%d", Aeson.Number 2)
-              , ("e^f", Aeson.Number 3)
-              , ("g|h", Aeson.Number 4)
-              , ("i\\j", Aeson.Number 5)
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+              ,  (Key.fromText "", Aeson.Number 0)
+              ,  (Key.fromText "a/b", Aeson.Number 1)
+              ,  (Key.fromText "c%d", Aeson.Number 2)
+              ,  (Key.fromText "e^f", Aeson.Number 3)
+              ,  (Key.fromText "g|h", Aeson.Number 4)
+              ,  (Key.fromText "i\\j", Aeson.Number 5)
               , ("k\"l", Aeson.Number 6)
-              , (" ", Aeson.Number 7)
-              , ("m~n", Aeson.Number 8)
+              ,  (Key.fromText " ", Aeson.Number 7)
+              ,  (Key.fromText "m~n", Aeson.Number 8)
               ]
         -- Test marking various paths as selectively disclosable
         result <- buildSDJWTPayload SHA256 ["foo/0", "a~1b", "m~0n"] claims
@@ -294,11 +295,12 @@ spec = describe "SDJWT.Utils" $ do
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "works with selectDisclosuresByNames for RFC 6901 test document" $ do
-        let claims = Map.fromList
-              [ ("foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
-              , ("", Aeson.Number 0)
-              , ("a/b", Aeson.Number 1)
-              , ("m~n", Aeson.Number 8)
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "bar", Aeson.String "baz"])
+              ,  (Key.fromText "", Aeson.Number 0)
+              ,  (Key.fromText "a/b", Aeson.Number 1)
+              ,  (Key.fromText "m~n", Aeson.Number 8)
               ]
         keyPair <- generateTestRSAKeyPair
         -- Create SD-JWT with RFC 6901 paths

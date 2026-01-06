@@ -82,7 +82,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let nonce = "nonce_456"
         let issuedAt = 1234567890 :: Int64
         
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) audience nonce issuedAt presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) audience nonce issuedAt presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Verify KB-JWT is created (non-empty)
@@ -101,7 +101,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Verify the KB-JWT (should pass signature and sd_hash checks)
@@ -120,7 +120,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT with Ed25519 key
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Verify the KB-JWT with Ed25519 public key (should pass signature and sd_hash checks)
@@ -139,7 +139,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT with EC P-256 key (ES256)
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Verify the KB-JWT with EC public key (should pass signature and sd_hash checks)
@@ -158,7 +158,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT (which should have typ: "kb+jwt")
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Manually create a KB-JWT without typ header by replacing the header
@@ -194,7 +194,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Create a KB-JWT
-        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right kbJWT -> do
             -- Verify that verification rejects KB-JWT with wrong typ
@@ -235,7 +235,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let disclosure = EncodedDisclosure "test_disclosure"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
-        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right updatedPresentation -> do
             -- Verify key binding was added
@@ -253,7 +253,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let disclosure = EncodedDisclosure "test_disclosure"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
-        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right updatedPresentation -> do
             -- Verify key binding was added
@@ -273,7 +273,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
         -- Use the exported addKeyBinding function (not addKeyBindingToPresentation)
-        result <- addKeyBinding SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- addKeyBinding SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right updatedPresentation -> do
             -- Verify key binding was added
@@ -291,7 +291,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         let disclosure = EncodedDisclosure "test_disclosure"
         let presentation = SDJWTPresentation jwt [disclosure] Nothing
         
-        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation KeyMap.empty
         case result of
           Right updatedPresentation -> do
             -- Verify key binding was added
@@ -313,8 +313,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         currentTime <- round <$> getPOSIXTime
         let issuedAt = currentTime
         let expirationTime = currentTime + 3600  -- 1 hour later
-        let optionalClaimsValue = Aeson.object [("exp", Aeson.Number (fromIntegral expirationTime))]
-        let optionalClaims = case optionalClaimsValue of Aeson.Object obj -> obj; _ -> KeyMap.empty
+        let optionalClaims = KeyMap.fromList [ (Key.fromText "exp", Aeson.Number (fromIntegral expirationTime))]
         
         kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" issuedAt presentation optionalClaims
         case kbResult of
@@ -340,8 +339,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         currentTime <- round <$> getPOSIXTime
         let issuedAt = currentTime - 7200  -- 2 hours ago
         let expirationTime = currentTime - 3600  -- 1 hour ago (expired, before current time)
-        let optionalClaimsValue = Aeson.object [("exp", Aeson.Number (fromIntegral expirationTime))]
-        let optionalClaims = case optionalClaimsValue of Aeson.Object obj -> obj; _ -> KeyMap.empty
+        let optionalClaims = KeyMap.fromList [ (Key.fromText "exp", Aeson.Number (fromIntegral expirationTime))]
         
         kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK keyPair) "audience" "nonce" issuedAt presentation optionalClaims
         case kbResult of
@@ -442,7 +440,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
       let presentation2 = SDJWTPresentation jwt [disclosure2] Nothing
       
       -- Create KB-JWT for presentation1
-      kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation1 (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+      kbResult <- createKeyBindingJWT SHA256 (privateKeyJWK keyPair) "audience" "nonce" 1234567890 presentation1 KeyMap.empty
       case kbResult of
         Right kbJWT -> do
           -- Verify with presentation2 (different sd_hash)

@@ -37,8 +37,9 @@ spec = describe "Interop Failure Analysis" $ do
       -- correctly selected and included in the presentation.
       
       -- Create claims with nested array: [["foo", "bar"], ["baz", "qux"]]
-      let claims = Map.fromList
-            [ ("nested_array", Aeson.Array $ V.fromList
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "nested_array", Aeson.Array $ V.fromList
                 [ Aeson.Array $ V.fromList [Aeson.String "foo", Aeson.String "bar"]
                 , Aeson.Array $ V.fromList [Aeson.String "baz", Aeson.String "qux"]
                 ])
@@ -65,7 +66,7 @@ spec = describe "Interop Failure Analysis" $ do
               case verificationResult of
                 Right processed -> do
                   let processedClaimsMap = processedClaims processed
-                  case Map.lookup "nested_array" processedClaimsMap of
+                  case KeyMap.lookup (Key.fromText "nested_array") processedClaimsMap of
                     Just (Aeson.Array arr) -> do
                       -- Expected: [["foo"], ["qux"]]
                       V.length arr `shouldBe` 2
@@ -112,10 +113,10 @@ spec = describe "Interop Failure Analysis" $ do
   --       (Right (digest13, _disclosure13), Right (digest18, _disclosure18), Right (digest21, _disclosure21)) -> do
   --         -- Step 2: Create object with _sd array (all sub-claims are selectively disclosable)
   --         let jwtPayload = Aeson.object
-  --               [ ("_sd_alg", Aeson.String "sha-256")
-  --               , ("is_over", Aeson.object
-  --                   [ ("_sd_alg", Aeson.String "sha-256")
-  --                   , ("_sd", Aeson.Array $ V.fromList
+  --               [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+  --               ,  (Key.fromText "is_over", Aeson.Object $ KeyMap.fromList
+  --                   [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+  --                   ,  (Key.fromText "_sd", Aeson.Array $ V.fromList
   --                       [ Aeson.String (unDigest digest13)
   --                       , Aeson.String (unDigest digest18)
   --                       , Aeson.String (unDigest digest21)
@@ -138,7 +139,7 @@ spec = describe "Interop Failure Analysis" $ do
   --             let claims = processedClaims processed
   --             -- Expected: is_over: {}
   --             -- Current bug: is_over missing entirely
-  --             case Map.lookup "is_over" claims of
+  --             case KeyMap.lookup (Key.fromText "is_over") claims of
   --               Just (Aeson.Object obj) ->
   --                 KeyMap.size obj `shouldBe` 0
   --               _ -> expectationFailure "is_over should be present as empty object {}"
@@ -155,8 +156,9 @@ spec = describe "Interop Failure Analysis" $ do
       
       -- Create claims with array containing null values
       -- Indices 1 and 2 should be selectively disclosable
-      let claims = Map.fromList
-            [ ("null_values", Aeson.Array $ V.fromList
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "null_values", Aeson.Array $ V.fromList
                 [ Aeson.Null  -- Index 0: Non-selectively disclosable
                 , Aeson.Null  -- Index 1: Selectively disclosable
                 , Aeson.Null  -- Index 2: Selectively disclosable
@@ -182,7 +184,7 @@ spec = describe "Interop Failure Analysis" $ do
           case result of
             Right processed -> do
               let claims = processedClaims processed
-              case Map.lookup "null_values" claims of
+              case KeyMap.lookup (Key.fromText "null_values") claims of
                 Just (Aeson.Array arr) -> do
                   -- Expected: [null, null] (only non-selectively-disclosable nulls)
                   -- Current bug: [null, null, null, null] (all nulls)
@@ -201,11 +203,12 @@ spec = describe "Interop Failure Analysis" $ do
       -- Current Behavior: Getting {"13": True, "18": False, "21": False}
       
       -- Create claims with object containing sub-claims
-      let claims = Map.fromList
-            [ ("is_over", Aeson.object
-                [ ("13", Aeson.Bool True)
-                , ("18", Aeson.Bool False)
-                , ("21", Aeson.Bool False)
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "is_over", Aeson.Object $ KeyMap.fromList
+                [  (Key.fromText "13", Aeson.Bool True)
+                ,  (Key.fromText "18", Aeson.Bool False)
+                ,  (Key.fromText "21", Aeson.Bool False)
                 ])
             ]
       
@@ -232,7 +235,7 @@ spec = describe "Interop Failure Analysis" $ do
               case result of
                 Right processed -> do
                   let claims = processedClaims processed
-                  case Map.lookup "is_over" claims of
+                  case KeyMap.lookup (Key.fromText "is_over") claims of
                     Just (Aeson.Object obj) -> do
                       -- Expected: {"18": False} (only "18" is selected)
                       -- Current bug: {"13": True, "18": False, "21": False} (all included)
@@ -264,16 +267,17 @@ spec = describe "Interop Failure Analysis" $ do
       -- bar: {!sd "red": 1, !sd "green": 2}
       -- qux: [!sd [!sd "blue", !sd "yellow"]]
       -- baz: [!sd [!sd "orange", !sd "purple"], !sd [!sd "black"]]
-      let claims = Map.fromList
-            [ ("foo", Aeson.Array $ V.fromList [Aeson.String "one", Aeson.String "two"])
-            , ("bar", Aeson.object
-                [ ("red", Aeson.Number 1)
-                , ("green", Aeson.Number 2)
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "foo", Aeson.Array $ V.fromList [Aeson.String "one", Aeson.String "two"])
+            ,  (Key.fromText "bar", Aeson.Object $ KeyMap.fromList
+                [  (Key.fromText "red", Aeson.Number 1)
+                ,  (Key.fromText "green", Aeson.Number 2)
                 ])
-            , ("qux", Aeson.Array $ V.fromList
+            ,  (Key.fromText "qux", Aeson.Array $ V.fromList
                 [ Aeson.Array $ V.fromList [Aeson.String "blue", Aeson.String "yellow"]
                 ])
-            , ("baz", Aeson.Array $ V.fromList
+            ,  (Key.fromText "baz", Aeson.Array $ V.fromList
                 [ Aeson.Array $ V.fromList [Aeson.String "orange", Aeson.String "purple"]
                 , Aeson.Array $ V.fromList [Aeson.String "black"]
                 ])
@@ -311,7 +315,7 @@ spec = describe "Interop Failure Analysis" $ do
                   let claims = processedClaims processed
                   
                   -- Verify foo: should have both elements
-                  case Map.lookup "foo" claims of
+                  case KeyMap.lookup (Key.fromText "foo") claims of
                     Just (Aeson.Array fooArr) -> do
                       V.length fooArr `shouldBe` 2
                       fooArr V.!? 0 `shouldBe` Just (Aeson.String "one")
@@ -319,7 +323,7 @@ spec = describe "Interop Failure Analysis" $ do
                     _ -> expectationFailure "foo should be an array with 2 elements"
                   
                   -- Verify bar: should have both sub-claims
-                  case Map.lookup "bar" claims of
+                  case KeyMap.lookup (Key.fromText "bar") claims of
                     Just (Aeson.Object barObj) -> do
                       KeyMap.size barObj `shouldBe` 2
                       KeyMap.lookup (Key.fromText "red") barObj `shouldBe` Just (Aeson.Number 1)
@@ -327,7 +331,7 @@ spec = describe "Interop Failure Analysis" $ do
                     _ -> expectationFailure "bar should be an object with 2 sub-claims"
                   
                   -- Verify qux: should have nested array with both elements
-                  case Map.lookup "qux" claims of
+                  case KeyMap.lookup (Key.fromText "qux") claims of
                     Just (Aeson.Array quxArr) -> do
                       V.length quxArr `shouldBe` 1
                       case quxArr V.!? 0 of
@@ -339,7 +343,7 @@ spec = describe "Interop Failure Analysis" $ do
                     _ -> expectationFailure "qux should be an array with 1 element"
                   
                   -- Verify baz: should have nested arrays
-                  case Map.lookup "baz" claims of
+                  case KeyMap.lookup (Key.fromText "baz") claims of
                     Just (Aeson.Array bazArr) -> do
                       V.length bazArr `shouldBe` 2
                       -- First nested array

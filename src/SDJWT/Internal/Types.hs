@@ -21,7 +21,8 @@ module SDJWT.Internal.Types
   , SDJWTError(..)
   ) where
 
-import Data.Aeson (Value)
+import Data.Aeson (Value, Object)
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
@@ -112,7 +113,7 @@ data SDJWTPresentation = SDJWTPresentation
 
 -- | Processed SD-JWT payload (after verification)
 data ProcessedSDJWTPayload = ProcessedSDJWTPayload
-  { processedClaims :: Map Text Value
+  { processedClaims :: Object  -- ^ Processed claims as a JSON object
   , keyBindingInfo :: Maybe KeyBindingInfo  -- ^ Key binding information if KB-JWT was present and verified
   }
   deriving stock (Eq, Show, Generic)

@@ -20,7 +20,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Yaml (decodeFileEither, prettyPrintParseException, ParseException)
+import Data.Yaml  (Key.fromText "decodeFileEither", prettyPrintParseException, ParseException)
 import qualified Data.Yaml as Yaml
 import System.FilePath ((</>))
 
@@ -41,7 +41,7 @@ data TestCase = TestCase
   , tcExtraHeaderParameters :: Map Text Value
     -- ^ Extra header parameters
   }
-  deriving (Eq, Show)
+  deriving  (Key.fromText "Eq", Show)
 
 -- | Load a test case from a YAML specification file
 --

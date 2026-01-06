@@ -128,8 +128,8 @@
 --
 -- To use decoy digests:
 --
--- 1. Build the SD-JWT payload using 'buildSDJWTPayload'
--- 2. Generate decoy digests using 'addDecoyDigest'
+-- 1. Build the SD-JWT payload using buildSDJWTPayload
+-- 2. Generate decoy digests using addDecoyDigest
 -- 3. Manually add them to the @_sd@ array in the payload
 -- 4. Sign the modified payload
 --
@@ -158,8 +158,6 @@
 --
 -- During verification, decoy digests that don't match any disclosure are
 -- automatically ignored, so they don't affect verification.
---
--- See 'partitionNestedPaths' for detailed JSON Pointer parsing implementation.
 module SDJWT.Internal.Issuance
   ( -- * Public API
     createSDJWT
@@ -192,8 +190,8 @@ import Control.Monad (replicateM)
 -- | Mark a claim as selectively disclosable (internal use only).
 --
 -- This function only works for object claims (JSON objects), not for array elements.
--- It's used internally by 'buildSDJWTPayload' and 'processNestedStructures'.
--- External users should use 'buildSDJWTPayload' or 'createSDJWT' with JSON Pointer paths.
+-- It's used internally by buildSDJWTPayload and processNestedStructures.
+-- External users should use buildSDJWTPayload or createSDJWT with JSON Pointer paths.
 markSelectivelyDisclosable
   :: HashAlgorithm
   -> T.Text  -- ^ Claim name
@@ -210,8 +208,8 @@ markSelectivelyDisclosable hashAlg claimName claimValue = do
 
 -- | Mark an array element as selectively disclosable (internal use only).
 --
--- This function is used internally by 'processArrayPaths' in the unified recursive path processing.
--- External users should use 'buildSDJWTPayload' or 'createSDJWT' with JSON Pointer paths
+-- This function is used internally by processArrayPaths in the unified recursive path processing.
+-- External users should use buildSDJWTPayload or createSDJWT with JSON Pointer paths
 -- like ["nested_array\/0\/0"] instead.
 markArrayElementDisclosable
   :: HashAlgorithm
@@ -243,8 +241,8 @@ markArrayElementDisclosable hashAlg elementValue = do
 -- - For Section 6.3 (recursive): parent is selectively disclosable, disclosure contains _sd array
 buildSDJWTPayload
   :: HashAlgorithm
-  -> [T.Text]  -- ^ Claim names to mark as selectively disclosable (supports JSON Pointer syntax for nested paths, see 'partitionNestedPaths')
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
+  -> [T.Text]  -- ^ Claim names to mark as selectively disclosable (supports JSON Pointer syntax for nested paths)
+  -> Aeson.Object  -- ^ Original claims object
   -> IO (Either SDJWTError (SDJWTPayload, [EncodedDisclosure]))
 buildSDJWTPayload hashAlg selectiveClaimNames claims = do
   -- Group claims by nesting level (top-level vs nested)
@@ -278,13 +276,15 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
         Right (recursiveParentInfo, recursiveDisclosures, remainingClaimsAfterRecursive) -> do
           -- Process remaining top-level selectively disclosable claims (excluding recursive parents)
           let topLevelClaimsWithoutRecursive = filter (`Set.notMember` recursiveParents) topLevelClaims
-          let (selectiveClaims, regularClaims) = Map.partitionWithKey
-                (\name _ -> name `elem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
+          let selectiveClaims = KeyMap.filterWithKey
+                (\k _ -> Key.toText k `elem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
+          let regularClaims = KeyMap.filterWithKey
+                (\k _ -> Key.toText k `notElem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
           
           -- Create disclosures and digests for top-level selective claims
           -- According to RFC 9901, top-level arrays are treated as object properties
           -- (disclosure format: [salt, claim_name, claim_value])
-          disclosureResults <- mapM (uncurry (markSelectivelyDisclosable hashAlg)) (Map.toList selectiveClaims)
+          disclosureResults <- mapM (\(k, v) -> markSelectivelyDisclosable hashAlg (Key.toText k) v) (KeyMap.toList selectiveClaims)
           
           -- Check for errors
           let (errors, successes) = partitionEithers disclosureResults
@@ -304,8 +304,7 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
               
               -- Build the JSON payload
               -- Start with regular claims (including processed structured nested structures)
-              let payloadObj = foldl (\acc (k, v) ->
-                    KeyMap.insert (Key.fromText k) v acc) structuredPayload (Map.toList regularClaims)
+              let payloadObj = KeyMap.union structuredPayload regularClaims
               
               -- Add _sd_alg claim
               let payloadWithAlg = KeyMap.insert "_sd_alg" (Aeson.String (hashAlgorithmToText hashAlg)) payloadObj
@@ -357,7 +356,7 @@ createSDJWT
   -> HashAlgorithm  -- ^ Hash algorithm for digests
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
+  -> Aeson.Object  -- ^ Original claims object. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
   -> IO (Either SDJWTError SDJWT)
 createSDJWT mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimNames claims = do
   result <- buildSDJWTPayload hashAlg selectiveClaimNames claims
@@ -403,7 +402,7 @@ createSDJWTWithDecoys
   -> HashAlgorithm  -- ^ Hash algorithm for digests
   -> jwk  -- ^ Issuer private key JWK (Text or jose JWK object)
   -> [T.Text]  -- ^ Claim names to mark as selectively disclosable
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
+  -> Aeson.Object  -- ^ Original claims object. May include standard JWT claims such as @exp@ (expiration time), @nbf@ (not before), @iss@ (issuer), @sub@ (subject), @iat@ (issued at), etc. These standard claims will be validated during verification if present (see 'SDJWT.Internal.Verification.verifySDJWT').
   -> Int  -- ^ Number of decoy digests to add (must be >= 0)
   -> IO (Either SDJWTError SDJWT)
 createSDJWTWithDecoys mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimNames claims decoyCount
@@ -470,8 +469,8 @@ createSDJWTWithDecoys mbTyp mbKid hashAlg issuerPrivateKeyJWK selectiveClaimName
 -- * RFC 9901 Section 4.3: Key Binding
 addHolderKeyToClaims
   :: T.Text  -- ^ Holder's public key as a JWK JSON string
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims map
-  -> Map.Map T.Text Aeson.Value  -- ^ Claims map with @cnf@ claim added
+  -> Aeson.Object  -- ^ Original claims object
+  -> Aeson.Object  -- ^ Claims object with @cnf@ claim added
 addHolderKeyToClaims holderPublicKeyJWK claims =
   let
     -- Parse the JWK JSON string to ensure it's valid JSON
@@ -481,7 +480,7 @@ addHolderKeyToClaims holderPublicKeyJWK claims =
       Right parsedJWK -> parsedJWK  -- Store as parsed JSON value
     cnfValue = Aeson.Object $ KeyMap.fromList [("jwk", jwkValue)]
   in
-    Map.insert "cnf" cnfValue claims
+    KeyMap.insert "cnf" cnfValue claims
 
 -- | Generate a decoy digest.
 --
@@ -532,7 +531,7 @@ sortDigests = sortBy (comparing unDigest)
 -- Note: The path "x/22" is ambiguous - it could refer to:
 --   - Array element at index 22 if "x" is an array
 --   - Object property "22" if "x" is an object
--- The actual type is determined when processing the claims (see 'buildSDJWTPayload').
+-- The actual type is determined when processing the claims (see buildSDJWTPayload).
 --
 -- Escaping (RFC 6901):
 --   - "~1" represents a literal forward slash "/"
@@ -570,8 +569,8 @@ partitionNestedPaths claimNames =
 processNestedStructures
   :: HashAlgorithm
   -> [[T.Text]]  -- ^ List of path segments (e.g., [["user", "profile", "email"]])
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
-  -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure], Map.Map T.Text Aeson.Value))
+  -> Aeson.Object  -- ^ Original claims object
+  -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure], Aeson.Object))
 processNestedStructures hashAlg nestedPaths claims = do
   -- Group nested paths by first segment (top-level claim)
   let getFirstSegment [] = ""
@@ -580,7 +579,7 @@ processNestedStructures hashAlg nestedPaths claims = do
   
   -- Process each top-level claim recursively (can be object or array)
   results <- mapM (\(topLevelName, paths) -> do
-    case Map.lookup topLevelName claims of
+    case KeyMap.lookup (Key.fromText topLevelName) claims of
       Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> topLevelName
       Just topLevelValue -> do
         -- Strip the first segment (topLevelName) from each path before processing
@@ -612,8 +611,8 @@ processNestedStructures hashAlg nestedPaths claims = do
       let allDisclosures = concatMap (\(_, _, disclosures) -> disclosures) successes
       
       -- Remove processed parents from remaining claims
-      let processedParents = Map.fromList $ map (\(name, _, _) -> (name, ())) successes
-      let remainingClaims = Map.filterWithKey (\name _ -> not (Map.member name processedParents)) claims
+      let processedParents = Set.fromList $ map (\(name, _, _) -> name) successes
+      let remainingClaims = KeyMap.filterWithKey (\k _ -> Key.toText k `Set.notMember` processedParents) claims
       
       -- Convert processed objects and arrays to KeyMap
       let processedPayload = foldl (\acc (name, obj) ->
@@ -800,8 +799,8 @@ processNestedStructures hashAlg nestedPaths claims = do
 processRecursiveDisclosures
   :: HashAlgorithm
   -> [[T.Text]]  -- ^ List of path segments for recursive disclosures (e.g., [["user", "profile", "email"]])
-  -> Map.Map T.Text Aeson.Value  -- ^ Original claims set
-  -> IO (Either SDJWTError ([(T.Text, Digest, EncodedDisclosure)], [EncodedDisclosure], Map.Map T.Text Aeson.Value))
+  -> Aeson.Object  -- ^ Original claims object
+  -> IO (Either SDJWTError ([(T.Text, Digest, EncodedDisclosure)], [EncodedDisclosure], Aeson.Object))
 processRecursiveDisclosures hashAlg recursivePaths claims = do
   -- Group recursive paths by first segment (top-level claim)
   let getFirstSegment [] = ""
@@ -810,7 +809,7 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
   
   -- Process each top-level claim recursively
   results <- mapM (\(topLevelName, paths) -> do
-    case Map.lookup topLevelName claims of
+    case KeyMap.lookup (Key.fromText topLevelName) claims of
       Nothing -> return $ Left $ InvalidDisclosureFormat $ "Parent claim not found: " <> topLevelName
       Just (Aeson.Object topLevelObj) -> do
         -- Strip the first segment (topLevelName) from each path before processing
@@ -837,7 +836,7 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
       
       -- Remove recursive parents from remaining claims (they're now in disclosures)
       let recursiveParentNames = Set.fromList $ map (\(name, _, _) -> name) parentInfo
-      let remainingClaims = Map.filterWithKey (\name _ -> not (Set.member name recursiveParentNames)) claims
+      let remainingClaims = KeyMap.filterWithKey (\k _ -> Key.toText k `Set.notMember` recursiveParentNames) claims
       
       -- Combine parent and child disclosures (parents first, then children)
       let parentDisclosures = map (\(_, _, disc) -> disc) parentInfo

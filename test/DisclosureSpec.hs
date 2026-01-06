@@ -61,7 +61,7 @@ spec = describe "SDJWT.Disclosure" $ do
     it "creates disclosure with object value" $ do
         salt <- generateSalt
         let name = "address"
-        let value = Aeson.Object $ KeyMap.fromList [(Key.fromText "street", Aeson.String "123 Main St")]
+        let value = Aeson.Object $ KeyMap.fromList [ (Key.fromText "street", Aeson.String "123 Main St")]
         case createObjectDisclosure (Salt salt) name value of
           Right _ -> return ()  -- Success
           Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
@@ -76,7 +76,7 @@ spec = describe "SDJWT.Disclosure" $ do
       
       it "creates array disclosure with object value" $ do
         salt <- generateSalt
-        let value = Aeson.Object $ KeyMap.fromList [(Key.fromText "name", Aeson.String "John")]
+        let value = Aeson.Object $ KeyMap.fromList [ (Key.fromText "name", Aeson.String "John")]
         case createArrayDisclosure (Salt salt) value of
           Right _ -> return ()  -- Success
           Left err -> expectationFailure $ "Failed to create disclosure: " ++ show err
@@ -165,7 +165,7 @@ spec = describe "SDJWT.Disclosure" $ do
       
       it "fails to decode non-array JSON" $ do
         -- Base64url-encoded JSON object instead of array
-        let jsonObj = Aeson.object [("key", Aeson.String "value")]
+        let jsonObj = KeyMap.fromList [ (Key.fromText "key", Aeson.String "value")]
         let jsonBytes = BS.concat $ BSL.toChunks $ Aeson.encode jsonObj
         let encoded = EncodedDisclosure $ base64urlEncode jsonBytes
         case decodeDisclosure encoded of

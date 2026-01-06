@@ -36,10 +36,11 @@ spec :: Spec
 spec = describe "SDJWT.Issuance" $ do
   describe "buildSDJWTPayload" $ do
     it "creates SD-JWT payload correctly" $ do
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_42")
-            , ("given_name", Aeson.String "John")
-            , ("family_name", Aeson.String "Doe")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_42")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "family_name", Aeson.String "Doe")
             ]
       let selectiveClaims = ["given_name", "family_name"]
       result <- buildSDJWTPayload SHA256 selectiveClaims claims
@@ -60,10 +61,11 @@ spec = describe "SDJWT.Issuance" $ do
   
   describe "buildSDJWTPayload" $ do
     it "creates SD-JWT payload with selective disclosures" $ do
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_42")
-            , ("given_name", Aeson.String "John")
-            , ("family_name", Aeson.String "Doe")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_42")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "family_name", Aeson.String "Doe")
             ]
       let selectiveClaims = ["given_name", "family_name"]
       result <- buildSDJWTPayload SHA256 selectiveClaims claims
@@ -95,7 +97,7 @@ spec = describe "SDJWT.Issuance" $ do
     
   describe "Array element disclosure via JSON Pointer" $ do
     it "creates disclosure and digest for an array element using JSON Pointer path" $ do
-      let claims = Map.fromList [("nationalities", Aeson.Array $ V.fromList [Aeson.String "FR"])]
+      let claims = KeyMap.fromList [ (Key.fromText "nationalities", Aeson.Array $ V.fromList [Aeson.String "FR"])]
       result <- buildSDJWTPayload SHA256 ["nationalities/0"] claims
       case result of
         Right (payload, disclosures) -> do
@@ -115,7 +117,7 @@ spec = describe "SDJWT.Issuance" $ do
         Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
     
     it "processes array and marks specific elements as selectively disclosable" $ do
-      let claims = Map.fromList [("nationalities", Aeson.Array $ V.fromList [Aeson.String "DE", Aeson.String "FR", Aeson.String "US"])]
+      let claims = KeyMap.fromList [ (Key.fromText "nationalities", Aeson.Array $ V.fromList [Aeson.String "DE", Aeson.String "FR", Aeson.String "US"])]
       result <- buildSDJWTPayload SHA256 ["nationalities/1"] claims  -- Mark second element (index 1)
       case result of
         Right (payload, disclosures) -> do
@@ -176,10 +178,11 @@ spec = describe "SDJWT.Issuance" $ do
   describe "createSDJWTWithDecoys" $ do
     it "creates SD-JWT with specified number of decoy digests" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_42")
-            , ("given_name", Aeson.String "John")
-            , ("family_name", Aeson.String "Doe")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_42")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "family_name", Aeson.String "Doe")
             ]
       let selectiveClaims = ["given_name"]
       
@@ -207,9 +210,10 @@ spec = describe "SDJWT.Issuance" $ do
     
     it "creates SD-JWT with 0 decoy digests (same as createSDJWT)" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_42")
-            , ("given_name", Aeson.String "John")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_42")
+            ,  (Key.fromText "given_name", Aeson.String "John")
             ]
       let selectiveClaims = ["given_name"]
       
@@ -225,7 +229,7 @@ spec = describe "SDJWT.Issuance" $ do
     
     it "rejects negative decoy count" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList [("given_name", Aeson.String "John")]
+      let claims = KeyMap.fromList [ (Key.fromText "given_name", Aeson.String "John")]
       
       result <- createSDJWTWithDecoys Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims (-1)
       case result of
@@ -237,10 +241,11 @@ spec = describe "SDJWT.Issuance" $ do
   describe "Decoy Digests in SD-JWT" $ do
     describe "creating SD-JWT with decoy digests" $ do
       it "can manually add decoy digests to _sd array" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "family_name", Aeson.String "Doe")
               ]
         let selectiveClaims = ["given_name"]
         
@@ -277,11 +282,12 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
       
       it "decoy digests don't interfere with real disclosures" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
-              , ("email", Aeson.String "john@example.com")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "family_name", Aeson.String "Doe")
+              ,  (Key.fromText "email", Aeson.String "john@example.com")
               ]
         let selectiveClaims = ["given_name", "family_name"]
         
@@ -330,16 +336,17 @@ spec = describe "SDJWT.Issuance" $ do
   describe "SDJWT.Issuance (Nested Structures)" $ do
     describe "RFC Section 6.2 - Structured SD-JWT with nested address claims" $ do
       it "creates SD-JWT payload with nested _sd array in address object" $ do
-        let claims = Map.fromList
-              [ ("iss", Aeson.String "https://issuer.example.com")
-              , ("iat", Aeson.Number 1683000000)
-              , ("exp", Aeson.Number 1883000000)
-              , ("sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "Schulstr. 12")
-                  , (Key.fromText "locality", Aeson.String "Schulpforta")
-                  , (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
-                  , (Key.fromText "country", Aeson.String "DE")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+              ,  (Key.fromText "iat", Aeson.Number 1683000000)
+              ,  (Key.fromText "exp", Aeson.Number 1883000000)
+              ,  (Key.fromText "sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "Schulstr. 12")
+                  ,  (Key.fromText "locality", Aeson.String "Schulpforta")
+                  ,  (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
+                  ,  (Key.fromText "country", Aeson.String "DE")
                   ])
               ]
         
@@ -393,13 +400,14 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "creates SD-JWT with some nested claims disclosed and some hidden" $ do
-        let claims = Map.fromList
-              [ ("iss", Aeson.String "https://issuer.example.com")
-              , ("sub", Aeson.String "user_123")
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
-                  , (Key.fromText "country", Aeson.String "US")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+              ,  (Key.fromText "sub", Aeson.String "user_123")
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
+                  ,  (Key.fromText "country", Aeson.String "US")
                   ])
               ]
         
@@ -433,12 +441,13 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "verifies nested structure disclosures can be verified" $ do
-        let claims = Map.fromList
-              [ ("iss", Aeson.String "https://issuer.example.com")
-              , ("sub", Aeson.String "user_123")
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+              ,  (Key.fromText "sub", Aeson.String "user_123")
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
                   ])
               ]
         
@@ -459,7 +468,7 @@ spec = describe "SDJWT.Issuance" $ do
                 case verificationResult of
                   Right processedPayload -> do
                     -- Verify address object is reconstructed correctly
-                    case Map.lookup "address" (processedClaims processedPayload) of
+                    case KeyMap.lookup (Key.fromText "address") (processedClaims processedPayload) of
                       Just (Aeson.Object addressObj) -> do
                         -- Verify street_address and locality are present
                         KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
@@ -471,16 +480,17 @@ spec = describe "SDJWT.Issuance" $ do
   
     describe "RFC Section 6.3 - Recursive Disclosures" $ do
       it "creates SD-JWT with recursive disclosures (parent and sub-claims both selectively disclosable)" $ do
-        let claims = Map.fromList
-              [ ("iss", Aeson.String "https://issuer.example.com")
-              , ("iat", Aeson.Number 1683000000)
-              , ("exp", Aeson.Number 1883000000)
-              , ("sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "Schulstr. 12")
-                  , (Key.fromText "locality", Aeson.String "Schulpforta")
-                  , (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
-                  , (Key.fromText "country", Aeson.String "DE")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+              ,  (Key.fromText "iat", Aeson.Number 1683000000)
+              ,  (Key.fromText "exp", Aeson.Number 1883000000)
+              ,  (Key.fromText "sub", Aeson.String "6c5c0a49-b589-431d-bae7-219122a9ec2c")
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "Schulstr. 12")
+                  ,  (Key.fromText "locality", Aeson.String "Schulpforta")
+                  ,  (Key.fromText "region", Aeson.String "Sachsen-Anhalt")
+                  ,  (Key.fromText "country", Aeson.String "DE")
                   ])
               ]
         
@@ -539,12 +549,13 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "verifies recursive disclosures can be verified correctly" $ do
-        let claims = Map.fromList
-              [ ("iss", Aeson.String "https://issuer.example.com")
-              , ("sub", Aeson.String "user_123")
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+              ,  (Key.fromText "sub", Aeson.String "user_123")
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
                   ])
               ]
         
@@ -566,7 +577,7 @@ spec = describe "SDJWT.Issuance" $ do
                 case verificationResult of
                   Right processedPayload -> do
                     -- Verify address object is reconstructed correctly
-                    case Map.lookup "address" (processedClaims processedPayload) of
+                    case KeyMap.lookup (Key.fromText "address") (processedClaims processedPayload) of
                       Just (Aeson.Object addressObj) -> do
                         -- Verify street_address and locality are present
                         KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
@@ -578,10 +589,11 @@ spec = describe "SDJWT.Issuance" $ do
   
     describe "JSON Pointer Parsing (partitionNestedPaths)" $ do
       it "handles simple nested paths" $ do
-        let claims = Map.fromList
-              [ ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
                   ])
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
@@ -599,10 +611,11 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed: " ++ show err
       
       it "handles deeply nested paths" $ do
-        let claims = Map.fromList
-              [ ("user", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "profile", Aeson.Object $ KeyMap.fromList
-                      [ (Key.fromText "name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "user", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "profile", Aeson.Object $ KeyMap.fromList
+                      [  (Key.fromText "name", Aeson.String "John")
                       ])
                   ])
               ]
@@ -612,11 +625,12 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Failed: " ++ show err
       
       it "handles multiple nested paths with same parent" $ do
-        let claims = Map.fromList
-              [ ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
-                  , (Key.fromText "country", Aeson.String "US")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
+                  ,  (Key.fromText "country", Aeson.String "US")
                   ])
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address", "address/locality", "address/country"] claims
@@ -630,10 +644,11 @@ spec = describe "SDJWT.Issuance" $ do
       it "handles keys containing forward slashes using ~1 escape" $ do
         -- Test that a key literally named "contact/email" is treated as top-level, not nested
         -- Note: The Map key is the actual JSON key (unescaped), but we pass the escaped form to buildSDJWTPayload
-        let claims = Map.fromList
-              [ ("contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street", Aeson.String "123 Main St")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street", Aeson.String "123 Main St")
                   ])
               ]
         
@@ -660,10 +675,11 @@ spec = describe "SDJWT.Issuance" $ do
       it "handles keys containing tildes using ~0 escape" $ do
         -- Test that a key literally named "user~name" is treated as top-level, not nested
         -- Note: The Map key is the actual JSON key (unescaped), but we pass the escaped form to buildSDJWTPayload
-        let claims = Map.fromList
-              [ ("user~name", Aeson.String "testuser")  -- Literal key "user~name" (unescaped in Map)
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street", Aeson.String "123 Main St")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "user~name", Aeson.String "testuser")  -- Literal key "user~name" (unescaped in Map)
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street", Aeson.String "123 Main St")
                   ])
               ]
         
@@ -687,11 +703,12 @@ spec = describe "SDJWT.Issuance" $ do
         -- Test that escaped keys (contact~1email) are treated as top-level,
         -- while nested paths (address/email) are treated as nested
         -- Note: Map keys are unescaped (actual JSON keys)
-        let claims = Map.fromList
-              [ ("contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
-              , ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street", Aeson.String "123 Main St")
-                  , (Key.fromText "email", Aeson.String "address@example.com")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "contact/email", Aeson.String "test@example.com")  -- Literal key "contact/email" (unescaped in Map)
+              ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street", Aeson.String "123 Main St")
+                  ,  (Key.fromText "email", Aeson.String "address@example.com")
                   ])
               ]
         
@@ -725,11 +742,12 @@ spec = describe "SDJWT.Issuance" $ do
       
       it "handles paths with escaped sequences in nested paths" $ do
         -- Test that ~1 and ~0 work correctly within nested paths
-        let claims = Map.fromList
-              [ ("parent", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "key/with/slash", Aeson.String "value1")  -- Literal key with slashes
-                  , (Key.fromText "key~with~tilde", Aeson.String "value2")  -- Literal key with tildes
-                  , (Key.fromText "normal", Aeson.String "value3")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "parent", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "key/with/slash", Aeson.String "value1")  -- Literal key with slashes
+                  ,  (Key.fromText "key~with~tilde", Aeson.String "value2")  -- Literal key with tildes
+                  ,  (Key.fromText "normal", Aeson.String "value3")
                   ])
               ]
         
@@ -757,10 +775,11 @@ spec = describe "SDJWT.Issuance" $ do
       
       it "handles nested paths with multiple escaped sequences" $ do
         -- Test that multiple escape sequences work correctly in nested paths
-        let claims = Map.fromList
-              [ ("parent", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "key/with/slashes", Aeson.String "value1")
-                  , (Key.fromText "key~with~tildes", Aeson.String "value2")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "parent", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "key/with/slashes", Aeson.String "value1")
+                  ,  (Key.fromText "key~with~tildes", Aeson.String "value2")
                   ])
               ]
         
@@ -782,9 +801,10 @@ spec = describe "SDJWT.Issuance" $ do
       it "handles parent key ending with tilde" $ do
         -- Test case where parent key literally ends with tilde
         -- This exercises the T.isSuffixOf "~" current branch
-        let claims = Map.fromList
-              [ ("parent~", Aeson.Object $ KeyMap.fromList  -- Parent key ends with tilde
-                  [ (Key.fromText "child", Aeson.String "value")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "parent~", Aeson.Object $ KeyMap.fromList  -- Parent key ends with tilde
+                  [  (Key.fromText "child", Aeson.String "value")
                   ])
               ]
         
@@ -869,10 +889,11 @@ spec = describe "SDJWT.Issuance" $ do
         issuerKeyPair <- generateTestEd25519KeyPair
         
         -- Create claims with selective disclosure
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "family_name", Aeson.String "Doe")
               ]
         let selectiveClaimNames = ["given_name", "family_name"]
         
@@ -900,10 +921,11 @@ spec = describe "SDJWT.Issuance" $ do
         issuerKeyPair <- generateTestECKeyPair
         
         -- Create claims with selective disclosure
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "family_name", Aeson.String "Doe")
               ]
         let selectiveClaimNames = ["given_name", "family_name"]
         
@@ -929,7 +951,7 @@ spec = describe "SDJWT.Issuance" $ do
   describe "SDJWT.Issuance (Error Paths and Edge Cases)" $ do
     describe "buildSDJWTPayload error handling" $ do
       it "handles empty claims map" $ do
-        result <- buildSDJWTPayload SHA256 [] Map.empty
+        result <- buildSDJWTPayload SHA256 [] KeyMap.empty
         case result of
           Right (sdPayload, sdDisclosures) -> do
             length sdDisclosures `shouldBe` 0
@@ -938,9 +960,10 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Should succeed with empty claims: " ++ show err
       
       it "handles claims map with no selective claims" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("iss", Aeson.String "https://issuer.example.com")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
               ]
         result <- buildSDJWTPayload SHA256 [] claims
         case result of
@@ -955,8 +978,9 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Should succeed: " ++ show err
       
       it "handles selective claim that doesn't exist in claims map" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
               ]
         result <- buildSDJWTPayload SHA256 ["nonexistent_claim"] claims
         case result of
@@ -966,8 +990,9 @@ spec = describe "SDJWT.Issuance" $ do
           Left _ -> return ()  -- Or might return error, both acceptable
       
       it "handles nested path with missing parent" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
         case result of
@@ -977,8 +1002,9 @@ spec = describe "SDJWT.Issuance" $ do
           Right _ -> expectationFailure "Should fail when parent claim doesn't exist"
       
       it "handles nested path where parent is not an object" $ do
-        let claims = Map.fromList
-              [ ("address", Aeson.String "not-an-object")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.String "not-an-object")
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
         case result of
@@ -988,9 +1014,10 @@ spec = describe "SDJWT.Issuance" $ do
           Right _ -> expectationFailure "Should fail when parent is not an object"
       
       it "handles nested path where child doesn't exist in parent" $ do
-        let claims = Map.fromList
-              [ ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "locality", Aeson.String "City")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "locality", Aeson.String "City")
                   ])
               ]
         result <- buildSDJWTPayload SHA256 ["address/street_address"] claims
@@ -1002,8 +1029,9 @@ spec = describe "SDJWT.Issuance" $ do
           Left _ -> return ()  -- Or might return error, both acceptable
       
       it "handles recursive disclosure with missing parent" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
               ]
         result <- buildSDJWTPayload SHA256 ["address", "address/street_address"] claims
         case result of
@@ -1013,8 +1041,9 @@ spec = describe "SDJWT.Issuance" $ do
           Right _ -> expectationFailure "Should fail when recursive parent doesn't exist"
       
       it "handles recursive disclosure where parent is not an object" $ do
-        let claims = Map.fromList
-              [ ("address", Aeson.String "not-an-object")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.String "not-an-object")
               ]
         result <- buildSDJWTPayload SHA256 ["address", "address/street_address"] claims
         case result of
@@ -1025,7 +1054,7 @@ spec = describe "SDJWT.Issuance" $ do
     
     describe "Array element disclosure edge cases via JSON Pointer" $ do
       it "handles array element with null value" $ do
-        let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [Aeson.Null])]
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.Null])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
           Right (_payload, disclosures) -> do
@@ -1034,8 +1063,8 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Should handle null value: " ++ show err
       
       it "handles array element with object value" $ do
-        let objValue = Aeson.Object $ KeyMap.fromList [(Key.fromText "key", Aeson.String "value")]
-        let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [objValue])]
+        let objValue = Aeson.Object $ KeyMap.fromList [ (Key.fromText "key", Aeson.String "value")]
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [objValue])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
           Right (_payload, disclosures) -> do
@@ -1045,7 +1074,7 @@ spec = describe "SDJWT.Issuance" $ do
       
       it "handles array element with nested array value" $ do
         let arrValue = Aeson.Array $ V.fromList [Aeson.String "item1", Aeson.String "item2"]
-        let claims = Map.fromList [("test_array", Aeson.Array $ V.fromList [arrValue])]
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [arrValue])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
         case result of
           Right (_payload, disclosures) -> do
@@ -1056,17 +1085,18 @@ spec = describe "SDJWT.Issuance" $ do
   describe "addHolderKeyToClaims" $ do
     it "adds cnf claim with valid JWK JSON string" $ do
       let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_123")
-            , ("given_name", Aeson.String "John")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "given_name", Aeson.String "John")
             ]
       let claimsWithCnf = addHolderKeyToClaims validJWK claims
       
       -- Check that cnf claim was added
-      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
+      KeyMap.lookup (Key.fromText "cnf") claimsWithCnf `shouldSatisfy` isJust
       
       -- Check that cnf has correct structure: {"jwk": <jwk_value>}
-      case Map.lookup "cnf" claimsWithCnf of
+      case KeyMap.lookup (Key.fromText "cnf") claimsWithCnf of
         Just (Aeson.Object cnfObj) -> do
           KeyMap.lookup (Key.fromText "jwk") cnfObj `shouldSatisfy` isJust
           -- JWK should be parsed as an object, not a string
@@ -1077,19 +1107,19 @@ spec = describe "SDJWT.Issuance" $ do
         _ -> expectationFailure "cnf claim should be an object"
       
       -- Check that original claims are preserved
-      Map.lookup "sub" claimsWithCnf `shouldBe` Just (Aeson.String "user_123")
-      Map.lookup "given_name" claimsWithCnf `shouldBe` Just (Aeson.String "John")
+      KeyMap.lookup (Key.fromText "sub") claimsWithCnf `shouldBe` Just (Aeson.String "user_123")
+      KeyMap.lookup (Key.fromText "given_name") claimsWithCnf `shouldBe` Just (Aeson.String "John")
     
     it "handles invalid JWK JSON string by storing as string" $ do
       let invalidJWK = "not valid json"
-      let claims = Map.fromList [("sub", Aeson.String "user_123")]
+      let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       let claimsWithCnf = addHolderKeyToClaims invalidJWK claims
       
       -- Check that cnf claim was added
-      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
+      KeyMap.lookup (Key.fromText "cnf") claimsWithCnf `shouldSatisfy` isJust
       
       -- Check that invalid JWK is stored as string
-      case Map.lookup "cnf" claimsWithCnf of
+      case KeyMap.lookup (Key.fromText "cnf") claimsWithCnf of
         Just (Aeson.Object cnfObj) -> do
           case KeyMap.lookup (Key.fromText "jwk") cnfObj of
             Just (Aeson.String jwkStr) -> jwkStr `shouldBe` invalidJWK
@@ -1098,15 +1128,16 @@ spec = describe "SDJWT.Issuance" $ do
     
     it "overwrites existing cnf claim" $ do
       let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
-      let existingCnf = Aeson.Object $ KeyMap.fromList [("jwk", Aeson.String "old_key")]
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_123")
-            , ("cnf", existingCnf)
+      let existingCnf = Aeson.Object $ KeyMap.fromList [ (Key.fromText "jwk", Aeson.String "old_key")]
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "cnf", existingCnf)
             ]
       let claimsWithCnf = addHolderKeyToClaims validJWK claims
       
       -- Check that cnf was overwritten
-      case Map.lookup "cnf" claimsWithCnf of
+      case KeyMap.lookup (Key.fromText "cnf") claimsWithCnf of
         Just (Aeson.Object cnfObj) -> do
           case KeyMap.lookup (Key.fromText "jwk") cnfObj of
             Just (Aeson.Object newJWK) -> do
@@ -1118,7 +1149,7 @@ spec = describe "SDJWT.Issuance" $ do
         _ -> expectationFailure "cnf claim should be an object"
       
       -- Verify old cnf is gone
-      case Map.lookup "cnf" claimsWithCnf of
+      case KeyMap.lookup (Key.fromText "cnf") claimsWithCnf of
         Just (Aeson.Object cnfObj) -> do
           case KeyMap.lookup (Key.fromText "jwk") cnfObj of
             Just (Aeson.String "old_key") -> expectationFailure "Old cnf should be overwritten"
@@ -1127,10 +1158,10 @@ spec = describe "SDJWT.Issuance" $ do
     
     it "works with empty claims map" $ do
       let validJWK = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4\",\"y\":\"4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM\"}"
-      let claims = Map.empty
+      let claims = KeyMap.empty
       let claimsWithCnf = addHolderKeyToClaims validJWK claims
       
       -- Check that cnf claim was added
-      Map.lookup "cnf" claimsWithCnf `shouldSatisfy` isJust
-      Map.size claimsWithCnf `shouldBe` 1
+      KeyMap.lookup (Key.fromText "cnf") claimsWithCnf `shouldSatisfy` isJust
+      KeyMap.size claimsWithCnf `shouldBe` 1
   

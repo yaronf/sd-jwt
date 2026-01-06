@@ -5,10 +5,11 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Text as T
 
 -- Create claims
-let claims = Map.fromList
-      [ ("sub", Aeson.String "user_123")
-      , ("given_name", Aeson.String "John")
-      , ("family_name", Aeson.String "Doe")
+let claims = KeyMap.fromList
+
+      [  (Key.fromText "sub", Aeson.String "user_123")
+      ,  (Key.fromText "given_name", Aeson.String "John")
+      ,  (Key.fromText "family_name", Aeson.String "Doe")
       ]
 
 -- Load issuer's private key (can be Text or jose JWK object)
@@ -43,7 +44,7 @@ case deserializeSDJWT sdjwtText of
         let audience = "verifier.example.com"
         let nonce = "random-nonce-12345"
         let issuedAt = 1683000000 :: Int64
-        result <- addKeyBindingToPresentation SHA256 holderPrivateKeyJWK audience nonce issuedAt presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+        result <- addKeyBindingToPresentation SHA256 holderPrivateKeyJWK audience nonce issuedAt presentation KeyMap.empty
         case result of
           Right presentationWithKB -> do
             -- Serialize the presentation: JWT~disclosure1~disclosure2~...~KB-JWT
@@ -80,11 +81,12 @@ import SDJWT.Internal.Serialization
 import SDJWT.Internal.Issuance
 -- etc.
 #line 148 "haskell"
-let claims = Map.fromList
-      [ ("address", Aeson.Object $ KeyMap.fromList
-          [ (Key.fromText "street_address", Aeson.String "123 Main St")
-          , (Key.fromText "locality", Aeson.String "City")
-          , (Key.fromText "country", Aeson.String "US")
+let claims = KeyMap.fromList
+
+      [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+          [  (Key.fromText "street_address", Aeson.String "123 Main St")
+          ,  (Key.fromText "locality", Aeson.String "City")
+          ,  (Key.fromText "country", Aeson.String "US")
           ])
       ]
 

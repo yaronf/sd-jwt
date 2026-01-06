@@ -35,13 +35,14 @@ spec :: Spec
 spec = describe "SDJWT.Presentation" $ do
   describe "Recursive Disclosure Handling" $ do
     it "automatically includes parent disclosure when selecting nested claim (Section 6.3)" $ do
-      let claims = Map.fromList
-            [ ("iss", Aeson.String "https://issuer.example.com")
-            , ("sub", Aeson.String "user_123")
-            , ("address", Aeson.Object $ KeyMap.fromList
-                [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                , (Key.fromText "locality", Aeson.String "City")
-                , (Key.fromText "country", Aeson.String "US")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+            ,  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                ,  (Key.fromText "locality", Aeson.String "City")
+                ,  (Key.fromText "country", Aeson.String "US")
                 ])
             ]
       
@@ -81,7 +82,7 @@ spec = describe "SDJWT.Presentation" $ do
               case verificationResult of
                 Right processedPayload -> do
                   -- Verify address object is reconstructed correctly
-                  case Map.lookup "address" (processedClaims processedPayload) of
+                  case KeyMap.lookup (Key.fromText "address") (processedClaims processedPayload) of
                     Just (Aeson.Object addressObj) -> do
                       KeyMap.lookup (Key.fromText "street_address") addressObj `shouldSatisfy` isJust
                       KeyMap.lookup (Key.fromText "locality") addressObj `shouldSatisfy` isJust
@@ -91,13 +92,14 @@ spec = describe "SDJWT.Presentation" $ do
         Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
     
     it "does not include non-recursive parent when selecting nested claim (Section 6.2)" $ do
-      let claims = Map.fromList
-            [ ("iss", Aeson.String "https://issuer.example.com")
-            , ("sub", Aeson.String "user_123")
-            , ("address", Aeson.Object $ KeyMap.fromList
-                [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                , (Key.fromText "locality", Aeson.String "City")
-                , (Key.fromText "country", Aeson.String "US")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "iss", Aeson.String "https://issuer.example.com")
+            ,  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                ,  (Key.fromText "locality", Aeson.String "City")
+                ,  (Key.fromText "country", Aeson.String "US")
                 ])
             ]
       
@@ -155,10 +157,11 @@ spec = describe "SDJWT.Presentation" $ do
     describe "selectDisclosuresByNames" $ do
       it "selects disclosures by claim names" $ do
         -- Create an SD-JWT with disclosures
-        let claims = Map.fromList
-              [ ("given_name", Aeson.String "John")
-              , ("family_name", Aeson.String "Doe")
-              , ("sub", Aeson.String "user_42")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "family_name", Aeson.String "Doe")
+              ,  (Key.fromText "sub", Aeson.String "user_42")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name", "family_name"] claims
         case result of
@@ -182,9 +185,10 @@ spec = describe "SDJWT.Presentation" $ do
   describe "SDJWT.Presentation (Error Paths and Edge Cases)" $ do
     describe "selectDisclosuresByNames error handling" $ do
       it "handles empty claim names list" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -203,10 +207,11 @@ spec = describe "SDJWT.Presentation" $ do
       it "extracts digests from arrays with ellipsis objects" $ do
         -- Test that selectDisclosuresByNames correctly extracts digests from arrays
         -- containing {"...": "<digest>"} objects via extractDigestsFromJWTPayload
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
-              , ("nationalities", Aeson.Array $ V.fromList [Aeson.String "US", Aeson.String "DE"])
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "nationalities", Aeson.Array $ V.fromList [Aeson.String "US", Aeson.String "DE"])
               ]
         -- Mark both given_name and nationalities/0 as selectively disclosable using JSON Pointer
         result <- buildSDJWTPayload SHA256 ["given_name", "nationalities/0"] claims
@@ -229,9 +234,10 @@ spec = describe "SDJWT.Presentation" $ do
       it "handles arrays with objects that don't have ellipsis key" $ do
         -- Test that extractDigestsFromValue correctly handles array elements that are objects
         -- but don't have the "..." key (should recursively process them)
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -239,11 +245,11 @@ spec = describe "SDJWT.Presentation" $ do
             let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing objects without "..." key
             let payloadWithArray = Aeson.object
-                  [ ("_sd_alg", Aeson.String "sha-256")
-                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
-                  , ("items", Aeson.Array $ V.fromList
-                      [ Aeson.object [("name", Aeson.String "item1"), ("value", Aeson.Number 10)]  -- Object without "..."
-                      , Aeson.object [("name", Aeson.String "item2"), ("value", Aeson.Number 20)]  -- Object without "..."
+                  [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+                  ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  ,  (Key.fromText "items", Aeson.Array $ V.fromList
+                      [ Aeson.Object $ KeyMap.fromList [ (Key.fromText "name", Aeson.String "item1"),  (Key.fromText "value", Aeson.Number 10)]  -- Object without "..."
+                      , Aeson.Object $ KeyMap.fromList [ (Key.fromText "name", Aeson.String "item2"),  (Key.fromText "value", Aeson.Number 20)]  -- Object without "..."
                       ])
                   ]
             let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
@@ -261,9 +267,10 @@ spec = describe "SDJWT.Presentation" $ do
       it "exercises buildDisclosureMap with mixed object and array disclosures" $ do
         -- This test ensures buildDisclosureMap's Nothing branch (for array disclosures) is covered
         -- buildDisclosureMap filters out array disclosures since they don't have claim names
-        let claims = Map.fromList
-              [ ("given_name", Aeson.String "John")
-              , ("nationalities", Aeson.Array $ V.fromList [Aeson.String "US"])
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "given_name", Aeson.String "John")
+              ,  (Key.fromText "nationalities", Aeson.Array $ V.fromList [Aeson.String "US"])
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -289,9 +296,10 @@ spec = describe "SDJWT.Presentation" $ do
       it "handles arrays with ellipsis objects where value is not a string" $ do
         -- Test that extractDigestsFromValue correctly handles ellipsis objects where
         -- the "..." value is not a string (should recursively process them)
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -299,12 +307,12 @@ spec = describe "SDJWT.Presentation" $ do
             let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing ellipsis objects with non-string values
             let payloadWithArray = Aeson.object
-                  [ ("_sd_alg", Aeson.String "sha-256")
-                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
-                  , ("items", Aeson.Array $ V.fromList
-                      [ Aeson.object [("...", Aeson.Number 123)]  -- Non-string value
-                      , Aeson.object [("...", Aeson.Bool True)]  -- Non-string value
-                      , Aeson.object [("...", Aeson.Null)]  -- Non-string value
+                  [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+                  ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  ,  (Key.fromText "items", Aeson.Array $ V.fromList
+                      [ Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.Number 123)]  -- Non-string value
+                      , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.Bool True)]  -- Non-string value
+                      , Aeson.Object $ KeyMap.fromList [ (Key.fromText "...", Aeson.Null)]  -- Non-string value
                       ])
                   ]
             let payloadBS = BSL.toStrict $ Aeson.encode payloadWithArray
@@ -322,9 +330,10 @@ spec = describe "SDJWT.Presentation" $ do
       it "handles arrays with primitive (non-object) elements" $ do
         -- Test that extractDigestsFromValue correctly handles arrays with primitive elements
         -- (should recursively process them, though they won't contain digests)
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -332,9 +341,9 @@ spec = describe "SDJWT.Presentation" $ do
             let givenNameDigest = computeDigest SHA256 (head sdDisclosures)
             -- Create payload with array containing primitive elements
             let payloadWithArray = Aeson.object
-                  [ ("_sd_alg", Aeson.String "sha-256")
-                  , ("_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
-                  , ("items", Aeson.Array $ V.fromList
+                  [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+                  ,  (Key.fromText "_sd", Aeson.Array $ V.fromList [Aeson.String (unDigest givenNameDigest)])
+                  ,  (Key.fromText "items", Aeson.Array $ V.fromList
                       [ Aeson.String "item1"  -- Primitive string
                       , Aeson.Number 42  -- Primitive number
                       , Aeson.Bool True  -- Primitive bool
@@ -353,9 +362,10 @@ spec = describe "SDJWT.Presentation" $ do
           Left err -> expectationFailure $ "Failed to build payload: " ++ show err
       
       it "handles claim name that doesn't exist in disclosures" $ do
-        let claims = Map.fromList
-              [ ("sub", Aeson.String "user_42")
-              , ("given_name", Aeson.String "John")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "sub", Aeson.String "user_42")
+              ,  (Key.fromText "given_name", Aeson.String "John")
               ]
         result <- buildSDJWTPayload SHA256 ["given_name"] claims
         case result of
@@ -374,10 +384,11 @@ spec = describe "SDJWT.Presentation" $ do
       
       it "handles nested path where parent disclosure is missing" $ do
         -- Create SD-JWT with structured nested disclosure (Section 6.2)
-        let claims = Map.fromList
-              [ ("address", Aeson.Object $ KeyMap.fromList
-                  [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                  , (Key.fromText "locality", Aeson.String "City")
+        let claims = KeyMap.fromList
+
+              [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                  [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                  ,  (Key.fromText "locality", Aeson.String "City")
                   ])
               ]
         keyPair <- generateTestRSAKeyPair
@@ -399,11 +410,12 @@ spec = describe "SDJWT.Presentation" $ do
       -- already covers this scenario, but this test explicitly verifies collectDisclosuresForValue works.
       -- Note: collectDisclosuresForValue may not be directly called in all scenarios, but it's part
       -- of the code path for structured nested disclosures where parent stays in payload.
-      let claims = Map.fromList
-            [ ("address", Aeson.Object $ KeyMap.fromList
-                [ (Key.fromText "street_address", Aeson.String "123 Main St")
-                , (Key.fromText "locality", Aeson.String "City")
-                , (Key.fromText "country", Aeson.String "US")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "address", Aeson.Object $ KeyMap.fromList
+                [  (Key.fromText "street_address", Aeson.String "123 Main St")
+                ,  (Key.fromText "locality", Aeson.String "City")
+                ,  (Key.fromText "country", Aeson.String "US")
                 ])
             ]
       

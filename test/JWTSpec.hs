@@ -49,10 +49,10 @@ spec = describe "SDJWT.JWT" $ do
         keyPair <- generateTestECKeyPair
         
         -- Create a test payload
-        let payload = Aeson.object [("sub", Aeson.String "user_123"), ("iat", Aeson.Number 1234567890)]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "iat", Aeson.Number 1234567890)]
         
         -- Sign the JWT using EC module directly
-        result <- signJWT (privateKeyJWK keyPair) payload
+        result <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
         case result of
           Left err -> expectationFailure $ "Failed to sign JWT with EC key: " ++ show err
           Right signedJWT -> do
@@ -74,9 +74,9 @@ spec = describe "SDJWT.JWT" $ do
       
       it "fails with invalid JWK format" $ do
         let invalidJWK :: T.Text = "not a valid JSON"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT invalidJWK payload
+        result <- signJWT invalidJWK (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -87,9 +87,9 @@ spec = describe "SDJWT.JWT" $ do
         -- It will automatically detect the key type and use the appropriate algorithm
         -- RSA keys default to PS256 (RSA-PSS) for security
         rsaKeyPair <- generateTestRSAKeyPair
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT (privateKeyJWK rsaKeyPair) payload
+        result <- signJWT (privateKeyJWK rsaKeyPair) (Aeson.Object payload)
         case result of
           Left err -> expectationFailure $ "signJWT should succeed with RSA key: " ++ show err
           Right signedJWT -> do
@@ -116,9 +116,9 @@ spec = describe "SDJWT.JWT" $ do
               _ -> jwkText  -- Fallback
         let privateKeyJWKWithAlg = addAlgField (privateKeyJWK rsaKeyPair)
         let publicKeyJWKWithAlg = addAlgField (publicKeyJWK rsaKeyPair)
-        let payload = Aeson.object [("sub", Aeson.String "user_rs256")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_rs256")]
         
-        result <- signJWT privateKeyJWKWithAlg payload
+        result <- signJWT privateKeyJWKWithAlg (Aeson.Object payload)
         case result of
           Left err -> expectationFailure $ "signJWT should succeed with RS256: " ++ show err
           Right signedJWT -> do
@@ -134,9 +134,9 @@ spec = describe "SDJWT.JWT" $ do
       it "fails with unsupported EC curve" $ do
         -- Create JWK with unsupported curve (P-384 instead of P-256)
         let unsupportedCurveJWK :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT unsupportedCurveJWK payload
+        result <- signJWT unsupportedCurveJWK (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -145,9 +145,9 @@ spec = describe "SDJWT.JWT" $ do
       it "fails with missing 'd' field (private key)" $ do
         -- Create JWK without private key scalar
         let missingD :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT missingD payload
+        result <- signJWT missingD (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -156,9 +156,9 @@ spec = describe "SDJWT.JWT" $ do
       it "fails with missing 'x' field" $ do
         -- Create JWK without x coordinate
         let missingX :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT missingX payload
+        result <- signJWT missingX (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -167,9 +167,9 @@ spec = describe "SDJWT.JWT" $ do
       it "fails with missing 'y' field" $ do
         -- Create JWK without y coordinate
         let missingY :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT missingY payload
+        result <- signJWT missingY (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -178,9 +178,9 @@ spec = describe "SDJWT.JWT" $ do
       it "fails with invalid base64url in coordinates" $ do
         -- Create JWK with invalid base64url encoding
         let invalidBase64 :: T.Text = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"d\":\"!!!invalid!!!\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}"
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
-        result <- signJWT invalidBase64 payload
+        result <- signJWT invalidBase64 (Aeson.Object payload)
         case result of
           Left (InvalidSignature _) -> return ()  -- Expected error
           Left err -> expectationFailure $ "Unexpected error type: " ++ show err
@@ -190,11 +190,11 @@ spec = describe "SDJWT.JWT" $ do
         -- ECDSA signatures are non-deterministic, so signing the same payload twice
         -- should produce different signatures (but both should verify)
         keyPair <- generateTestECKeyPair
-        let payload = Aeson.object [("sub", Aeson.String "user_123")]
+        let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
         
         -- Sign twice
-        result1 <- signJWT (privateKeyJWK keyPair) payload
-        result2 <- signJWT (privateKeyJWK keyPair) payload
+        result1 <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
+        result2 <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
         
         case (result1, result2) of
           (Right jwt1, Right jwt2) -> do
@@ -217,8 +217,8 @@ spec = describe "SDJWT.JWT" $ do
       -- Create a JWT with alg: "none" header manually
       -- Note: jose's type system prevents "none" from being a valid JWA.Alg value,
       -- so it will be rejected during decodeCompact before reaching our validation code
-      let header = Aeson.object [("alg", Aeson.String "none"), ("typ", Aeson.String "JWT")]
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let header = KeyMap.fromList [ (Key.fromText "alg", Aeson.String "none"),  (Key.fromText "typ", Aeson.String "JWT")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Base64url encode header and payload
       let headerBS = BSL.toStrict $ Aeson.encode header
@@ -246,10 +246,10 @@ spec = describe "SDJWT.JWT" $ do
     it "rejects JWT with algorithm mismatch (RFC 8725bis - don't trust header)" $ do
       -- Create a JWT signed with RSA key (PS256)
       rsaKeyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Sign with RSA key (will use PS256)
-      signedResult <- signJWT (privateKeyJWK rsaKeyPair) payload
+      signedResult <- signJWT (privateKeyJWK rsaKeyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -269,10 +269,10 @@ spec = describe "SDJWT.JWT" $ do
     it "rejects JWT signed with Ed25519 when verified with RSA key" $ do
       -- Create a JWT signed with Ed25519 key (EdDSA)
       ed25519KeyPair <- generateTestEd25519KeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Sign with Ed25519 key (will use EdDSA)
-      signedResult <- signJWT (privateKeyJWK ed25519KeyPair) payload
+      signedResult <- signJWT (privateKeyJWK ed25519KeyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -292,10 +292,10 @@ spec = describe "SDJWT.JWT" $ do
     it "rejects JWT signed with RSA when verified with EC key" $ do
       -- Create a JWT signed with RSA key (PS256)
       rsaKeyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Sign with RSA key
-      signedResult <- signJWT (privateKeyJWK rsaKeyPair) payload
+      signedResult <- signJWT (privateKeyJWK rsaKeyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -327,8 +327,8 @@ spec = describe "SDJWT.JWT" $ do
     it "rejects JWT with no signatures" $ do
       keyPair <- generateTestRSAKeyPair
       -- Create a JWT-like string but with empty signature part
-      let header = Aeson.object [("alg", Aeson.String "PS256"), ("typ", Aeson.String "JWT")]
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let header = KeyMap.fromList [ (Key.fromText "alg", Aeson.String "PS256"),  (Key.fromText "typ", Aeson.String "JWT")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       let headerBS = BSL.toStrict $ Aeson.encode header
       let payloadBS = BSL.toStrict $ Aeson.encode payload
       let headerB64 = base64urlEncode headerBS
@@ -346,10 +346,10 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWT with missing typ header when required" $ do
       keyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Sign JWT without typ header
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -363,10 +363,10 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWT with invalid typ header value" $ do
       keyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Sign JWT with typ header
-      signedResult <- signJWTWithOptionalTyp (Just "wrong-typ") (privateKeyJWK keyPair) payload
+      signedResult <- signJWTWithOptionalTyp (Just "wrong-typ") (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -381,7 +381,7 @@ spec = describe "SDJWT.JWT" $ do
     it "rejects JWT with invalid payload JSON" $ do
       keyPair <- generateTestRSAKeyPair
       -- Create a JWT with invalid JSON in payload (valid base64url but invalid JSON)
-      let header = Aeson.object [("alg", Aeson.String "PS256"), ("typ", Aeson.String "JWT")]
+      let header = KeyMap.fromList [ (Key.fromText "alg", Aeson.String "PS256"),  (Key.fromText "typ", Aeson.String "JWT")]
       let headerBS = BSL.toStrict $ Aeson.encode header
       let headerB64 = base64urlEncode headerBS
       -- Create invalid JSON payload
@@ -400,9 +400,9 @@ spec = describe "SDJWT.JWT" $ do
       keyPair <- generateTestRSAKeyPair
       currentTime <- round . realToFrac @POSIXTime @Double <$> getPOSIXTime :: IO Int64
       let expiredTime = currentTime - 3600  -- 1 hour ago (expired)
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.Number (fromIntegral expiredTime))]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "exp", Aeson.Number (fromIntegral expiredTime))]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -415,9 +415,9 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWT with invalid exp claim format (not a number)" $ do
       keyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.String "not a number")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "exp", Aeson.String "not a number")]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -432,9 +432,9 @@ spec = describe "SDJWT.JWT" $ do
       keyPair <- generateTestRSAKeyPair
       -- Use a number that's too large for Int64
       let hugeNumber = 1e20 :: Scientific
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("exp", Aeson.Number hugeNumber)]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "exp", Aeson.Number hugeNumber)]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -450,9 +450,9 @@ spec = describe "SDJWT.JWT" $ do
       keyPair <- generateTestRSAKeyPair
       currentTime <- round . realToFrac @POSIXTime @Double <$> getPOSIXTime :: IO Int64
       let futureTime = currentTime + 3600  -- 1 hour in the future (not yet valid)
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.Number (fromIntegral futureTime))]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "nbf", Aeson.Number (fromIntegral futureTime))]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -465,9 +465,9 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWT with invalid nbf claim format (not a number)" $ do
       keyPair <- generateTestRSAKeyPair
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.String "not a number")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "nbf", Aeson.String "not a number")]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -482,9 +482,9 @@ spec = describe "SDJWT.JWT" $ do
       keyPair <- generateTestRSAKeyPair
       -- Use a number that's too large for Int64
       let hugeNumber = 1e20 :: Double
-      let payload = Aeson.object [("sub", Aeson.String "user_123"), ("nbf", Aeson.Number (realToFrac hugeNumber))]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "nbf", Aeson.Number (realToFrac hugeNumber))]
       
-      signedResult <- signJWT (privateKeyJWK keyPair) payload
+      signedResult <- signJWT (privateKeyJWK keyPair) (Aeson.Object payload)
       case signedResult of
         Left err -> expectationFailure $ "Failed to sign JWT: " ++ show err
         Right signedJWT -> do
@@ -498,9 +498,9 @@ spec = describe "SDJWT.JWT" $ do
   describe "detectKeyAlgorithmFromJWK error paths" $ do
     it "rejects JWK with missing kty field" $ do
       let invalidJWK = "{\"alg\":\"PS256\",\"n\":\"dGVzdA\",\"e\":\"AQAB\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT invalidJWK payload
+      result <- signJWT invalidJWK (Aeson.Object payload)
       case result of
         Left (InvalidSignature msg) -> do
           -- jose might parse the JWK but our code should catch missing kty
@@ -510,18 +510,18 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWK with unsupported EC curve" $ do
       let unsupportedCurveJWK = "{\"kty\":\"EC\",\"crv\":\"P-384\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT unsupportedCurveJWK payload
+      result <- signJWT unsupportedCurveJWK (Aeson.Object payload)
       case result of
         Left _ -> return ()  -- Any error is acceptable (jose might catch it before our code)
         Right _ -> expectationFailure "Should reject JWK with unsupported EC curve"
     
     it "rejects JWK with missing crv field for EC" $ do
       let missingCrvJWK = "{\"kty\":\"EC\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\",\"y\":\"dGVzdA\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT missingCrvJWK payload
+      result <- signJWT missingCrvJWK (Aeson.Object payload)
       case result of
         Left (InvalidSignature msg) -> do
           (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
@@ -530,18 +530,18 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWK with unsupported OKP curve" $ do
       let unsupportedOKPJWK = "{\"kty\":\"OKP\",\"crv\":\"Ed448\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT unsupportedOKPJWK payload
+      result <- signJWT unsupportedOKPJWK (Aeson.Object payload)
       case result of
         Left _ -> return ()  -- Any error is acceptable (jose might catch it before our code)
         Right _ -> expectationFailure "Should reject JWK with unsupported OKP curve"
     
     it "rejects JWK with missing crv field for OKP" $ do
       let missingCrvOKPJWK = "{\"kty\":\"OKP\",\"d\":\"dGVzdA\",\"x\":\"dGVzdA\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT missingCrvOKPJWK payload
+      result <- signJWT missingCrvOKPJWK (Aeson.Object payload)
       case result of
         Left (InvalidSignature msg) -> do
           (T.isInfixOf "Missing 'crv' field" msg || T.isInfixOf "Failed to" msg) `shouldBe` True
@@ -550,9 +550,9 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWK with unsupported key type" $ do
       let unsupportedTypeJWK = "{\"kty\":\"oct\",\"k\":\"dGVzdA\"}" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT unsupportedTypeJWK payload
+      result <- signJWT unsupportedTypeJWK (Aeson.Object payload)
       case result of
         Left (InvalidSignature msg) -> do
           T.isInfixOf "Unsupported key type" msg `shouldBe` True
@@ -561,9 +561,9 @@ spec = describe "SDJWT.JWT" $ do
     
     it "rejects JWK with invalid format (not an object)" $ do
       let invalidJWK = "\"not an object\"" :: T.Text
-      let payload = Aeson.object [("sub", Aeson.String "user_123")]
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
-      result <- signJWT invalidJWK payload
+      result <- signJWT invalidJWK (Aeson.Object payload)
       case result of
         Left (InvalidSignature msg) -> do
           -- jose will catch this during parsing, so error message might vary

@@ -102,22 +102,22 @@ main = do
   
   -- Issuer prepares claims
   -- Note: The cnf claim contains the holder's public key for key binding
-  let issuerClaims = Map.fromList
-        [ ("sub", Aeson.String "user_123")
-        , ("given_name", Aeson.String "John")
-        , ("family_name", Aeson.String "Doe")
-        , ("email", Aeson.String "john.doe@example.com")
-        , ("phone", Aeson.String "+1-555-1234")
-        , ("age", Aeson.Number 30)
-        , ("cnf", cnfValue)  -- Confirmation claim with holder's public key
+  let issuerClaims = KeyMap.fromList
+        [ (Key.fromText "sub", Aeson.String "user_123")
+        , (Key.fromText "given_name", Aeson.String "John")
+        , (Key.fromText "family_name", Aeson.String "Doe")
+        , (Key.fromText "email", Aeson.String "john.doe@example.com")
+        , (Key.fromText "phone", Aeson.String "+1-555-1234")
+        , (Key.fromText "age", Aeson.Number 30)
+        , (Key.fromText "cnf", cnfValue)  -- Confirmation claim with holder's public key
         ]
   
   putStrLn "Issuer claims:"
   mapM_ (\(k, v) -> 
-    if k == "cnf"
-      then putStrLn $ "  - " ++ T.unpack k ++ ": {jwk: <holder's public key>}"
-      else putStrLn $ "  - " ++ T.unpack k ++ ": " ++ show v
-    ) (Map.toList issuerClaims)
+    if k == Key.fromText "cnf"
+      then putStrLn $ "  - " ++ T.unpack (Key.toText k) ++ ": {jwk: <holder's public key>}"
+      else putStrLn $ "  - " ++ T.unpack (Key.toText k) ++ ": " ++ show v
+    ) (KeyMap.toList issuerClaims)
   putStrLn ""
   
   -- Issuer marks some claims as selectively disclosable
@@ -226,8 +226,8 @@ main = do
                           putStrLn "--------------------------------------------"
                           
                           -- Display all verified claims
-                          mapM_ (\(k, v) -> putStrLn $ "  ✓ " ++ T.unpack k ++ ": " ++ show v) 
-                                (Map.toList verifiedClaims)
+                          mapM_ (\(k, v) -> putStrLn $ "  ✓ " ++ T.unpack (Key.toText k) ++ ": " ++ show v) 
+                                (KeyMap.toList verifiedClaims)
                           putStrLn ""
                           
                           -- Show key binding info if present
@@ -246,7 +246,7 @@ main = do
                           -- Show what was NOT disclosed
                           putStrLn "Claims NOT disclosed (kept private by holder):"
                           putStrLn "--------------------------------------------"
-                          if Map.member "family_name" verifiedClaims
+                          if KeyMap.member (Key.fromText "family_name") verifiedClaims
                             then putStrLn "  (none - all selectively disclosable claims were disclosed)"
                             else putStrLn "  ✓ family_name (holder chose not to disclose)"
                           putStrLn ""

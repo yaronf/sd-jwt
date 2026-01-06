@@ -91,7 +91,7 @@
 -- @
 --
 -- For advanced use cases (e.g., adding decoys to nested @_sd@ arrays or custom
--- placement logic), import 'SDJWT.Internal.Issuance' to access 'buildSDJWTPayload'
+-- placement logic), import SDJWT.Internal.Issuance to access buildSDJWTPayload
 -- and other low-level functions.
 --
 -- == Key Binding Support

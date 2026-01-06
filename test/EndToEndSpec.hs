@@ -27,11 +27,12 @@ spec = describe "End-to-End SD-JWT Flows" $ do
   describe "Complete Flow: Issuer → Holder → Verifier" $ do
     it "works with RSA keys" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_123")
-            , ("given_name", Aeson.String "John")
-            , ("family_name", Aeson.String "Doe")
-            , ("email", Aeson.String "john.doe@example.com")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "family_name", Aeson.String "Doe")
+            ,  (Key.fromText "email", Aeson.String "john.doe@example.com")
             ]
       
       -- Step 1: Issuer creates SD-JWT
@@ -61,18 +62,19 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Right processedPayload -> do
                           -- Step 6: Verify claims are correct
                           let extractedClaims = processedClaims processedPayload
-                          Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_123")
-                          Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "John")
-                          Map.lookup "email" extractedClaims `shouldBe` Just (Aeson.String "john.doe@example.com")
+                          KeyMap.lookup (Key.fromText "sub") extractedClaims `shouldBe` Just (Aeson.String "user_123")
+                          KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "John")
+                          KeyMap.lookup (Key.fromText "email") extractedClaims `shouldBe` Just (Aeson.String "john.doe@example.com")
                           -- family_name should NOT be present (not selected)
-                          Map.lookup "family_name" extractedClaims `shouldBe` Nothing
+                          KeyMap.lookup (Key.fromText "family_name") extractedClaims `shouldBe` Nothing
     
     it "works with EC P-256 keys" $ do
       issuerKeyPair <- generateTestECKeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_456")
-            , ("given_name", Aeson.String "Jane")
-            , ("family_name", Aeson.String "Smith")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_456")
+            ,  (Key.fromText "given_name", Aeson.String "Jane")
+            ,  (Key.fromText "family_name", Aeson.String "Smith")
             ]
       
       -- Complete flow
@@ -97,16 +99,17 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Left err -> expectationFailure $ "Verification failed: " ++ show err
                         Right processedPayload -> do
                           let extractedClaims = processedClaims processedPayload
-                          Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_456")
-                          Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Jane")
-                          Map.lookup "family_name" extractedClaims `shouldBe` Nothing
+                          KeyMap.lookup (Key.fromText "sub") extractedClaims `shouldBe` Just (Aeson.String "user_456")
+                          KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "Jane")
+                          KeyMap.lookup (Key.fromText "family_name") extractedClaims `shouldBe` Nothing
     
     it "works with Ed25519 keys" $ do
       issuerKeyPair <- generateTestEd25519KeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_789")
-            , ("given_name", Aeson.String "Bob")
-            , ("email", Aeson.String "bob@example.com")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_789")
+            ,  (Key.fromText "given_name", Aeson.String "Bob")
+            ,  (Key.fromText "email", Aeson.String "bob@example.com")
             ]
       
       -- Complete flow
@@ -131,9 +134,9 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Left err -> expectationFailure $ "Verification failed: " ++ show err
                         Right processedPayload -> do
                           let extractedClaims = processedClaims processedPayload
-                          Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_789")
-                          Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Bob")
-                          Map.lookup "email" extractedClaims `shouldBe` Just (Aeson.String "bob@example.com")
+                          KeyMap.lookup (Key.fromText "sub") extractedClaims `shouldBe` Just (Aeson.String "user_789")
+                          KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "Bob")
+                          KeyMap.lookup (Key.fromText "email") extractedClaims `shouldBe` Just (Aeson.String "bob@example.com")
   
   describe "End-to-End Flow with Key Binding" $ do
     it "works with RSA keys" $ do
@@ -144,12 +147,13 @@ spec = describe "End-to-End SD-JWT Flows" $ do
       let holderPublicKeyJSON = case Aeson.eitherDecodeStrict (encodeUtf8 holderPublicKeyJWK) of
             Right jwk -> jwk
             Left _ -> Aeson.Object KeyMap.empty  -- Fallback
-      let cnfValue = Aeson.Object $ KeyMap.fromList [(Key.fromText "jwk", holderPublicKeyJSON)]
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_kb_123")
-            , ("given_name", Aeson.String "Alice")
-            , ("email", Aeson.String "alice@example.com")
-            , ("cnf", cnfValue)
+      let cnfValue = Aeson.Object $ KeyMap.fromList [ (Key.fromText "jwk", holderPublicKeyJSON)]
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_kb_123")
+            ,  (Key.fromText "given_name", Aeson.String "Alice")
+            ,  (Key.fromText "email", Aeson.String "alice@example.com")
+            ,  (Key.fromText "cnf", cnfValue)
             ]
       
       -- Step 1: Issuer creates SD-JWT with cnf claim
@@ -167,7 +171,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
               let nonce = "test-nonce-12345"
               let issuedAt = 1683000000 :: Int64
               kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK holderKeyPair) 
-                                                          audience nonce issuedAt presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+                                                          audience nonce issuedAt presentation KeyMap.empty
               case kbResult of
                 Left err -> expectationFailure $ "Key binding failed: " ++ show err
                 Right kbPresentation -> do
@@ -183,9 +187,9 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Left err -> expectationFailure $ "Verification failed: " ++ show err
                         Right processedPayload -> do
                           let extractedClaims = processedClaims processedPayload
-                          Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_kb_123")
-                          Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Alice")
-                          Map.lookup "email" extractedClaims `shouldBe` Nothing
+                          KeyMap.lookup (Key.fromText "sub") extractedClaims `shouldBe` Just (Aeson.String "user_kb_123")
+                          KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "Alice")
+                          KeyMap.lookup (Key.fromText "email") extractedClaims `shouldBe` Nothing
                           -- Verify key binding info is returned
                           case keyBindingInfo processedPayload of
                             Nothing -> expectationFailure "Expected key binding info but got Nothing"
@@ -201,11 +205,12 @@ spec = describe "End-to-End SD-JWT Flows" $ do
       let holderPublicKeyJSON = case Aeson.eitherDecodeStrict (encodeUtf8 holderPublicKeyJWK) of
             Right jwk -> jwk
             Left _ -> Aeson.Object KeyMap.empty  -- Fallback
-      let cnfValue = Aeson.Object $ KeyMap.fromList [(Key.fromText "jwk", holderPublicKeyJSON)]
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_kb_456")
-            , ("given_name", Aeson.String "Charlie")
-            , ("cnf", cnfValue)
+      let cnfValue = Aeson.Object $ KeyMap.fromList [ (Key.fromText "jwk", holderPublicKeyJSON)]
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_kb_456")
+            ,  (Key.fromText "given_name", Aeson.String "Charlie")
+            ,  (Key.fromText "cnf", cnfValue)
             ]
       
       issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
@@ -216,7 +221,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
             Left err -> expectationFailure $ "Presentation creation failed: " ++ show err
             Right presentation -> do
               kbResult <- addKeyBindingToPresentation SHA256 (privateKeyJWK holderKeyPair) 
-                                                          "verifier.example.com" "nonce-123" 1683000000 presentation (case Aeson.object [] of Aeson.Object obj -> obj; _ -> KeyMap.empty)
+                                                          "verifier.example.com" "nonce-123" 1683000000 presentation KeyMap.empty
               case kbResult of
                 Left err -> expectationFailure $ "Key binding failed: " ++ show err
                 Right kbPresentation -> do
@@ -229,7 +234,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                         Left err -> expectationFailure $ "Verification failed: " ++ show err
                         Right processedPayload -> do
                           let extractedClaims = processedClaims processedPayload
-                          Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "Charlie")
+                          KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "Charlie")
                           -- Verify key binding info is returned
                           case keyBindingInfo processedPayload of
                             Nothing -> expectationFailure "Expected key binding info but got Nothing"
@@ -241,7 +246,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
     it "fails when verifier uses wrong issuer key" $ do
       issuerKeyPair <- generateTestRSAKeyPair
       wrongIssuerKeyPair <- generateTestRSAKeyPair2
-      let claims = Map.fromList [("sub", Aeson.String "user_123"), ("name", Aeson.String "Test")]
+      let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "name", Aeson.String "Test")]
       
       issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
       case issuanceResult of
@@ -259,7 +264,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
     
     it "fails when holder selects non-existent disclosure" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList [("sub", Aeson.String "user_123"), ("name", Aeson.String "Test")]
+      let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123"),  (Key.fromText "name", Aeson.String "Test")]
       
       issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) ["name"] claims
       case issuanceResult of
@@ -275,7 +280,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
   describe "Edge Cases" $ do
     it "works with empty selective disclosure list" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList [("sub", Aeson.String "user_123")]
+      let claims = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
       
       -- Create SD-JWT with no selectively disclosable claims
       issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) [] claims
@@ -293,15 +298,16 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                 Left err -> expectationFailure $ "Verification failed: " ++ show err
                 Right processedPayload -> do
                   let extractedClaims = processedClaims processedPayload
-                  Map.lookup "sub" extractedClaims `shouldBe` Just (Aeson.String "user_123")
+                  KeyMap.lookup (Key.fromText "sub") extractedClaims `shouldBe` Just (Aeson.String "user_123")
     
     it "works when holder selects all disclosures" $ do
       issuerKeyPair <- generateTestRSAKeyPair
-      let claims = Map.fromList
-            [ ("sub", Aeson.String "user_123")
-            , ("given_name", Aeson.String "John")
-            , ("family_name", Aeson.String "Doe")
-            , ("email", Aeson.String "john@example.com")
+      let claims = KeyMap.fromList
+
+            [  (Key.fromText "sub", Aeson.String "user_123")
+            ,  (Key.fromText "given_name", Aeson.String "John")
+            ,  (Key.fromText "family_name", Aeson.String "Doe")
+            ,  (Key.fromText "email", Aeson.String "john@example.com")
             ]
       
       issuanceResult <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK issuerKeyPair) 
@@ -319,7 +325,7 @@ spec = describe "End-to-End SD-JWT Flows" $ do
                 Left err -> expectationFailure $ "Verification failed: " ++ show err
                 Right processedPayload -> do
                   let extractedClaims = processedClaims processedPayload
-                  Map.lookup "given_name" extractedClaims `shouldBe` Just (Aeson.String "John")
-                  Map.lookup "family_name" extractedClaims `shouldBe` Just (Aeson.String "Doe")
-                  Map.lookup "email" extractedClaims `shouldBe` Just (Aeson.String "john@example.com")
+                  KeyMap.lookup (Key.fromText "given_name") extractedClaims `shouldBe` Just (Aeson.String "John")
+                  KeyMap.lookup (Key.fromText "family_name") extractedClaims `shouldBe` Just (Aeson.String "Doe")
+                  KeyMap.lookup (Key.fromText "email") extractedClaims `shouldBe` Just (Aeson.String "john@example.com")
 
