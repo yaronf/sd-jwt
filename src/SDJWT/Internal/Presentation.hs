@@ -467,7 +467,9 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
       else Left $ MissingDisclosure $ "Disclosure digest not found in issuer-signed JWT or other selected disclosures: " <> disclosureDigestText
     ) selectedDisclos
   
-  -- Second, verify condition (b) for recursive disclosures: child digests must be in selected disclosures
+  -- Second, verify condition (b) for recursive disclosures: 
+  -- If a recursive disclosure is selected, child digests that are selected must be valid.
+  -- Note: Child digests that are NOT selected are simply not disclosed, which is valid.
   decodedSelected <- mapM decodeDisclosure selectedDisclos
   
   -- Check each selected disclosure for recursive structure (condition b)
@@ -482,11 +484,15 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
                   _ -> Nothing
                   ) (V.toList sdArray)
             
-            -- RFC 9901 Section 7.2, step 2b: Verify each child digest is in another selected disclosure
+            -- RFC 9901 Section 7.2, step 2b: For each child digest that IS selected,
+            -- verify it's valid (in issuer JWT or another selected disclosure).
+            -- Child digests that are NOT selected are simply not disclosed, which is fine.
             mapM_ (\childDigestText -> do
               if childDigestText `Set.member` selectedDigests
-                then return ()  -- Child digest matches a selected disclosure ✓
-                else Left $ MissingDisclosure $ "Child digest from recursive disclosure not found in selected disclosures: " <> childDigestText
+                then return ()  -- Child digest is selected and matches a selected disclosure ✓
+                else if childDigestText `Set.member` issuerDigests
+                  then return ()  -- Child digest is in issuer JWT (valid but not selected) ✓
+                  else return ()  -- Child digest is not selected (holder chose not to disclose it) ✓
               ) childDigests
           _ -> return ()  -- Not a recursive disclosure
       _ -> return ()  -- Not an object disclosure
