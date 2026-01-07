@@ -2,6 +2,8 @@
 
 Haskell implementation of [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html): Selective Disclosure for JSON Web Tokens (SD-JWT).
 
+📚 **Documentation**: [https://www.sheffer.org/sd-jwt/](https://www.sheffer.org/sd-jwt/)
+
 ## Overview
 
 SD-JWT enables selective disclosure of individual elements of a JSON data structure used as the payload of a JSON Web Signature (JWS). The primary use case is the selective disclosure of JSON Web Token (JWT) claims.
@@ -261,6 +263,7 @@ For public keys, omit the `d` field. See [RFC 7517](https://www.rfc-editor.org/r
 
 ## Documentation
 
+- [API Documentation](https://www.sheffer.org/sd-jwt/) - Full Haddock documentation (built automatically)
 - [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html) - The SD-JWT specification
 - [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html) - JSON Web Key (JWK) format
 - [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519.html) - JSON Web Token (JWT)
