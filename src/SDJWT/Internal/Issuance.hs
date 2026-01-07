@@ -168,7 +168,7 @@ module SDJWT.Internal.Issuance
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Salt(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWT(..), SDJWTError(..))
-import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer)
+import SDJWT.Internal.Utils (generateSalt, hashToBytes, base64urlEncode, splitJSONPointer, unescapeJSONPointer, groupPathsByFirstSegment)
 import SDJWT.Internal.Digest (computeDigest, hashAlgorithmToText)
 import SDJWT.Internal.Disclosure (createObjectDisclosure, createArrayDisclosure)
 import SDJWT.Internal.JWT (signJWTWithHeaders, JWKLike)
@@ -250,72 +250,39 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
   -- Group claims by nesting level (top-level vs nested)
   let (topLevelClaims, nestedPaths) = partitionNestedPaths selectiveClaimNames
   
-  -- Process all nested paths together - the recursive function handles arrays and objects at each level
-  -- Group nested paths by first segment to detect recursive disclosures (Section 6.3)
-  -- A path is recursive if its first segment is also in topLevelClaims
-  let getFirstSegment [] = ""
-      getFirstSegment (seg:_) = seg
-  let recursiveParents = Set.fromList (map getFirstSegment nestedPaths) `Set.intersection` Set.fromList topLevelClaims
+  -- Identify recursive disclosures (Section 6.3)
+  let recursiveParents = identifyRecursiveParents topLevelClaims nestedPaths
   
   -- Separate recursive disclosures (Section 6.3) from structured disclosures (Section 6.2)
-  let (recursivePaths, structuredPaths) = partition (\path -> case path of
-        [] -> False
-        (first:_) -> Set.member first recursiveParents) nestedPaths
+  let (recursivePaths, structuredPaths) = separateRecursiveAndStructuredPaths recursiveParents nestedPaths
   
   -- Process structured nested structures (Section 6.2: structured SD-JWT)
-  -- This handles both objects and arrays at each level recursively
   structuredResults <- processNestedStructures hashAlg structuredPaths claims
   
-  -- Check for errors in structured processing
-  case structuredResults of
+  -- Process recursive disclosures (Section 6.3)
+  recursiveResults <- case structuredResults of
     Left err -> return (Left err)
     Right (structuredPayload, structuredDisclosures, remainingClaimsAfterStructured) -> do
-      -- Process recursive disclosures (Section 6.3)
-      recursiveResults <- processRecursiveDisclosures hashAlg recursivePaths remainingClaimsAfterStructured
-      
-      case recursiveResults of
+      recursiveDisclosureResults <- processRecursiveDisclosures hashAlg recursivePaths remainingClaimsAfterStructured
+      case recursiveDisclosureResults of
         Left err -> return (Left err)
         Right (recursiveParentInfo, recursiveDisclosures, remainingClaimsAfterRecursive) -> do
-          -- Process remaining top-level selectively disclosable claims (excluding recursive parents)
-          let topLevelClaimsWithoutRecursive = filter (`Set.notMember` recursiveParents) topLevelClaims
-          let selectiveClaims = KeyMap.filterWithKey
-                (\k _ -> Key.toText k `elem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
-          let regularClaims = KeyMap.filterWithKey
-                (\k _ -> Key.toText k `notElem` topLevelClaimsWithoutRecursive) remainingClaimsAfterRecursive
-          
-          -- Create disclosures and digests for top-level selective claims
-          -- According to RFC 9901, top-level arrays are treated as object properties
-          -- (disclosure format: [salt, claim_name, claim_value])
-          disclosureResults <- mapM (\(k, v) -> markSelectivelyDisclosable hashAlg (Key.toText k) v) (KeyMap.toList selectiveClaims)
-          
-          -- Check for errors
-          let (errors, successes) = partitionEithers disclosureResults
-          case errors of
-            (err:_) -> return (Left err)
-            [] -> do
-              let (topLevelDigests, topLevelDisclosures) = unzip successes
-              
+          -- Process top-level selective claims
+          topLevelResults <- processTopLevelSelectiveClaims hashAlg recursiveParents topLevelClaims remainingClaimsAfterRecursive
+          case topLevelResults of
+            Left err -> return (Left err)
+            Right (topLevelDigests, topLevelDisclosures, regularClaims) -> do
               -- Extract recursive parent digests
               let recursiveParentDigests = map (\(_, digest, _) -> digest) recursiveParentInfo
               
-              -- Combine all disclosures (structured + recursive + top-level)
-              let allDisclosures = structuredDisclosures ++ recursiveDisclosures ++ topLevelDisclosures
+              -- Combine all disclosures and digests
+              let (allDisclosures, allDigests) = combineAllDisclosuresAndDigests
+                    structuredDisclosures recursiveDisclosures topLevelDisclosures
+                    recursiveParentDigests topLevelDigests
               
-              -- Combine all digests (recursive parents + top-level)
-              let allDigests = recursiveParentDigests ++ topLevelDigests
-              
-              -- Build the JSON payload
-              -- Start with regular claims (including processed structured nested structures)
+              -- Build final payload
               let payloadObj = KeyMap.union structuredPayload regularClaims
-              
-              -- Add _sd_alg claim
-              let payloadWithAlg = KeyMap.insert "_sd_alg" (Aeson.String (hashAlgorithmToText hashAlg)) payloadObj
-              
-              -- Add _sd array with digests (sorted for determinism) if there are any digests
-              let finalPayload = if null allDigests
-                    then payloadWithAlg
-                    else let sortedDigests = map (Aeson.String . unDigest) (sortDigests allDigests)
-                         in KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedDigests)) payloadWithAlg
+              let finalPayload = buildFinalPayloadObject hashAlg payloadObj allDigests
               
               -- Create SDJWTPayload
               let payload = SDJWTPayload
@@ -324,6 +291,9 @@ buildSDJWTPayload hashAlg selectiveClaimNames claims = do
                     }
               
               return (Right (payload, allDisclosures))
+  
+  -- Return the result (already wrapped in Either)
+  return recursiveResults
 
 -- | Create a complete SD-JWT (signed).
 --
@@ -521,6 +491,81 @@ addDecoyDigest hashAlg =
 sortDigests :: [Digest] -> [Digest]
 sortDigests = sortBy (comparing unDigest)
 
+-- | Identify which nested paths are recursive disclosures (Section 6.3).
+--
+-- A path is recursive if its first segment is also in topLevelClaims.
+-- This means the parent claim is itself selectively disclosable.
+identifyRecursiveParents :: [T.Text] -> [[T.Text]] -> Set.Set T.Text
+identifyRecursiveParents topLevelClaims nestedPaths =
+  let getFirstSegment [] = ""
+      getFirstSegment (seg:_) = seg
+  in Set.fromList (map getFirstSegment nestedPaths) `Set.intersection` Set.fromList topLevelClaims
+
+-- | Separate recursive disclosures (Section 6.3) from structured disclosures (Section 6.2).
+separateRecursiveAndStructuredPaths
+  :: Set.Set T.Text  -- ^ Recursive parent claim names
+  -> [[T.Text]]  -- ^ All nested paths
+  -> ([[T.Text]], [[T.Text]])  -- ^ (recursive paths, structured paths)
+separateRecursiveAndStructuredPaths recursiveParents nestedPaths =
+  partition (\path -> case path of
+    [] -> False
+    (first:_) -> Set.member first recursiveParents) nestedPaths
+
+-- | Process top-level selectively disclosable claims.
+--
+-- Creates disclosures and digests for top-level claims that are not recursive parents.
+processTopLevelSelectiveClaims
+  :: HashAlgorithm
+  -> Set.Set T.Text  -- ^ Recursive parent claim names (to exclude)
+  -> [T.Text]  -- ^ All top-level claim names
+  -> Aeson.Object  -- ^ Remaining claims after processing nested structures
+  -> IO (Either SDJWTError ([Digest], [EncodedDisclosure], Aeson.Object))
+processTopLevelSelectiveClaims hashAlg recursiveParents topLevelClaims remainingClaims = do
+  let topLevelClaimsWithoutRecursive = filter (`Set.notMember` recursiveParents) topLevelClaims
+  let selectiveClaims = KeyMap.filterWithKey
+        (\k _ -> Key.toText k `elem` topLevelClaimsWithoutRecursive) remainingClaims
+  let regularClaims = KeyMap.filterWithKey
+        (\k _ -> Key.toText k `notElem` topLevelClaimsWithoutRecursive) remainingClaims
+  
+  -- Create disclosures and digests for top-level selective claims
+  -- According to RFC 9901, top-level arrays are treated as object properties
+  -- (disclosure format: [salt, claim_name, claim_value])
+  disclosureResults <- mapM (\(k, v) -> markSelectivelyDisclosable hashAlg (Key.toText k) v) (KeyMap.toList selectiveClaims)
+  
+  -- Check for errors
+  let (errors, successes) = partitionEithers disclosureResults
+  case errors of
+    (err:_) -> return (Left err)
+    [] -> do
+      let (topLevelDigests, topLevelDisclosures) = unzip successes
+      return (Right (topLevelDigests, topLevelDisclosures, regularClaims))
+
+-- | Combine all disclosures and digests from structured, recursive, and top-level processing.
+combineAllDisclosuresAndDigests
+  :: [EncodedDisclosure]  -- ^ Structured disclosures
+  -> [EncodedDisclosure]  -- ^ Recursive disclosures
+  -> [EncodedDisclosure]  -- ^ Top-level disclosures
+  -> [Digest]  -- ^ Recursive parent digests
+  -> [Digest]  -- ^ Top-level digests
+  -> ([EncodedDisclosure], [Digest])
+combineAllDisclosuresAndDigests structuredDisclosures recursiveDisclosures topLevelDisclosures recursiveParentDigests topLevelDigests =
+  let allDisclosures = structuredDisclosures ++ recursiveDisclosures ++ topLevelDisclosures
+      allDigests = recursiveParentDigests ++ topLevelDigests
+  in (allDisclosures, allDigests)
+
+-- | Build the final payload object with _sd_alg and _sd array.
+buildFinalPayloadObject
+  :: HashAlgorithm
+  -> Aeson.Object  -- ^ Base payload (regular claims + structured nested structures)
+  -> [Digest]  -- ^ All digests to include in _sd array
+  -> Aeson.Object
+buildFinalPayloadObject hashAlg basePayload allDigests =
+  let payloadWithAlg = KeyMap.insert "_sd_alg" (Aeson.String (hashAlgorithmToText hashAlg)) basePayload
+  in if null allDigests
+       then payloadWithAlg
+       else let sortedDigests = map (Aeson.String . unDigest) (sortDigests allDigests)
+            in KeyMap.insert "_sd" (Aeson.Array (V.fromList sortedDigests)) payloadWithAlg
+
 -- | Partition claim names into top-level and nested paths.
 --
 -- Nested paths use JSON Pointer syntax (RFC 6901) with forward slash as separator.
@@ -577,6 +622,7 @@ processNestedStructures hashAlg nestedPaths claims = do
   -- Group nested paths by first segment (top-level claim)
   let getFirstSegment [] = ""
       getFirstSegment (seg:_) = seg
+  -- Convert to format expected by groupPathsByFirstSegment (list of segments)
   let groupedByTopLevel = Map.fromListWith (++) $ map (\path -> (getFirstSegment path, [path])) nestedPaths
   
   -- Process each top-level claim recursively (can be object or array)
@@ -634,86 +680,116 @@ processNestedStructures hashAlg nestedPaths claims = do
       Aeson.Array arr -> processArrayPaths hashAlg' paths arr
       _ -> return $ Left $ InvalidDisclosureFormat "Cannot process paths in primitive value (not an object or array)"
     
+    -- Validate that nested value is an object or array if there are remaining paths
+    validateNestedValueType :: T.Text -> [[T.Text]] -> Aeson.Value -> Either SDJWTError ()
+    validateNestedValueType firstSeg nonEmptyPaths nestedValue =
+      if null nonEmptyPaths
+        then Right ()  -- No remaining paths, value type doesn't matter
+        else case nestedValue of
+          Aeson.Object _ -> Right ()
+          Aeson.Array _ -> Right ()
+          _ -> Left $ InvalidDisclosureFormat $ "Path segment is not an object: " <> firstSeg
+    
+    -- Mark a segment as selectively disclosable and create _sd object
+    markSegmentAsSelectivelyDisclosable
+      :: HashAlgorithm
+      -> T.Text  -- ^ Segment name
+      -> Key.Key  -- ^ Segment key
+      -> Aeson.Value  -- ^ Value to mark as SD
+      -> KeyMap.KeyMap Aeson.Value  -- ^ Original object
+      -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure]))
+    markSegmentAsSelectivelyDisclosable hashAlg' firstSeg firstKey nestedValue obj = do
+      result <- markSelectivelyDisclosable hashAlg' firstSeg nestedValue
+      case result of
+        Left err -> return (Left err)
+        Right (digest, disclosure) -> do
+          -- Replace this key with _sd object
+          -- When marking a claim as selectively disclosable, we replace it with {"_sd": ["digest"]}
+          -- at the same level, not nest it under the original key
+          let updatedObj = KeyMap.delete firstKey obj
+          let sdArray = Aeson.Array (V.fromList [Aeson.String (unDigest digest)])
+          let sdObj = KeyMap.insert "_sd" sdArray KeyMap.empty
+          -- Return the _sd object merged with the updated object (without the original key)
+          return (Right (KeyMap.union sdObj updatedObj, [disclosure]))
+    
+    -- Process a single path segment (handles both target and nested cases)
+    processPathSegment
+      :: HashAlgorithm
+      -> T.Text  -- ^ First segment name
+      -> [[T.Text]]  -- ^ Remaining paths
+      -> KeyMap.KeyMap Aeson.Value  -- ^ Original object
+      -> Aeson.Value  -- ^ Nested value
+      -> IO (Either SDJWTError (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure]))
+    processPathSegment hashAlg' firstSeg remainingPaths obj nestedValue = do
+      -- Filter out empty paths (this segment is the target)
+      let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+      
+      -- Validate nested value type if there are remaining paths
+      case validateNestedValueType firstSeg nonEmptyPaths nestedValue of
+        Left err -> return (Left err)
+        Right () -> do
+          if null nonEmptyPaths
+            then do
+              -- This segment is the target - mark it as selectively disclosable
+              let firstKey = Key.fromText firstSeg
+              markSegmentAsSelectivelyDisclosable hashAlg' firstSeg firstKey nestedValue obj
+            else do
+              -- Recurse into nested value (could be object or array)
+              nestedResult <- processPathsRecursively hashAlg' nonEmptyPaths nestedValue
+              case nestedResult of
+                Left err -> return (Left err)
+                Right (modifiedNestedValue, nestedDisclosures) -> do
+                  let firstKey = Key.fromText firstSeg
+                  if null emptyPaths
+                    then return (Right (KeyMap.insert firstKey modifiedNestedValue obj, nestedDisclosures))
+                    else do
+                      -- Mark this level as selectively disclosable too
+                      result <- markSegmentAsSelectivelyDisclosable hashAlg' firstSeg firstKey modifiedNestedValue obj
+                      case result of
+                        Left err -> return (Left err)
+                        Right (sdObj, parentDisclosure) -> 
+                          return (Right (sdObj, parentDisclosure ++ nestedDisclosures))
+    
+    -- Combine results from processing all path segments
+    combineObjectPathResults
+      :: KeyMap.KeyMap Aeson.Value  -- ^ Original object
+      -> Map.Map T.Text [[T.Text]]  -- ^ Grouped paths
+      -> [(KeyMap.KeyMap Aeson.Value, [EncodedDisclosure])]  -- ^ Success results
+      -> (KeyMap.KeyMap Aeson.Value, [EncodedDisclosure])
+    combineObjectPathResults obj groupedByFirst successes = do
+      -- Merge all modified objects and combine disclosures
+      -- Track which keys were deleted (marked as selectively disclosable)
+      let (modifiedObjs, disclosuresList) = unzip successes
+      let deletedKeys = Set.fromList $ map (\(firstSeg, _) -> Key.fromText firstSeg) (Map.toList groupedByFirst)
+      -- Start with original object and apply all modifications
+      -- When merging, combine _sd arrays instead of overwriting them
+      -- Also remove keys that were marked as selectively disclosable
+      let finalObj = foldl mergeModifiedObject obj modifiedObjs
+      -- Remove keys that were marked as selectively disclosable
+      let finalObjWithoutDeleted = Set.foldr KeyMap.delete finalObj deletedKeys
+      (finalObjWithoutDeleted, concat disclosuresList)
+    
     -- Process paths within an object
     processObjectPaths :: HashAlgorithm -> [[T.Text]] -> KeyMap.KeyMap Aeson.Value -> IO (Either SDJWTError (Aeson.Value, [EncodedDisclosure]))
     processObjectPaths hashAlg' paths obj = do
       -- Group paths by their first segment
-      let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
-            [] -> ("", [])
-            (first:rest) -> (first, [rest])) paths
+      let groupedByFirst = groupPathsByFirstSegment paths
       
       -- Process each group
       results <- mapM (\(firstSeg, remainingPaths) -> do
         let firstKey = Key.fromText firstSeg
         case KeyMap.lookup firstKey obj of
           Nothing -> return $ Left $ InvalidDisclosureFormat $ "Path segment not found: " <> firstSeg
-          Just nestedValue -> do
-            -- Filter out empty paths (this segment is the target)
-            let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
-            -- If there are remaining paths, the nested value must be an object or array
-            typeCheckResult <- if not (null nonEmptyPaths)
-              then case nestedValue of
-                Aeson.Object _ -> return $ Right ()
-                Aeson.Array _ -> return $ Right ()
-                _ -> return $ Left $ InvalidDisclosureFormat $ "Path segment is not an object: " <> firstSeg
-              else return $ Right ()  -- No remaining paths, value type doesn't matter
-            
-            case typeCheckResult of
-              Left err -> return $ Left err
-              Right () -> do
-                if null nonEmptyPaths
-                  then do
-                    -- This segment is the target - mark it as selectively disclosable
-                    result <- markSelectivelyDisclosable hashAlg' firstSeg nestedValue
-                    case result of
-                      Left err -> return $ Left err
-                      Right (digest, disclosure) -> do
-                        -- Replace this key with _sd object
-                        -- When marking a claim as selectively disclosable, we replace it with {"_sd": ["digest"]}
-                        -- at the same level, not nest it under the original key
-                        let updatedObj = KeyMap.delete firstKey obj
-                        let sdArray = Aeson.Array (V.fromList [Aeson.String (unDigest digest)])
-                        let sdObj = KeyMap.insert "_sd" sdArray KeyMap.empty
-                        -- Return the _sd object merged with the updated object (without the original key)
-                        return $ Right (KeyMap.union sdObj updatedObj, [disclosure])
-                  else do
-                    -- Recurse into nested value (could be object or array)
-                    nestedResult <- processPathsRecursively hashAlg' nonEmptyPaths nestedValue
-                    case nestedResult of
-                      Left err -> return $ Left err
-                      Right (modifiedNestedValue, nestedDisclosures) -> do
-                        -- Also handle empty paths (marking this level as selectively disclosable)
-                        if null emptyPaths
-                          then return $ Right (KeyMap.insert firstKey modifiedNestedValue obj, nestedDisclosures)
-                          else do
-                            -- Mark this level as selectively disclosable too
-                            result <- markSelectivelyDisclosable hashAlg' firstSeg modifiedNestedValue
-                            case result of
-                              Left err -> return $ Left err
-                              Right (digest, disclosure) -> do
-                                let updatedObj = KeyMap.delete firstKey obj
-                                let sdArray = Aeson.Array (V.fromList [Aeson.String (unDigest digest)])
-                                let sdObj = KeyMap.insert "_sd" sdArray KeyMap.empty
-                                -- Return the _sd object merged with the updated object (without the original key)
-                                return $ Right (KeyMap.union sdObj updatedObj, disclosure:nestedDisclosures)
+          Just nestedValue -> processPathSegment hashAlg' firstSeg remainingPaths obj nestedValue
         ) (Map.toList groupedByFirst)
       
       -- Combine results
       let (errors, successes) = partitionEithers results
       case errors of
-        (err:_) -> return $ Left err
+        (err:_) -> return (Left err)
         [] -> do
-          -- Merge all modified objects and combine disclosures
-          -- Track which keys were deleted (marked as selectively disclosable)
-          let (modifiedObjs, disclosuresList) = unzip successes
-          let deletedKeys = Set.fromList $ map (\(firstSeg, _) -> Key.fromText firstSeg) (Map.toList groupedByFirst)
-          -- Start with original object and apply all modifications
-          -- When merging, combine _sd arrays instead of overwriting them
-          -- Also remove keys that were marked as selectively disclosable
-          let finalObj = foldl mergeModifiedObject obj modifiedObjs
-          -- Remove keys that were marked as selectively disclosable
-          let finalObjWithoutDeleted = Set.foldr KeyMap.delete finalObj deletedKeys
-          return $ Right (Aeson.Object finalObjWithoutDeleted, concat disclosuresList)
+          let (finalObj, allDisclosures) = combineObjectPathResults obj groupedByFirst successes
+          return (Right (Aeson.Object finalObj, allDisclosures))
     
     -- Helper function to merge a modified object into an accumulator, combining _sd arrays
     mergeModifiedObject :: KeyMap.KeyMap Aeson.Value -> KeyMap.KeyMap Aeson.Value -> KeyMap.KeyMap Aeson.Value
@@ -861,9 +937,7 @@ processRecursiveDisclosures hashAlg recursivePaths claims = do
     processRecursivePaths :: HashAlgorithm -> [[T.Text]] -> KeyMap.KeyMap Aeson.Value -> T.Text -> IO (Either SDJWTError (Digest, EncodedDisclosure, [EncodedDisclosure]))
     processRecursivePaths hashAlg' paths obj parentName = do
       -- Group paths by their first segment
-      let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
-            [] -> ("", [])
-            (first:rest) -> (first, [rest])) paths
+      let groupedByFirst = groupPathsByFirstSegment paths
       
       -- Process each group
       results <- mapM (\(firstSeg, remainingPaths) -> do

@@ -14,7 +14,7 @@ module SDJWT.Internal.Presentation
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))
 import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureClaimName, getDisclosureValue)
 import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, computeDigestText, extractDigestStringsFromSDArray, defaultHashAlgorithm)
-import SDJWT.Internal.Utils (splitJSONPointer, unescapeJSONPointer)
+import SDJWT.Internal.Utils (splitJSONPointer, unescapeJSONPointer, groupPathsByFirstSegment)
 import SDJWT.Internal.KeyBinding (addKeyBindingToPresentation)
 import SDJWT.Internal.JWT (JWKLike)
 import SDJWT.Internal.Verification (parsePayloadFromJWT, extractDigestsFromPayload)
@@ -127,21 +127,16 @@ collectDisclosuresRecursively hashAlg topLevelNames nestedPaths value allDisclos
     Aeson.Array arr -> collectFromArray hashAlg topLevelNames nestedPaths arr allDisclosures decodedDisclosures
     _ -> return []  -- Primitive value, no disclosures
 
--- | Collect disclosures from an object.
-collectFromObject
+-- | Collect top-level disclosures from root _sd array.
+collectTopLevelDisclosures
   :: HashAlgorithm
   -> [T.Text]  -- ^ Top-level claim names
-  -> [[T.Text]]  -- ^ Nested paths as segments
   -> KeyMap.KeyMap Aeson.Value  -- ^ Current object
   -> [EncodedDisclosure]  -- ^ All available disclosures
   -> [Disclosure]  -- ^ Decoded disclosures (for claim name lookup)
   -> Either SDJWTError [EncodedDisclosure]
-collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDisclosures = do
-  -- Process top-level names
-  -- For top-level selectively disclosable claims (including arrays), the claim is removed
-  -- from payload and its digest is in the root _sd array (RFC 9901 treats top-level arrays
-  -- as object properties, not array elements).
-  topLevelDisclos <- if null topLevelNames
+collectTopLevelDisclosures hashAlg topLevelNames obj allDisclosures decodedDisclosures =
+  if null topLevelNames
     then return []
     else do
       -- Extract digests from root _sd array
@@ -160,59 +155,88 @@ collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDi
                     else Nothing
                 ) $ zip allDisclosures decodedDisclosures
           return matchingDisclos
+
+-- | Find disclosure for a claim name in an _sd array.
+findDisclosureForClaim
+  :: HashAlgorithm
+  -> T.Text  -- ^ Claim name
+  -> KeyMap.KeyMap Aeson.Value  -- ^ Current object
+  -> [EncodedDisclosure]  -- ^ All available disclosures
+  -> [Disclosure]  -- ^ Decoded disclosures
+  -> Maybe (EncodedDisclosure, Disclosure)
+findDisclosureForClaim hashAlg claimName obj allDisclosures decodedDisclosures =
+  let sdArrayDigests = extractDigestStringsFromSDArray obj
+  in find (\(encDisclosure, decoded) ->
+        let digestText = computeDigestText hashAlg encDisclosure
+            decodedClaimName = getDisclosureClaimName decoded
+        in digestText `elem` sdArrayDigests && decodedClaimName == Just claimName
+      ) $ zip allDisclosures decodedDisclosures
+
+-- | Collect nested disclosures for a single path segment.
+collectNestedDisclosuresForSegment
+  :: HashAlgorithm
+  -> T.Text  -- ^ First segment (claim name)
+  -> [[T.Text]]  -- ^ Remaining paths
+  -> KeyMap.KeyMap Aeson.Value  -- ^ Current object
+  -> [EncodedDisclosure]  -- ^ All available disclosures
+  -> [Disclosure]  -- ^ Decoded disclosures
+  -> Either SDJWTError [EncodedDisclosure]
+collectNestedDisclosuresForSegment hashAlg firstSeg remainingPaths obj allDisclosures decodedDisclosures = do
+  -- Find disclosure for this claim name
+  let claimDisclosure = findDisclosureForClaim hashAlg firstSeg obj allDisclosures decodedDisclosures
+  let nestedValue = case claimDisclosure of
+        Just (_, decoded) -> getDisclosureValue decoded
+        Nothing -> fromMaybe Aeson.Null $ KeyMap.lookup (Key.fromText firstSeg) obj
+  
+  -- Filter out empty paths (this segment is the target)
+  let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
+  
+  -- Collect disclosure for this level if it's a target
+  thisLevelDisclos <- if null emptyPaths
+    then return []
+    else case claimDisclosure of
+      Just (encDisclosure, _) -> return [encDisclosure]
+      Nothing -> collectDisclosuresForValue hashAlg firstSeg nestedValue allDisclosures
+  
+  -- Recurse into nested value
+  deeperDisclos <- if null nonEmptyPaths
+    then return []
+    else do
+      -- Collect disclosures for nested paths
+      nestedDisclos2 <- collectDisclosuresRecursively hashAlg [] nonEmptyPaths nestedValue allDisclosures decodedDisclosures
+      -- If we found nested disclosures, check if the parent itself is selectively disclosable
+      -- (Section 6.3 recursive disclosure)
+      parentDisclos <- if not (null nestedDisclos2) && isRecursiveValue nestedValue
+        then case claimDisclosure of
+          Just (encDisclosure, _) -> return [encDisclosure]  -- Parent is selectively disclosable
+          Nothing -> return []  -- Parent is not selectively disclosable (Section 6.2)
+        else return []
+      return (parentDisclos ++ nestedDisclos2)
+  
+  return (thisLevelDisclos ++ deeperDisclos)
+
+-- | Collect disclosures from an object.
+collectFromObject
+  :: HashAlgorithm
+  -> [T.Text]  -- ^ Top-level claim names
+  -> [[T.Text]]  -- ^ Nested paths as segments
+  -> KeyMap.KeyMap Aeson.Value  -- ^ Current object
+  -> [EncodedDisclosure]  -- ^ All available disclosures
+  -> [Disclosure]  -- ^ Decoded disclosures (for claim name lookup)
+  -> Either SDJWTError [EncodedDisclosure]
+collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDisclosures = do
+  -- Process top-level names
+  -- For top-level selectively disclosable claims (including arrays), the claim is removed
+  -- from payload and its digest is in the root _sd array (RFC 9901 treats top-level arrays
+  -- as object properties, not array elements).
+  topLevelDisclos <- collectTopLevelDisclosures hashAlg topLevelNames obj allDisclosures decodedDisclosures
   
   -- Group nested paths by first segment
-  let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
-        [] -> ("", [])
-        (first:rest) -> (first, [rest])) nestedPaths
+  let groupedByFirst = groupPathsByFirstSegment nestedPaths
   
   -- Process each group recursively
   nestedDisclos <- mapM (\(firstSeg, remainingPaths) ->
-      -- Check if the key exists in the object, or if it's in an _sd array
-      let -- Check if there's an _sd array that might contain this claim
-          sdArrayDigests = extractDigestStringsFromSDArray obj
-          -- Find disclosure for this claim name in the _sd array
-          claimDisclosure = find (\(encDisclosure, decoded) ->
-                let digestText = computeDigestText hashAlg encDisclosure
-                    claimName = getDisclosureClaimName decoded
-                in digestText `elem` sdArrayDigests && claimName == Just firstSeg
-              ) $ zip allDisclosures decodedDisclosures
-          nestedValue = case claimDisclosure of
-            Just (_, decoded) ->
-              -- Claim is in _sd array, reconstruct the value from disclosure
-              getDisclosureValue decoded
-            Nothing ->
-              -- Claim might be a regular key or not exist
-              fromMaybe Aeson.Null $ KeyMap.lookup (Key.fromText firstSeg) obj
-      in do
-        -- Filter out empty paths (this segment is the target)
-        let (emptyPaths, nonEmptyPaths) = partition null remainingPaths
-        -- Collect disclosure for this level if it's a target
-        thisLevelDisclos <- if null emptyPaths
-          then return []
-          else case claimDisclosure of
-            Just (encDisclosure, _) -> return [encDisclosure]
-            Nothing -> collectDisclosuresForValue hashAlg firstSeg nestedValue allDisclosures
-        -- Recurse into nested value
-        deeperDisclos <- if null nonEmptyPaths
-          then return []
-          else do
-            -- Collect disclosures for nested paths
-            nestedDisclos2 <- collectDisclosuresRecursively hashAlg [] nonEmptyPaths nestedValue allDisclosures decodedDisclosures
-            -- If we found nested disclosures, check if the parent itself is selectively disclosable
-            -- (Section 6.3 recursive disclosure). The parent is selectively disclosable if its digest
-            -- is in a parent _sd array. For top-level claims, check if the claim name is in topLevelNames.
-            -- For nested claims, check if the parent object's digest is in the current object's _sd array.
-            parentDisclos <- if not (null nestedDisclos2) && isRecursiveValue nestedValue
-              then do
-                -- Check if this parent claim itself has a disclosure (is selectively disclosable)
-                -- For nested claims, we check if the parent's digest is in the current object's _sd array
-                case claimDisclosure of
-                  Just (encDisclosure, _) -> return [encDisclosure]  -- Parent is selectively disclosable
-                  Nothing -> return []  -- Parent is not selectively disclosable (Section 6.2)
-              else return []
-            return (parentDisclos ++ nestedDisclos2)
-        return (thisLevelDisclos ++ deeperDisclos)
+      collectNestedDisclosuresForSegment hashAlg firstSeg remainingPaths obj allDisclosures decodedDisclosures
     ) (Map.toList groupedByFirst)
   
   return $ topLevelDisclos ++ concat nestedDisclos

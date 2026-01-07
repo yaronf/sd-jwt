@@ -28,6 +28,7 @@ module SDJWT.Internal.Utils
   , unescapeJSONPointer
   , constantTimeEq
   , generateSalt  -- Internal use only, not part of public API
+  , groupPathsByFirstSegment
   ) where
 
 import qualified Data.ByteString.Base64.URL as Base64
@@ -37,6 +38,7 @@ import qualified Data.Text.Encoding as TE
 import qualified Crypto.Random as RNG
 import qualified Crypto.Hash as Hash
 import qualified Data.ByteArray as BA
+import qualified Data.Map.Strict as Map
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import SDJWT.Internal.Types (HashAlgorithm(..))
 
@@ -158,4 +160,18 @@ constantTimeEq :: BS.ByteString -> BS.ByteString -> Bool
 constantTimeEq a b
   | BS.length a /= BS.length b = False
   | otherwise = BA.constEq a b
+
+-- | Group paths by their first segment.
+--
+-- This is a common pattern for processing nested JSON Pointer paths.
+-- Empty paths are grouped under an empty string key.
+--
+-- Example:
+--   groupPathsByFirstSegment [["a", "b"], ["a", "c"], ["x"]] 
+--   = Map.fromList [("a", [["b"], ["c"]]), ("x", [[]])]
+groupPathsByFirstSegment :: [[T.Text]] -> Map.Map T.Text [[T.Text]]
+groupPathsByFirstSegment nestedPaths =
+  Map.fromListWith (++) $ map (\path -> case path of
+    [] -> ("", [])
+    (first:rest) -> (first, [rest])) nestedPaths
 
