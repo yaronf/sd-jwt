@@ -805,6 +805,111 @@ spec = describe "SDJWT.Verification" $ do
                       _ -> expectationFailure "Array element should be an object"
                   _ -> expectationFailure "test_array claim not found"
               Left err -> expectationFailure $ "Verification failed: " ++ show err
+      
+      it "removes _sd_alg from array disclosure value leaving empty object" $ do
+        -- Test empty object case: when removing _sd_alg leaves an empty object,
+        -- it should preserve the object type (return {} not [])
+        -- This covers line 463: Aeson.Object KeyMap.empty
+        let emptyObjectWithSDAlg = Aeson.object
+              [  (Key.fromText "_sd_alg", Aeson.String "sha-256")
+              ]
+        let claims = KeyMap.fromList
+              [  (Key.fromText "test_array", Aeson.Array $ V.fromList [emptyObjectWithSDAlg])
+              ]
+        
+        result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+          Right (payload, allDisclosures) -> do
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let presentation = SDJWTPresentation mockJWT allDisclosures Nothing
+            
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let claims = processedClaims processed
+                case KeyMap.lookup (Key.fromText "test_array") claims of
+                  Just (Aeson.Array arr) -> do
+                    V.length arr `shouldBe` 1
+                    case arr V.!? 0 of
+                      Just (Aeson.Object obj) -> do
+                        -- Should be empty object {}, not array []
+                        KeyMap.null obj `shouldBe` True
+                        -- Verify _sd_alg is removed
+                        KeyMap.lookup (Key.fromText "_sd_alg") obj `shouldBe` Nothing
+                      _ -> expectationFailure "Array element should be an empty object {}, not array []"
+                  _ -> expectationFailure "test_array claim not found"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
+      
+      it "removes _sd_alg from array disclosure value that is an array" $ do
+        -- Test array case: when array disclosure value is itself an array,
+        -- removeSDAlgPreservingType should preserve the array type
+        -- This covers lines 465-469: Array case (both empty and non-empty)
+        let nestedArray = Aeson.Array $ V.fromList [Aeson.String "item1", Aeson.String "item2"]
+        let claims = KeyMap.fromList
+              [  (Key.fromText "test_array", Aeson.Array $ V.fromList [nestedArray])
+              ]
+        
+        result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+          Right (payload, allDisclosures) -> do
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let presentation = SDJWTPresentation mockJWT allDisclosures Nothing
+            
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let claims = processedClaims processed
+                case KeyMap.lookup (Key.fromText "test_array") claims of
+                  Just (Aeson.Array arr) -> do
+                    V.length arr `shouldBe` 1
+                    case arr V.!? 0 of
+                      Just (Aeson.Array innerArr) -> do
+                        -- Should preserve array type
+                        V.length innerArr `shouldBe` 2
+                        innerArr V.!? 0 `shouldBe` Just (Aeson.String "item1")
+                        innerArr V.!? 1 `shouldBe` Just (Aeson.String "item2")
+                      _ -> expectationFailure "Array element should be an array"
+                  _ -> expectationFailure "test_array claim not found"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
+      
+      it "removes _sd_alg from array disclosure value that is an empty array" $ do
+        -- Test empty array case: when array disclosure value is an empty array,
+        -- removeSDAlgPreservingType should preserve the empty array type
+        -- This covers line 468: Aeson.Array V.empty
+        let emptyArray = Aeson.Array V.empty
+        let claims = KeyMap.fromList
+              [  (Key.fromText "test_array", Aeson.Array $ V.fromList [emptyArray])
+              ]
+        
+        result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+          Right (payload, allDisclosures) -> do
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            let presentation = SDJWTPresentation mockJWT allDisclosures Nothing
+            
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let claims = processedClaims processed
+                case KeyMap.lookup (Key.fromText "test_array") claims of
+                  Just (Aeson.Array arr) -> do
+                    V.length arr `shouldBe` 1
+                    case arr V.!? 0 of
+                      Just (Aeson.Array innerArr) -> do
+                        -- Should preserve empty array type []
+                        V.null innerArr `shouldBe` True
+                      _ -> expectationFailure "Array element should be an empty array []"
+                  _ -> expectationFailure "test_array claim not found"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
 
     describe "Array gaps - nested arrays and recursive disclosures" $ do
       it "processes nested arrays with selectively disclosable elements (Gap 1)" $ do

@@ -17,7 +17,7 @@ import SDJWT.Internal.Issuance
 import SDJWT.Internal.Presentation
 import SDJWT.Internal.Verification (verifySDJWT, verifySDJWTSignature, verifySDJWTWithoutSignature, verifyKeyBinding, verifyDisclosures, extractHashAlgorithm)
 import SDJWT.Internal.KeyBinding
-import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp, verifyJWT, JWKLike(..))
+import SDJWT.Internal.JWT (signJWT, signJWTWithOptionalTyp, signJWTWithHeaders, verifyJWT, JWKLike(..))
 import qualified Crypto.JOSE as Jose
 import qualified Crypto.JOSE.JWS as JWS
 import qualified Crypto.JOSE.JWK as JWK
@@ -377,6 +377,48 @@ spec = describe "SDJWT.JWT" $ do
               T.isInfixOf "Invalid typ header" msg `shouldBe` True
             Left _ -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject JWT with invalid typ header"
+    
+    it "signs JWT with kid header parameter" $ do
+      -- Test that signJWTWithHeaders correctly adds kid header when provided
+      -- When mbKid is Just kidValue, the kid header is added to the JWT header
+      keyPair <- generateTestRSAKeyPair
+      let payload = KeyMap.fromList [ (Key.fromText "sub", Aeson.String "user_123")]
+      let kidValue = "issuer-key-1"
+      
+      -- Sign JWT with kid header
+      signedResult <- signJWTWithHeaders Nothing (Just kidValue) (privateKeyJWK keyPair) (Aeson.Object payload)
+      case signedResult of
+        Left err -> expectationFailure $ "Failed to sign JWT with kid header: " ++ show err
+        Right signedJWT -> do
+          -- Verify JWT structure (header.payload.signature)
+          let parts = T.splitOn "." signedJWT
+          length parts `shouldBe` 3
+          
+          -- Decode header to verify kid is present
+          let headerB64 = parts !! 0
+          case base64urlDecode headerB64 of
+            Left _ -> expectationFailure "Failed to decode header"
+            Right headerBS -> do
+              case Aeson.decode (BSL.fromStrict headerBS) of
+                Just (Aeson.Object headerObj) -> do
+                  -- Verify kid header is present
+                  case KeyMap.lookup (Key.fromText "kid") headerObj of
+                    Just (Aeson.String kid) -> do
+                      kid `shouldBe` kidValue
+                    _ -> expectationFailure "kid header not found in JWT header"
+                _ -> expectationFailure "Header is not an object"
+          
+          -- Verify JWT can be verified
+          verifyResult <- verifyJWT (publicKeyJWK keyPair) signedJWT Nothing
+          case verifyResult of
+            Left err -> expectationFailure $ "Failed to verify JWT with kid header: " ++ show err
+            Right decodedPayload -> do
+              -- Verify payload matches
+              case decodedPayload of
+                Aeson.Object obj -> case KeyMap.lookup (Key.fromText "sub") obj of
+                  Just (Aeson.String "user_123") -> return ()
+                  _ -> expectationFailure "Payload 'sub' field mismatch"
+                _ -> expectationFailure "Payload is not an object"
     
     it "rejects JWT with invalid payload JSON" $ do
       keyPair <- generateTestRSAKeyPair

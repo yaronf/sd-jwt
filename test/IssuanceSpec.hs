@@ -1073,6 +1073,73 @@ spec = describe "SDJWT.Issuance" $ do
           Left err -> expectationFailure $ "Should handle object value: " ++ show err
       
       it "handles array element with nested array value" $ do
+        let nestedArray = Aeson.Array $ V.fromList [Aeson.String "nested"]
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [nestedArray])]
+        result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
+        case result of
+          Right (_payload, disclosures) -> do
+            length disclosures `shouldBe` 1
+            unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
+          Left err -> expectationFailure $ "Should handle nested array value: " ++ show err
+      
+      it "handles negative array index (out of bounds)" $ do
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.String "value1", Aeson.String "value2"])]
+        result <- buildSDJWTPayload SHA256 ["test_array/-1"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Array index" msg `shouldBe` True
+            T.isInfixOf "out of bounds" msg `shouldBe` True
+            T.isInfixOf "-1" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when array index is negative"
+      
+      it "handles array index that is too large (out of bounds)" $ do
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.String "value1", Aeson.String "value2"])]
+        result <- buildSDJWTPayload SHA256 ["test_array/5"] claims  -- Array has 2 elements (indices 0-1), trying index 5
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Array index" msg `shouldBe` True
+            T.isInfixOf "out of bounds" msg `shouldBe` True
+            T.isInfixOf "5" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when array index exceeds array length"
+      
+      it "creates ellipsis object when array element path ends at element (null nonEmptyPaths)" $ do
+        -- Test that when path ends at array element (e.g., "test_array/0"), 
+        -- the element is marked as selectively disclosable and replaced with ellipsis object
+        -- This covers partition logic and ellipsis object creation
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.String "value1", Aeson.String "value2", Aeson.String "value3"])]
+        result <- buildSDJWTPayload SHA256 ["test_array/1"] claims  -- Mark middle element (index 1)
+        case result of
+          Right (payload, disclosures) -> do
+            length disclosures `shouldBe` 1
+            -- Verify payload structure: array element should be replaced with ellipsis object
+            case payloadValue payload of
+              Aeson.Object obj -> do
+                case KeyMap.lookup (Key.fromText "test_array") obj of
+                  Just (Aeson.Array arr) -> do
+                    V.length arr `shouldBe` 3  -- Array length preserved
+                    -- First element (index 0) should remain unchanged
+                    case arr V.!? 0 of
+                      Just (Aeson.String "value1") -> return ()
+                      _ -> expectationFailure "First element should remain unchanged"
+                    -- Second element (index 1) should be ellipsis object
+                    case arr V.!? 1 of
+                      Just (Aeson.Object ellipsisObj) -> do
+                        case KeyMap.lookup (Key.fromText "...") ellipsisObj of
+                          Just (Aeson.String digest) -> do
+                            T.length digest `shouldSatisfy` (> 0)  -- Digest should be non-empty
+                          _ -> expectationFailure "Ellipsis object should contain '...' key with digest"
+                      _ -> expectationFailure "Second element should be replaced with ellipsis object"
+                    -- Third element (index 2) should remain unchanged
+                    case arr V.!? 2 of
+                      Just (Aeson.String "value3") -> return ()
+                      _ -> expectationFailure "Third element should remain unchanged"
+                  _ -> expectationFailure "test_array should be an array"
+              _ -> expectationFailure "Payload should be an object"
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+      
+      it "handles array element with nested array value" $ do
         let arrValue = Aeson.Array $ V.fromList [Aeson.String "item1", Aeson.String "item2"]
         let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [arrValue])]
         result <- buildSDJWTPayload SHA256 ["test_array/0"] claims
@@ -1081,6 +1148,28 @@ spec = describe "SDJWT.Issuance" $ do
             length disclosures `shouldBe` 1
             unEncodedDisclosure (head disclosures) `shouldSatisfy` (not . T.null)
           Left err -> expectationFailure $ "Should handle array value: " ++ show err
+      
+      it "handles negative array index (out of bounds)" $ do
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.String "value1", Aeson.String "value2"])]
+        result <- buildSDJWTPayload SHA256 ["test_array/-1"] claims
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Array index" msg `shouldBe` True
+            T.isInfixOf "out of bounds" msg `shouldBe` True
+            T.isInfixOf "-1" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when array index is negative"
+      
+      it "handles array index that is too large (out of bounds)" $ do
+        let claims = KeyMap.fromList [ (Key.fromText "test_array", Aeson.Array $ V.fromList [Aeson.String "value1", Aeson.String "value2"])]
+        result <- buildSDJWTPayload SHA256 ["test_array/5"] claims  -- Array has 2 elements (indices 0-1), trying index 5
+        case result of
+          Left (InvalidDisclosureFormat msg) -> do
+            T.isInfixOf "Array index" msg `shouldBe` True
+            T.isInfixOf "out of bounds" msg `shouldBe` True
+            T.isInfixOf "5" msg `shouldBe` True
+          Left _ -> return ()  -- Any error is acceptable
+          Right _ -> expectationFailure "Should fail when array index exceeds array length"
   
   describe "addHolderKeyToClaims" $ do
     it "adds cnf claim with valid JWK JSON string" $ do

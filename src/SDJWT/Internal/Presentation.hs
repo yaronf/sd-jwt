@@ -196,7 +196,7 @@ collectNestedDisclosuresForSegment hashAlg firstSeg remainingPaths obj allDisclo
     then return []
     else case claimDisclosure of
       Just (encDisclosure, _) -> return [encDisclosure]
-      Nothing -> collectDisclosuresForValue hashAlg firstSeg nestedValue allDisclosures
+      Nothing -> return []  -- Claim not in parent's _sd array and is a target - no disclosure to collect
   
   -- Recurse into nested value
   deeperDisclos <- if null nonEmptyPaths
@@ -307,31 +307,6 @@ collectFromArray hashAlg _topLevelNames nestedPaths arr allDisclosures decodedDi
     ) (Map.toList groupedByFirstIndex)
   
   return $ concat results
-
--- | Collect disclosures for a value (object or array element).
-collectDisclosuresForValue
-  :: HashAlgorithm
-  -> T.Text  -- ^ Claim name
-  -> Aeson.Value  -- ^ Value (object or array element)
-  -> [EncodedDisclosure]  -- ^ All available disclosures
-  -> Either SDJWTError [EncodedDisclosure]
-collectDisclosuresForValue hashAlg _claimName value allDisclosures = do
-  case value of
-    Aeson.Object obj -> do
-      -- Extract digests from _sd array
-      let digests = extractDigestStringsFromSDArray obj
-      if null digests
-        then return []  -- No _sd array, no disclosures
-        else do
-          -- Find disclosures matching these digests
-          let matchingDisclos = mapMaybe (\encDisclosure ->
-                let digestText = computeDigestText hashAlg encDisclosure
-                in if digestText `elem` digests
-                  then Just encDisclosure
-                  else Nothing
-                ) allDisclosures
-          return matchingDisclos
-    _ -> return []  -- Not an object, no disclosures
 
 -- | Collect disclosures for an array element.
 collectDisclosuresForArrayElement

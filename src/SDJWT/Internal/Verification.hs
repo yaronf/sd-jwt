@@ -227,7 +227,7 @@ processPayload hashAlg sdPayload sdDisclosures mbKeyBindingInfo = do
   (objectDisclosureMap, arrayDisclosureMap) <- buildDisclosureMap hashAlg sdDisclosures
   
   -- Replace digests in _sd arrays with actual values and process arrays
-  let finalClaims = replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap
+  finalClaims <- replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap
   
   return $ ProcessedSDJWTPayload { processedClaims = finalClaims, keyBindingInfo = mbKeyBindingInfo }
 
@@ -391,17 +391,16 @@ replaceDigestsWithValues
   :: Aeson.Object
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
-  -> Aeson.Object
-replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap =
+  -> Either SDJWTError Aeson.Object
+replaceDigestsWithValues regularClaims objectDisclosureMap arrayDisclosureMap = do
   -- Process object claims: replace digests in _sd arrays with values (including nested _sd arrays)
   let disclosedClaims = KeyMap.fromList $ map (\(claimName, claimValue) -> (Key.fromText claimName, claimValue)) (Map.elems objectDisclosureMap)
       objectClaims = KeyMap.union disclosedClaims regularClaims
-  in
-    -- Process arrays recursively to replace {"...": "<digest>"} objects
-    -- Also process nested _sd arrays recursively
-    -- Note: Array disclosure values may contain _sd arrays (for nested selective disclosure),
-    -- so we need to process _sd arrays in those values too
-    processArraysInClaimsWithSD (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap objectDisclosureMap
+  -- Process arrays recursively to replace {"...": "<digest>"} objects
+  -- Also process nested _sd arrays recursively
+  -- Note: Array disclosure values may contain _sd arrays (for nested selective disclosure),
+  -- so we need to process _sd arrays in those values too
+  processArraysInClaimsWithSD (processSDArraysInClaims objectClaims objectDisclosureMap) arrayDisclosureMap objectDisclosureMap
 
 -- | Recursively process _sd arrays in claims to replace digests with values.
 processSDArraysInClaims
@@ -450,9 +449,13 @@ processArraysInClaimsWithSD
   :: Aeson.Object
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
-  -> Aeson.Object
-processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap =
-  KeyMap.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
+  -> Either SDJWTError Aeson.Object
+processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap = do
+  processedPairs <- mapM (\(key, value) -> do
+    processedValue <- processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap
+    return (key, processedValue)
+    ) (KeyMap.toList claims)
+  return $ KeyMap.fromList processedPairs
 
 -- | Remove _sd_alg metadata field while preserving the JSON type structure.
 removeSDAlgPreservingType :: Aeson.Value -> Aeson.Value
@@ -474,7 +477,7 @@ processEllipsisObject
   :: Aeson.Object
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
-  -> Maybe Aeson.Value
+  -> Either SDJWTError (Maybe Aeson.Value)
 processEllipsisObject obj arrayDisclosureMap objectDisclosureMap =
   -- Check if this is a {"...": "<digest>"} object
   case KeyMap.lookup (Key.fromText "...") obj of
@@ -485,21 +488,22 @@ processEllipsisObject obj arrayDisclosureMap objectDisclosureMap =
         then
           -- Look up the value for this digest
           case Map.lookup digest arrayDisclosureMap of
-            Just value ->
+            Just value -> do
               -- Process _sd arrays in the array disclosure value (for nested selective disclosure)
               let processedSD = processSDArraysInValue value objectDisclosureMap
                   -- Remove _sd_alg (metadata field) from array disclosure values
                   processedWithoutSDAlg = removeSDAlgPreservingType processedSD
-                  -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
-                  -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
-              in Just $ processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
+              -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
+              -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
+              processedValue <- processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
+              return (Just processedValue)
             Nothing ->
               -- No disclosure found - per RFC 9901 Section 7.3, remove the array element
               -- "Verifiers ignore all selectively disclosable array elements for which
               -- they did not receive a Disclosure."
-              Nothing
-        else Just (Aeson.Object obj)  -- Invalid ellipsis object (has extra keys), keep as is
-    _ -> Just (Aeson.Object obj)  -- Not an ellipsis object, keep as is
+              return Nothing
+        else Left $ InvalidDigest "Ellipsis object must contain only the \"...\" key (RFC 9901 Section 4.2.4.2)"
+    _ -> return (Just (Aeson.Object obj))  -- Not an ellipsis object, keep as is
 
 -- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays,
 -- and also process _sd arrays in array disclosure values (for nested selective disclosure).
@@ -507,25 +511,29 @@ processValueForArraysWithSD
   :: Aeson.Value
   -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
-  -> Aeson.Value
-processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosureMap =
+  -> Either SDJWTError Aeson.Value
+processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosureMap = do
   -- Process each element in the array
-  let processedElements = V.map (\el -> processValueForArraysWithSD el arrayDisclosureMap objectDisclosureMap) arr
-      -- Replace {"...": "<digest>"} objects with actual values
-      -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
-      -- for which they did not receive a Disclosure."
-      replacedElements = V.mapMaybe (\el -> case el of
+  processedElements <- mapM (\el -> processValueForArraysWithSD el arrayDisclosureMap objectDisclosureMap) (V.toList arr)
+  -- Replace {"...": "<digest>"} objects with actual values
+  -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
+  -- for which they did not receive a Disclosure."
+  replacedElements <- mapM (\el -> case el of
         Aeson.Object obj -> processEllipsisObject obj arrayDisclosureMap objectDisclosureMap
-        _ -> Just el  -- Not an object, keep as is
+        _ -> return (Just el)  -- Not an object, keep as is
         ) processedElements
-  in Aeson.Array replacedElements
-processValueForArraysWithSD (Aeson.Object obj) arrayDisclosureMap objectDisclosureMap =
+  return $ Aeson.Array $ V.fromList $ mapMaybe id replacedElements
+processValueForArraysWithSD (Aeson.Object obj) arrayDisclosureMap objectDisclosureMap = do
   -- Recursively process nested objects and _sd arrays
-  let processedObj = KeyMap.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) obj
+  processedPairs <- mapM (\(key, value) -> do
+    processedValue <- processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap
+    return (key, processedValue)
+    ) (KeyMap.toList obj)
+  let processedKeyMap = KeyMap.fromList processedPairs
       -- Also process _sd arrays in this object
-      processedWithSD = processSDArraysInValue (Aeson.Object processedObj) objectDisclosureMap
-  in processedWithSD
-processValueForArraysWithSD value _arrayDisclosureMap _objectDisclosureMap = value  -- Primitive values, keep as is
+      processedWithSD = processSDArraysInValue (Aeson.Object processedKeyMap) objectDisclosureMap
+  return processedWithSD
+processValueForArraysWithSD value _arrayDisclosureMap _objectDisclosureMap = return value  -- Primitive values, keep as is
 
 -- | Process payload from presentation (convenience function).
 processPayloadFromPresentation
