@@ -23,7 +23,9 @@ import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8, decodeUtf8')
+import Data.Text.Encoding (encodeUtf8, decodeUtf8', decodeUtf8)
+import qualified Data.Text.Encoding as TE
+import Control.Monad (forM_)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
@@ -861,28 +863,76 @@ spec = describe "SDJWT.Verification" $ do
                   Left err -> expectationFailure $ "Verification failed: " ++ show err
           Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
 
-      it "handles recursive disclosures in arrays with no disclosures selected (Gap 2)" $ do
-        -- Test: array_recursive_sd
-        -- When holder_disclosed_claims is empty, all ellipsis objects should be removed
-        -- Array elements that are selectively disclosable should be removed
-        -- Non-selectively disclosable elements should remain
-        
-        -- Create claims with array containing:
-                    -- - "boring" (not selectively disclosable)
-        -- - Object with nested selective disclosure (selectively disclosable)
-        -- - Array of strings (selectively disclosable)
-        let nestedObject = Aeson.Object $ KeyMap.fromList [ (Key.fromText "foo", Aeson.String "bar")]
+      it "handles array with all SD elements and none selected - should result in empty array" $ do
+        -- Simple test: array with 5 SD elements, none selected
+        -- Expected: empty array []
         let claims = KeyMap.fromList
-
-              [  (Key.fromText "array_with_recursive_sd", Aeson.Array $ V.fromList
-                  [ Aeson.String "boring"  -- Index 0: Not selectively disclosable
-                  , nestedObject  -- Index 1: Selectively disclosable (with nested claim)
-                  , Aeson.Array $ V.fromList [Aeson.String "foo", Aeson.String "bar"]  -- Index 2: Selectively disclosable
+              [ (Key.fromText "test_array", Aeson.Array $ V.fromList
+                  [ Aeson.String "elem0"
+                  , Aeson.String "elem1"
+                  , Aeson.String "elem2"
+                  , Aeson.String "elem3"
+                  , Aeson.String "elem4"
                   ])
               ]
         
-        -- Use buildSDJWTPayload with JSON Pointer to mark indices 1 and 2, and nested claim
-        result <- buildSDJWTPayload SHA256 ["array_with_recursive_sd/1", "array_with_recursive_sd/1/foo", "array_with_recursive_sd/2"] claims
+        -- Mark all 5 elements as selectively disclosable
+        result <- buildSDJWTPayload SHA256 
+          ["test_array/0", "test_array/1", "test_array/2", "test_array/3", "test_array/4"] 
+          claims
+        case result of
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+          Right (payload, _disclosures) -> do
+            -- Create JWT from payload
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            
+            -- Create presentation with NO disclosures (empty holder_disclosed_claims)
+            let presentation = SDJWTPresentation mockJWT [] Nothing
+            
+            -- Verify
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let processedClaimsObj = processedClaims processed
+                case KeyMap.lookup (Key.fromText "test_array") processedClaimsObj of
+                  Just (Aeson.Array arr) -> do
+                    -- Should be empty array when all SD elements are missing
+                    V.length arr `shouldBe` 0
+                  _ -> expectationFailure "test_array claim not found or not an array"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
+
+      it "handles recursive disclosures in arrays with no disclosures selected - object disclosures become empty array (Gap 2)" $ do
+        -- Test: array_recursive_sd
+        -- When holder_disclosed_claims is empty:
+        -- - Object disclosures (recursive disclosures) should become [] (empty array) per Python interop test
+        -- - Array disclosures should be removed
+        -- - Non-selectively disclosable elements should remain
+        
+        -- Create claims matching the Python interop test case:
+        -- array_with_recursive_sd:
+        --   - "boring" (not selectively disclosable)
+        --   - { foo: "bar", baz: { qux: "quux" } } (object disclosure - selectively disclosable)
+        --   - ["foo", "bar"] (array disclosure - selectively disclosable)
+        let nestedObject = Aeson.Object $ KeyMap.fromList 
+              [ (Key.fromText "foo", Aeson.String "bar")
+              , (Key.fromText "baz", Aeson.Object $ KeyMap.fromList [ (Key.fromText "qux", Aeson.String "quux")])
+              ]
+        let claims = KeyMap.fromList
+              [  (Key.fromText "array_with_recursive_sd", Aeson.Array $ V.fromList
+                  [ Aeson.String "boring"  -- Index 0: Not selectively disclosable
+                  , nestedObject  -- Index 1: Object disclosure (should become [])
+                  , Aeson.Array $ V.fromList [Aeson.String "foo", Aeson.String "bar"]  -- Index 2: Array disclosure (should be removed)
+                  ])
+              ]
+        
+        -- Define selectively disclosable paths
+        -- Note: array_with_recursive_sd/2 is NOT SD - only the elements inside it are SD
+        let sdPaths = ["array_with_recursive_sd/1", "array_with_recursive_sd/1/foo", "array_with_recursive_sd/1/baz", "array_with_recursive_sd/1/baz/qux", "array_with_recursive_sd/2/0", "array_with_recursive_sd/2/1"]
+        
+        -- Use buildSDJWTPayload with JSON Pointer to mark indices 1 and 2, and nested claims
+        result <- buildSDJWTPayload SHA256 sdPaths claims
         case result of
           Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
           Right (payload, _disclosures) -> do
@@ -898,13 +948,14 @@ spec = describe "SDJWT.Verification" $ do
             result <- verifySDJWTWithoutSignature presentation
             case result of
               Right processed -> do
-                let claims = processedClaims processed
-                case KeyMap.lookup (Key.fromText "array_with_recursive_sd") claims of
+                let processedClaimsObj = processedClaims processed
+                case KeyMap.lookup (Key.fromText "array_with_recursive_sd") processedClaimsObj of
                   Just (Aeson.Array arr) -> do
-                    -- Should have 1 element: "boring"
-                    -- The two selectively disclosable elements should be removed
-                    V.length arr `shouldBe` 1
+                    -- Should have 2 elements: "boring" and [] (empty array from object disclosure)
+                    -- Element 2 (array disclosure) should be removed
+                    V.length arr `shouldBe` 2
                     arr V.!? 0 `shouldBe` Just (Aeson.String "boring")
+                    arr V.!? 1 `shouldBe` Just (Aeson.Array V.empty)  -- Object disclosure becomes []
                   _ -> expectationFailure "array_with_recursive_sd claim not found or not an array"
               Left err -> expectationFailure $ "Verification failed: " ++ show err
 
@@ -1532,4 +1583,113 @@ spec = describe "SDJWT.Verification" $ do
             T.isInfixOf "sha-1" msg `shouldBe` True
           Left _ -> return ()  -- Any error is acceptable for unsupported algorithm
           Right _ -> return ()  -- Or it might default to SHA-256 (implementation dependent)
+
+    describe "Recursive disclosure validation fixes" $ do
+      it "allows recursive disclosures where child digests are not selected (recursions fix)" $ do
+        -- Test: recursions
+        -- This tests the fix for RFC 9901 Section 7.2, step 2b validation
+        -- When a recursive disclosure is selected, child digests that are NOT selected
+        -- should still be valid (they're simply not disclosed, which is fine)
+        -- Previously, validation incorrectly required ALL child digests to be selected
+        
+        -- Create claims with recursive disclosure structure:
+        -- animals:
+        --   snake (selectively disclosable):
+        --     name (selectively disclosable): python
+        --     age (selectively disclosable): 10
+        --   bird (selectively disclosable):
+        --     name (selectively disclosable): eagle
+        --     age (selectively disclosable): 20
+        let snakeObject = Aeson.Object $ KeyMap.fromList
+              [ (Key.fromText "name", Aeson.String "python")
+              , (Key.fromText "age", Aeson.Number 10)
+              ]
+        let birdObject = Aeson.Object $ KeyMap.fromList
+              [ (Key.fromText "name", Aeson.String "eagle")
+              , (Key.fromText "age", Aeson.Number 20)
+              ]
+        let claims = KeyMap.fromList
+              [ (Key.fromText "animals", Aeson.Object $ KeyMap.fromList
+                  [ (Key.fromText "snake", snakeObject)
+                  , (Key.fromText "bird", birdObject)
+                  ])
+              ]
+        
+        -- Get test keys for signing
+        keyPair <- generateTestRSAKeyPair
+        
+        -- Create SD-JWT with recursive disclosure paths
+        -- Mark snake and bird as selectively disclosable, and their nested claims
+        -- createSDJWT expects Aeson.Object (KeyMap)
+        result <- createSDJWT Nothing Nothing SHA256 (privateKeyJWK keyPair)
+          ["animals/snake", "animals/snake/name", "animals/snake/age", "animals/bird", "animals/bird/name", "animals/bird/age"]
+          claims
+        case result of
+          Left err -> expectationFailure $ "Failed to create SD-JWT: " ++ show err
+          Right sdjwt -> do
+            -- Select only the parent disclosures (snake and bird) and one child (snake/age)
+            -- This means bird/name and bird/age are NOT selected, but should still be valid
+            -- because they're child digests in the bird recursive disclosure
+            case selectDisclosuresByNames sdjwt ["animals/snake", "animals/snake/age", "animals/bird"] of
+              Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
+              Right presentation -> do
+                -- Verify should succeed (previously would fail with MissingDisclosure error)
+                verificationResult <- verifySDJWTWithoutSignature presentation
+                case verificationResult of
+                  Right processed -> do
+                    let processedClaimsObj = processedClaims processed
+                    case KeyMap.lookup (Key.fromText "animals") processedClaimsObj of
+                      Just (Aeson.Object animalsObj) -> do
+                        -- snake should be present with age only
+                        case KeyMap.lookup (Key.fromText "snake") animalsObj of
+                          Just (Aeson.Object snakeObj) -> do
+                            KeyMap.lookup (Key.fromText "age") snakeObj `shouldBe` Just (Aeson.Number 10)
+                            KeyMap.lookup (Key.fromText "name") snakeObj `shouldBe` Nothing  -- Not selected
+                          _ -> expectationFailure "snake should be an object"
+                        -- bird should be present but empty (no children selected)
+                        case KeyMap.lookup (Key.fromText "bird") animalsObj of
+                          Just (Aeson.Object birdObj) -> do
+                            KeyMap.size birdObj `shouldBe` 0  -- No children selected
+                          _ -> expectationFailure "bird should be an object"
+                      _ -> expectationFailure "animals claim not found"
+                  Left err -> expectationFailure $ "Verification should succeed but failed: " ++ show err
+
+      it "handles array element disclosures with empty holder_disclosed_claims - test2 case" $ do
+        -- Test: array_recursive_sd test2
+        -- When holder_disclosed_claims is empty, array element disclosures should be removed
+        -- This tests that test2: ["foo", "bar"] (with both elements selectively disclosable)
+        -- becomes [] when nothing is disclosed
+        
+        let claims = KeyMap.fromList
+              [ (Key.fromText "test2", Aeson.Array $ V.fromList 
+                  [ Aeson.String "foo"
+                  , Aeson.String "bar"
+                  ])
+              ]
+        
+        -- Create SD-JWT with array element paths
+        -- buildSDJWTPayload expects Aeson.Object (KeyMap)
+        result <- buildSDJWTPayload SHA256 ["test2/0", "test2/1"] claims
+        case result of
+          Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
+          Right (payload, _disclosures) -> do
+            -- Create JWT from payload
+            let payloadBS = BSL.toStrict $ Aeson.encode (payloadValue payload)
+            let encodedPayload = base64urlEncode payloadBS
+            let mockJWT = T.concat ["eyJhbGciOiJSUzI1NiJ9.", encodedPayload, ".signature"]
+            
+            -- Create presentation with NO disclosures (empty holder_disclosed_claims)
+            let presentation = SDJWTPresentation mockJWT [] Nothing
+            
+            -- Verify
+            result <- verifySDJWTWithoutSignature presentation
+            case result of
+              Right processed -> do
+                let processedClaimsObj = processedClaims processed
+                case KeyMap.lookup (Key.fromText "test2") processedClaimsObj of
+                  Just (Aeson.Array arr) -> do
+                    -- Should be empty array [] (all elements removed)
+                    V.length arr `shouldBe` 0
+                  _ -> expectationFailure "test2 claim not found or not an array"
+              Left err -> expectationFailure $ "Verification failed: " ++ show err
 

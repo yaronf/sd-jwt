@@ -94,7 +94,9 @@ selectDisclosuresByNames sdjwt@(SDJWT issuerJWT allDisclosures) claimNames = do
   -- For top-level array claims, also collect array element disclosures
   -- When selecting "foo" where foo is an array with ellipsis objects, we need to include
   -- the disclosures for those ellipsis objects
-  arrayElementDisclos <- collectArrayElementDisclosures hashAlg topLevelNames issuerJWT allDisclosures decodedDisclosures
+  -- When nestedPaths is empty (holder_disclosed_claims is empty), don't recursively collect nested disclosures
+  let shouldRecurse = not (null nestedPaths)
+  arrayElementDisclos <- collectArrayElementDisclosures hashAlg topLevelNames issuerJWT allDisclosures decodedDisclosures shouldRecurse
   
   -- Combine all selected disclosures and deduplicate by digest
   let allSelectedDisclosRaw = selectedDisclos ++ arrayElementDisclos
@@ -518,96 +520,107 @@ collectArrayElementDisclosures
   -> T.Text  -- ^ Issuer-signed JWT
   -> [EncodedDisclosure]  -- ^ All available disclosures
   -> [Disclosure]  -- ^ Decoded disclosures (for claim name lookup)
+  -> Bool  -- ^ Whether to recursively collect nested array element disclosures
   -> Either SDJWTError [EncodedDisclosure]
-collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decodedDisclosures = do
-  -- Parse JWT payload
-  sdPayload <- parsePayloadFromJWT issuerJWT
-  let payloadValueObj = payloadValue sdPayload
-  
-  -- Extract digests from selected array claims
-  -- Check both payload (for Section 6.2 structured disclosure) and disclosure values (for top-level selective disclosure)
-  case payloadValueObj of
-    Aeson.Object obj -> do
-      -- For each selected claim name, check if it's an array in payload or in disclosure value
-      arrayDigests <- mapM (\claimName -> do
-        -- First check payload
-        payloadDigests <- case KeyMap.lookup (Key.fromText claimName) obj of
-          Just (Aeson.Array arr) -> do
-            -- Extract digests from ellipsis objects in this array
-            digests <- extractDigestsFromValue (Aeson.Array arr)
-            return digests
-          _ -> return []
-        -- Also check if this claim is selectively disclosable (in root _sd array)
-        disclosureDigests <- case KeyMap.lookup (Key.fromText "_sd") obj of
-          Just (Aeson.Array sdArray) -> do
-            let rootDigests = mapMaybe (\v -> case v of
+collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decodedDisclosures shouldRecurse = do
+  -- Early return if no claim names (no disclosures should be selected)
+  if null claimNames
+    then return []
+    else do
+      -- Parse JWT payload
+      sdPayload <- parsePayloadFromJWT issuerJWT
+      let payloadValueObj = payloadValue sdPayload
+      
+      -- Extract digests from selected array claims
+      -- Check both payload (for Section 6.2 structured disclosure) and disclosure values (for top-level selective disclosure)
+      case payloadValueObj of
+        Aeson.Object obj -> do
+          -- For each selected claim name, check if it's an array in payload or in disclosure value
+          arrayDigests <- mapM (\claimName -> do
+            -- First check payload
+            payloadDigests <- case KeyMap.lookup (Key.fromText claimName) obj of
+              Just (Aeson.Array arr) -> do
+                -- Extract digests from ellipsis objects in this array
+                digests <- extractDigestsFromValue (Aeson.Array arr)
+                return digests
+              _ -> return []
+            -- Also check if this claim is selectively disclosable (in root _sd array)
+            disclosureDigests <- case KeyMap.lookup (Key.fromText "_sd") obj of
+              Just (Aeson.Array sdArray) -> do
+                let rootDigests = mapMaybe (\v -> case v of
                       Aeson.String s -> Just s
                       _ -> Nothing
-                    ) (V.toList sdArray)
-            -- Find disclosure for this claim name
-            case find (\(encDisclosure, decoded) ->
+                      ) (V.toList sdArray)
+                -- Find disclosure for this claim name
+                case find (\(encDisclosure, decoded) ->
                       let digest = computeDigest hashAlg encDisclosure
                           digestText = unDigest digest
                           claimNameFromDisclosure = getDisclosureClaimName decoded
                       in digestText `elem` rootDigests && claimNameFromDisclosure == Just claimName
-                    ) $ zip allDisclosures decodedDisclosures of
-              Just (_, decoded) -> do
-                -- Get the disclosure value and check if it's an array with ellipsis objects
-                let value = getDisclosureValue decoded
-                case value of
-                  Aeson.Array arr -> extractDigestsFromValue (Aeson.Array arr)
-                  _ -> return []
-              Nothing -> return []
-          _ -> return []
-        return (claimName, payloadDigests ++ disclosureDigests)
-        ) claimNames
-      
-      -- Find array element disclosures matching digests from selected arrays
-      let selectedArrayElementDisclos = mapMaybe (\encDisclosure ->
-            let digest = computeDigest hashAlg encDisclosure
-                digestText = unDigest digest
-            in if any (\(_, digests) -> any ((== digestText) . unDigest) digests) arrayDigests
-              then Just encDisclosure
-              else Nothing
-            ) allDisclosures
-      
-      -- Recursively collect nested array element disclosures
-      -- For each selected array element disclosure, check if its value is an array
-      -- and extract digests from it. This needs to be recursive to handle multiple levels.
-      let collectNestedRecursive :: [EncodedDisclosure] -> [EncodedDisclosure] -> Either SDJWTError [EncodedDisclosure]
-          collectNestedRecursive currentDisclos alreadyCollected = do
-            -- For each current disclosure, check if its value is an array
-            nestedDisclos <- mapM (\encDisclosure -> do
-                decoded <- decodeDisclosure encDisclosure
-                let value = getDisclosureValue decoded
-                case value of
-                  Aeson.Array nestedArr -> do
-                    -- Extract digests from nested array
-                    nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
-                    -- Find disclosures matching these digests that we haven't already collected
-                    let matchingDisclos = mapMaybe (\encDisclosure2 ->
-                          let digest2 = computeDigest hashAlg encDisclosure2
-                              digestText2 = unDigest digest2
-                          in if any ((== digestText2) . unDigest) nestedDigests &&
-                                not (encDisclosure2 `elem` alreadyCollected) &&
-                                not (encDisclosure2 `elem` currentDisclos)
-                            then Just encDisclosure2
-                            else Nothing
-                          ) allDisclosures
-                    return matchingDisclos
-                  _ -> return []
-              ) currentDisclos
-            
-            let newDisclos = concat nestedDisclos
-            if null newDisclos
-              then return []  -- No more nested disclosures to collect
-              else do
-                -- Recursively collect from the newly found disclosures
-                deeperDisclos <- collectNestedRecursive newDisclos (alreadyCollected ++ currentDisclos ++ newDisclos)
-                return (newDisclos ++ deeperDisclos)
-      
-      nestedDisclos <- collectNestedRecursive selectedArrayElementDisclos selectedArrayElementDisclos
-      
-      -- Combine all array element disclosures (including nested ones)
-      return $ selectedArrayElementDisclos ++ nestedDisclos
-    _ -> return []  -- Payload is not an object, no arrays to process
+                      ) $ zip allDisclosures decodedDisclosures of
+                  Just (_, decoded) -> do
+                    -- Get the disclosure value and check if it's an array with ellipsis objects
+                    let value = getDisclosureValue decoded
+                    case value of
+                      Aeson.Array arr -> extractDigestsFromValue (Aeson.Array arr)
+                      _ -> return []
+                  Nothing -> return []
+              _ -> return []
+            return (claimName, payloadDigests ++ disclosureDigests)
+            ) claimNames
+          
+          -- Find array element disclosures matching digests from selected arrays
+          -- When shouldRecurse is False (holder_disclosed_claims is empty), don't include element disclosures
+          -- They will be processed as empty arrays instead
+          let selectedArrayElementDisclos = if shouldRecurse
+                then mapMaybe (\encDisclosure ->
+                      let digest = computeDigest hashAlg encDisclosure
+                          digestText = unDigest digest
+                      in if any (\(_, digests) -> any ((== digestText) . unDigest) digests) arrayDigests
+                        then Just encDisclosure
+                        else Nothing
+                      ) allDisclosures
+                else []  -- Don't include element disclosures when shouldRecurse is False
+          
+          -- Recursively collect nested array element disclosures
+          -- For each selected array element disclosure, check if its value is an array
+          -- and extract digests from it. This needs to be recursive to handle multiple levels.
+          let collectNestedRecursive :: [EncodedDisclosure] -> [EncodedDisclosure] -> Either SDJWTError [EncodedDisclosure]
+              collectNestedRecursive currentDisclos alreadyCollected = do
+                -- For each current disclosure, check if its value is an array
+                nestedDisclos <- mapM (\encDisclosure -> do
+                    decoded <- decodeDisclosure encDisclosure
+                    let value = getDisclosureValue decoded
+                    case value of
+                      Aeson.Array nestedArr -> do
+                        -- Extract digests from nested array
+                        nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
+                        -- Find disclosures matching these digests that we haven't already collected
+                        let matchingDisclos = mapMaybe (\encDisclosure2 ->
+                              let digest2 = computeDigest hashAlg encDisclosure2
+                                  digestText2 = unDigest digest2
+                              in if any ((== digestText2) . unDigest) nestedDigests &&
+                                    not (encDisclosure2 `elem` alreadyCollected) &&
+                                    not (encDisclosure2 `elem` currentDisclos)
+                                then Just encDisclosure2
+                                else Nothing
+                              ) allDisclosures
+                        return matchingDisclos
+                      _ -> return []
+                    ) currentDisclos
+                
+                let newDisclos = concat nestedDisclos
+                if null newDisclos
+                  then return []  -- No more nested disclosures to collect
+                  else do
+                    -- Recursively collect from the newly found disclosures
+                    deeperDisclos <- collectNestedRecursive newDisclos (alreadyCollected ++ currentDisclos ++ newDisclos)
+                    return (newDisclos ++ deeperDisclos)
+          
+          nestedDisclos <- if shouldRecurse
+            then collectNestedRecursive selectedArrayElementDisclos selectedArrayElementDisclos
+            else return []
+          
+          -- Combine all array element disclosures (including nested ones if shouldRecurse is True)
+          return $ selectedArrayElementDisclos ++ nestedDisclos
+        _ -> return []  -- Payload is not an object, no arrays to process

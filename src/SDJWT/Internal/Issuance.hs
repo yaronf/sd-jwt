@@ -764,32 +764,42 @@ processNestedStructures hashAlg nestedPaths claims = do
                 result <- markArrayElementDisclosable hashAlg' element
                 case result of
                   Left err -> return $ Left err
-                  Right (digest, disclosure) -> return $ Right (firstIdx, digest, [disclosure])
+                  Right (digest, disclosure) -> 
+                    let ellipsisObj = Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest digest))]
+                    in return $ Right (firstIdx, ellipsisObj, [disclosure])
               else do
                 -- Recurse into nested value (could be object or array)
                 nestedResult <- processPathsRecursively hashAlg' nonEmptyPaths element
                 case nestedResult of
                   Left err -> return $ Left err
                   Right (modifiedNestedValue, nestedDisclosures) -> do
-                    -- Mark this element as selectively disclosable (contains nested selective disclosure)
-                    outerResult <- markArrayElementDisclosable hashAlg' modifiedNestedValue
-                    case outerResult of
-                      Left err -> return $ Left err
-                      Right (digest, outerDisclosure) -> return $ Right (firstIdx, digest, outerDisclosure:nestedDisclosures)
+                    -- If the modified nested value is still an array, preserve the structure
+                    -- (don't mark the entire array as SD, just return it with SD elements inside)
+                    case modifiedNestedValue of
+                      Aeson.Array _ -> 
+                        -- Array structure preserved, return it directly without marking as SD
+                        return $ Right (firstIdx, modifiedNestedValue, nestedDisclosures)
+                      _ -> do
+                        -- For objects or other types, mark as selectively disclosable
+                        outerResult <- markArrayElementDisclosable hashAlg' modifiedNestedValue
+                        case outerResult of
+                          Left err -> return $ Left err
+                          Right (digest, outerDisclosure) -> 
+                            let ellipsisObj = Aeson.Object $ KeyMap.fromList [(Key.fromText "...", Aeson.String (unDigest digest))]
+                            in return $ Right (firstIdx, ellipsisObj, outerDisclosure:nestedDisclosures)
         ) (Map.toList groupedByFirstIndex)
       
       let (errors, successes) = partitionEithers results
       case errors of
         (err:_) -> return $ Left err
         [] -> do
-          -- Build modified array with ellipsis objects at specified indices
-          let (indices, digests, disclosuresList) = unzip3 successes
-          let arrWithDigests = foldl (\acc (idx, digest, _) ->
-                let ellipsisObj = Aeson.Object $ KeyMap.fromList
-                      [(Key.fromText "...", Aeson.String (unDigest digest))]
-                in V.unsafeUpd acc [(idx, ellipsisObj)]
-                ) arr (zip3 indices digests (repeat []))
-          return $ Right (Aeson.Array arrWithDigests, concat disclosuresList)
+          -- Build modified array with ellipsis objects or modified arrays at specified indices
+          let arrWithDigests = foldl (\acc (idx, value, _) ->
+                -- value can be either an ellipsis object (from markArrayElementDisclosable) or a modified array
+                V.unsafeUpd acc [(idx, value)]
+                ) arr successes
+          let allDisclosures = concat (map (\(_, _, disclosures) -> disclosures) successes)
+          return $ Right (Aeson.Array arrWithDigests, allDisclosures)
 
 -- | Process recursive disclosures (Section 6.3: recursive disclosures).
 -- Creates disclosures for parent claims where the disclosure value contains

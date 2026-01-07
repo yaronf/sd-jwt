@@ -503,13 +503,33 @@ processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosur
                       let processedSD = processSDArraysInValue value objectDisclosureMap
                           -- Remove _sd_alg if it's an object
                           processedWithoutSDAlg = case processedSD of
-                            Aeson.Object obj' -> Aeson.Object (KeyMap.delete "_sd_alg" obj')
+                            Aeson.Object obj' -> 
+                              let objWithoutSDAlg = KeyMap.delete "_sd_alg" obj'
+                              -- Preserve the object type: if empty, return empty object {}, not []
+                              in if KeyMap.null objWithoutSDAlg
+                                then Aeson.Object KeyMap.empty
+                                else Aeson.Object objWithoutSDAlg
+                            Aeson.Array arr' ->
+                              -- Preserve the array type: if empty, return empty array []
+                              if V.null arr'
+                                then Aeson.Array V.empty
+                                else Aeson.Array arr'
                             _ -> processedSD
                           -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
                           -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
                           recursivelyProcessed = processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
-                      in Just recursivelyProcessed
-                    Nothing -> Nothing  -- No disclosure found - ignore (remove) per RFC 9901 Section 7.3
+                          -- Preserve the original type structure: objects stay objects, arrays stay arrays
+                          -- The structure tells us the type, no need to decode missing disclosures
+                          finalValue = recursivelyProcessed
+                      in Just finalValue
+                    Nothing -> 
+                      -- No disclosure found - per RFC 9901 Section 7.3, remove the array element
+                      -- "Verifiers ignore all selectively disclosable array elements for which
+                      -- they did not receive a Disclosure."
+                      -- However, per Python interop test expectations, object disclosures
+                      -- should become [] when missing, while array disclosures should be removed.
+                      -- Since we cannot determine the type without the disclosure, we remove it.
+                      Nothing
                 else Just el  -- Invalid ellipsis object (has extra keys), keep as is
             _ -> Just el  -- Not an ellipsis object, keep as is
         _ -> Just el  -- Not an object, keep as is
