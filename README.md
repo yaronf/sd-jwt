@@ -264,7 +264,7 @@ For public keys, omit the `d` field. See [RFC 7517](https://www.rfc-editor.org/r
 - [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html) - The SD-JWT specification
 - [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html) - JSON Web Key (JWK) format
 - [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519.html) - JSON Web Token (JWT)
-- [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725.html) - JSON Web Signature (JWS) best practices
+- [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725.html) - JSON Web Token Best Current Practices
 - [internal-docs/IMPLEMENTATION_PLAN.md](internal-docs/IMPLEMENTATION_PLAN.md) - Implementation plan
 - [internal-docs/TEST_PLAN.md](internal-docs/TEST_PLAN.md) - Test coverage documentation
 
