@@ -10,6 +10,7 @@ module TestCaseParser
   , loadTestCase
   , parseUserClaims
   , parseHolderDisclosedClaims
+  , extractSelectivelyDisclosablePaths
   ) where
 
 import Data.Aeson (Value(..), Object, (.=), (.:), (.:?), (.!=), object)
@@ -18,11 +19,16 @@ import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Vector as V
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Yaml  (Key.fromText "decodeFileEither", prettyPrintParseException, ParseException)
-import qualified Data.Yaml as Yaml
+import qualified Data.Text.Encoding as TE
+import Data.YAML
+import Data.YAML.Aeson
 import System.FilePath ((</>))
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+import Text.Read (readMaybe)
 
 -- | Test case structure matching Python test case format
 data TestCase = TestCase
@@ -41,19 +47,78 @@ data TestCase = TestCase
   , tcExtraHeaderParameters :: Map Text Value
     -- ^ Extra header parameters
   }
-  deriving  (Key.fromText "Eq", Show)
+  deriving (Eq, Show)
 
 -- | Load a test case from a YAML specification file
 --
--- The YAML library can decode directly to Aeson.Value, which simplifies parsing.
--- YAML tags like !sd are lost in conversion, but we can identify selectively
--- disclosable claims by comparing with holder_disclosed_claims.
+-- Uses HsYAML which preserves YAML tags. We parse to Node first, then convert
+-- to Aeson.Value by walking the structure (ignoring tags for Aeson conversion).
 loadTestCase :: FilePath -> IO (Either String TestCase)
 loadTestCase filePath = do
-  result <- decodeFileEither filePath :: IO (Either ParseException Aeson.Value)
-  case result of
-    Left err -> return $ Left $ "Failed to parse YAML: " ++ prettyPrintParseException err
-    Right aesonValue -> return $ parseTestCase aesonValue
+  yamlContent <- BS.readFile filePath
+  -- Parse to Node, then convert to Aeson.Value
+  case decodeNode (BSL.fromStrict yamlContent) of
+    Right [doc] -> do
+      -- Convert Node to Aeson.Value by walking the structure
+      let aesonValue = nodeToAeson (docRoot doc)
+      return $ parseTestCase aesonValue
+    Right _ -> return $ Left "Expected single YAML document"
+    Left (pos, err) -> return $ Left $ "Failed to parse YAML at " ++ show pos ++ ": " ++ err
+
+-- | Convert HsYAML Node to Aeson.Value (ignoring tags)
+nodeToAeson :: Node Pos -> Aeson.Value
+nodeToAeson node = case node of
+  Scalar _ scalar -> scalarToAeson scalar
+  Mapping _ _ pairs -> Aeson.Object $ KeyMap.fromList $ map (\(k, v) ->
+    (keyToKey k, nodeToAeson v)) (Map.toList pairs)
+  Sequence _ _ items -> Aeson.Array $ V.fromList $ map nodeToAeson items
+  Anchor _ _ innerNode -> nodeToAeson innerNode
+
+scalarToAeson :: Scalar -> Aeson.Value
+scalarToAeson scalar = case scalar of
+  SNull -> Aeson.Null
+  SBool b -> Aeson.Bool b
+  SInt i -> Aeson.Number (fromInteger i)
+  SFloat d -> Aeson.Number (realToFrac d)
+  SStr s -> Aeson.String s
+  SUnknown _ s -> 
+    -- Try to parse the string as a number or boolean, otherwise treat as string
+    case parseScalarValue s of
+      Just (Aeson.Number n) -> Aeson.Number n
+      Just (Aeson.Bool b) -> Aeson.Bool b
+      Just Aeson.Null -> Aeson.Null
+      _ -> Aeson.String s
+
+-- | Try to parse a string as a scalar value (number, boolean, null)
+parseScalarValue :: T.Text -> Maybe Aeson.Value
+parseScalarValue s
+  | s == "null" || s == "Null" || s == "NULL" = Just Aeson.Null
+  | s == "true" || s == "True" || s == "TRUE" = Just (Aeson.Bool True)
+  | s == "false" || s == "False" || s == "FALSE" = Just (Aeson.Bool False)
+  | Just i <- readMaybe (T.unpack s) :: Maybe Integer = Just (Aeson.Number (fromInteger i))
+  | Just d <- readMaybe (T.unpack s) :: Maybe Double = Just (Aeson.Number (realToFrac d))
+  | otherwise = Nothing
+
+keyToKey :: Node Pos -> Key.Key
+keyToKey node = case node of
+  Scalar _ (SStr s) -> Key.fromText s
+  Scalar _ (SUnknown _ s) -> Key.fromText s  -- Extract value from SUnknown
+  Scalar _ (SInt i) -> Key.fromText (T.pack (show i))
+  Scalar _ (SFloat d) -> Key.fromText (T.pack (show d))
+  Scalar _ (SBool b) -> Key.fromText (T.pack (show b))
+  Scalar _ SNull -> Key.fromText "null"
+  _ -> Key.fromText (T.pack (show node))
+
+-- | Extract text value from a scalar node (for path extraction)
+extractScalarTextFromNode :: Node Pos -> T.Text
+extractScalarTextFromNode node = case node of
+  Scalar _ (SStr s) -> s
+  Scalar _ (SUnknown _ s) -> s
+  Scalar _ (SInt i) -> T.pack (show i)
+  Scalar _ (SFloat d) -> T.pack (show d)
+  Scalar _ (SBool b) -> T.pack (show b)
+  Scalar _ SNull -> "null"
+  _ -> T.pack (show node)
 
 -- | Parse an Aeson Value into a TestCase
 parseTestCase :: Aeson.Value -> Either String TestCase
@@ -116,4 +181,124 @@ parseField fieldName obj = case KeyMap.lookup (Key.fromText fieldName) obj of
 -- | Parse an optional field from an Aeson object
 parseFieldMaybe :: Text -> Object -> Either String (Maybe Value)
 parseFieldMaybe fieldName obj = Right $ KeyMap.lookup (Key.fromText fieldName) obj
+
+-- | Extract selectively disclosable paths from YAML file.
+--
+-- Uses HsYAML's Node representation which preserves tags, allowing us to
+-- extract paths that have the !sd tag.
+-- | Extract selectively disclosable paths from user_claims in YAML file.
+--
+-- Uses HsYAML's Node representation which preserves tags, allowing us to
+-- extract paths that have the !sd tag. Only extracts paths from user_claims.
+extractSelectivelyDisclosablePaths :: FilePath -> IO (Either String [T.Text])
+extractSelectivelyDisclosablePaths filePath = do
+  yamlContent <- BS.readFile filePath
+  -- Parse to Node to extract tags
+  case decodeNode (BSL.fromStrict yamlContent) of
+    Right [doc] -> do
+      -- Find user_claims in the document and extract paths from it
+      let rootNode = docRoot doc
+          userClaimsPaths = extractUserClaimsPaths rootNode []
+      return $ Right userClaimsPaths
+    Right _ -> return $ Left "Expected single YAML document"
+    Left (pos, err) -> return $ Left $ "Failed to parse YAML at " ++ show pos ++ ": " ++ err
+
+-- | Extract paths from user_claims section only
+extractUserClaimsPaths :: Node Pos -> [T.Text] -> [T.Text]
+extractUserClaimsPaths node currentPath = case node of
+  Mapping _ _ pairs ->
+    -- Look for "user_claims" key
+    concatMap (\(keyNode, valueNode) ->
+      case keyNode of
+        Scalar _ (SStr "user_claims") ->
+          -- Found user_claims, extract paths from its value (which is a mapping)
+          case valueNode of
+            Mapping _ _ userPairs ->
+              -- Extract paths from each top-level claim in user_claims
+              concatMap (\(claimKeyNode, claimValueNode) ->
+                let claimName = extractScalarText claimKeyNode
+                    claimPath = if T.null claimName then [] else [claimName]
+                    paths = extractSDPathsFromNode claimValueNode claimPath
+                in paths
+              ) (Map.toList userPairs)
+            _ -> extractSDPathsFromNode valueNode []
+        _ -> []
+    ) (Map.toList pairs)
+  _ -> []
+
+-- | Extract text from a scalar node
+extractScalarText :: Node Pos -> T.Text
+extractScalarText node = case node of
+  Scalar _ (SStr s) -> s
+  Scalar _ _ -> T.pack (show node)
+  _ -> T.pack (show node)
+
+-- | Extract paths with !sd tags from HsYAML Node.
+--
+-- We recursively walk through the Node structure and track the current path.
+-- When we encounter a node with tag "!sd", we record the current path.
+extractSDPathsFromNode :: Node Pos -> [T.Text] -> [T.Text]
+extractSDPathsFromNode node currentPath = case node of
+  Mapping _ tag pairs -> extractMappingPaths tag pairs currentPath
+  Sequence _ tag items -> extractSequencePaths tag items currentPath
+  Scalar _ (SUnknown tag _) -> extractScalarSDPath tag currentPath
+  Scalar _ _ -> []
+  Anchor _ _ innerNode -> extractSDPathsFromNode innerNode currentPath
+
+extractMappingPaths :: (Show a) => a -> Mapping Pos -> [T.Text] -> [T.Text]
+extractMappingPaths tag pairs currentPath =
+  let isSD = isSDTag tag
+      childPaths = concatMap processPair (Map.toList pairs)
+      processPair (keyNode, valueNode) =
+        let keyPath = extractKeyPath keyNode currentPath
+            -- Check if the key itself has !sd tag (use currentPath, extractKeySDPaths adds the key itself)
+            keySDPaths = extractKeySDPaths keyNode currentPath
+            -- Extract paths from the value (use keyPath which includes the key)
+            valuePaths = extractSDPathsFromNode valueNode keyPath
+        in keySDPaths ++ valuePaths
+  in if isSD && not (null currentPath)
+       then T.intercalate "/" currentPath : childPaths
+       else childPaths
+
+-- | Extract paths if a key node has !sd tag
+extractKeySDPaths :: Node Pos -> [T.Text] -> [T.Text]
+extractKeySDPaths keyNode currentPath = case keyNode of
+  Scalar _ (SUnknown tag _) | isSDTag tag ->
+    -- Key has !sd tag, record the path
+    let keyText = extractScalarTextFromNode keyNode
+        fullPath = currentPath ++ [keyText]
+    in if not (T.null keyText)
+         then [T.intercalate "/" fullPath]
+         else []
+  _ -> []
+
+extractSequencePaths :: (Show a) => a -> [Node Pos] -> [T.Text] -> [T.Text]
+extractSequencePaths tag items currentPath =
+  let isSD = isSDTag tag
+      childPaths = concatMap processItem (zip [0..] items)
+      processItem (idx, itemNode) =
+        extractSDPathsFromNode itemNode (currentPath ++ [T.pack (show idx)])
+  in if isSD && not (null currentPath)
+       then T.intercalate "/" currentPath : childPaths
+       else childPaths
+
+extractScalarSDPath :: (Show a) => a -> [T.Text] -> [T.Text]
+extractScalarSDPath tag currentPath =
+  if isSDTag tag && not (null currentPath)
+    then [T.intercalate "/" currentPath]
+    else []
+
+-- | Extract key path from a mapping key node
+extractKeyPath :: Node Pos -> [T.Text] -> [T.Text]
+extractKeyPath keyNode currentPath = 
+  let keyText = extractScalarTextFromNode keyNode
+  in if not (T.null keyText)
+       then currentPath ++ [keyText]
+       else currentPath
+
+-- | Check if a tag is the !sd tag
+-- Tag can be Maybe Tag (for Mapping/Sequence) or Tag (for SUnknown scalars)
+isSDTag :: (Show a) => a -> Bool
+isSDTag tag = let tagText = T.pack (show tag)
+              in tagText == "!sd" || tagText == "Just \"!sd\"" || T.isSuffixOf "!sd" tagText
 
