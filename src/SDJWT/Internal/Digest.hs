@@ -23,11 +23,13 @@
 --
 module SDJWT.Internal.Digest
   ( computeDigest
+  , computeDigestText
   , verifyDigest
   , parseHashAlgorithm
   , defaultHashAlgorithm
   , hashAlgorithmToText
   , extractDigestsFromValue
+  , extractDigestStringsFromSDArray
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTError(..))
@@ -92,6 +94,13 @@ computeDigest alg (EncodedDisclosure encoded) =
   in
     Digest digestText
 
+-- | Compute digest text (string) from a disclosure.
+--
+-- Convenience function that computes the digest and extracts the text.
+-- Equivalent to @unDigest . computeDigest@.
+computeDigestText :: HashAlgorithm -> EncodedDisclosure -> T.Text
+computeDigestText alg = unDigest . computeDigest alg
+
 -- | Verify that a digest matches a disclosure.
 --
 -- Computes the digest of the disclosure using the specified hash algorithm
@@ -151,4 +160,20 @@ extractDigestsFromValue (Aeson.Array arr) = do
     ) elements
   return $ concat results
 extractDigestsFromValue _ = Right []
+
+-- | Extract digest strings from an _sd array in a JSON object.
+--
+-- This helper function extracts string digests from the _sd array field
+-- of a JSON object. Returns an empty list if _sd is not present or not an array.
+-- This is a convenience function for cases where you only need the digest strings,
+-- not the full Digest type.
+extractDigestStringsFromSDArray :: Aeson.Object -> [T.Text]
+extractDigestStringsFromSDArray obj =
+  case KeyMap.lookup "_sd" obj of
+    Just (Aeson.Array arr) ->
+      mapMaybe (\v -> case v of
+        Aeson.String s -> Just s
+        _ -> Nothing
+        ) (V.toList arr)
+    _ -> []
 

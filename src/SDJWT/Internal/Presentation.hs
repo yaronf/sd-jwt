@@ -13,11 +13,11 @@ module SDJWT.Internal.Presentation
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), SDJWT(..), SDJWTPayload(..), SDJWTPresentation(..), SDJWTError(..), EncodedDisclosure(..), Disclosure(..))
 import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureClaimName, getDisclosureValue)
-import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, defaultHashAlgorithm)
+import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, computeDigestText, extractDigestStringsFromSDArray, defaultHashAlgorithm)
 import SDJWT.Internal.Utils (splitJSONPointer, unescapeJSONPointer)
 import SDJWT.Internal.KeyBinding (addKeyBindingToPresentation)
 import SDJWT.Internal.JWT (JWKLike)
-import SDJWT.Internal.Verification (parsePayloadFromJWT)
+import SDJWT.Internal.Verification (parsePayloadFromJWT, extractDigestsFromPayload)
 import qualified Data.Text as T
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
@@ -145,16 +145,13 @@ collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDi
     then return []
     else do
       -- Extract digests from root _sd array
-      case KeyMap.lookup (Key.fromText "_sd") obj of
-        Just (Aeson.Array sdArray) -> do
-          let rootDigests = mapMaybe (\v -> case v of
-                Aeson.String s -> Just s
-                _ -> Nothing
-                ) (V.toList sdArray)
+      let rootDigests = extractDigestStringsFromSDArray obj
+      if null rootDigests
+        then return []  -- No root _sd array
+        else do
           -- Find disclosures matching these digests AND matching the claim names
           let matchingDisclos = mapMaybe (\(encDisclosure, decoded) ->
-                let digest = computeDigest hashAlg encDisclosure
-                    digestText = unDigest digest
+                let digestText = computeDigestText hashAlg encDisclosure
                 in do
                   -- Check if digest is in root _sd array AND claim name matches
                   claimName <- getDisclosureClaimName decoded
@@ -163,7 +160,6 @@ collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDi
                     else Nothing
                 ) $ zip allDisclosures decodedDisclosures
           return matchingDisclos
-        _ -> return []  -- No root _sd array
   
   -- Group nested paths by first segment
   let groupedByFirst = Map.fromListWith (++) $ map (\path -> case path of
@@ -174,16 +170,10 @@ collectFromObject hashAlg topLevelNames nestedPaths obj allDisclosures decodedDi
   nestedDisclos <- mapM (\(firstSeg, remainingPaths) ->
       -- Check if the key exists in the object, or if it's in an _sd array
       let -- Check if there's an _sd array that might contain this claim
-          sdArrayDigests = case KeyMap.lookup (Key.fromText "_sd") obj of
-            Just (Aeson.Array arr) -> mapMaybe (\v -> case v of
-                  Aeson.String s -> Just s
-                  _ -> Nothing
-                ) (V.toList arr)
-            _ -> []
+          sdArrayDigests = extractDigestStringsFromSDArray obj
           -- Find disclosure for this claim name in the _sd array
           claimDisclosure = find (\(encDisclosure, decoded) ->
-                let digest = computeDigest hashAlg encDisclosure
-                    digestText = unDigest digest
+                let digestText = computeDigestText hashAlg encDisclosure
                     claimName = getDisclosureClaimName decoded
                 in digestText `elem` sdArrayDigests && claimName == Just firstSeg
               ) $ zip allDisclosures decodedDisclosures
@@ -270,8 +260,7 @@ collectFromArray hashAlg _topLevelNames nestedPaths arr allDisclosures decodedDi
                     Just (Aeson.String digest) ->
                       -- Find the disclosure for this digest
                       case find (\encDisclosure ->
-                            let d = computeDigest hashAlg encDisclosure
-                            in unDigest d == digest
+                            computeDigestText hashAlg encDisclosure == digest
                           ) allDisclosures of
                         Just encDisclosure -> do
                           -- Decode to get the actual value
@@ -306,22 +295,18 @@ collectDisclosuresForValue hashAlg _claimName value allDisclosures = do
   case value of
     Aeson.Object obj -> do
       -- Extract digests from _sd array
-      case KeyMap.lookup (Key.fromText "_sd") obj of
-        Just (Aeson.Array sdArray) -> do
-          let digests = mapMaybe (\v -> case v of
-                Aeson.String s -> Just s
-                _ -> Nothing
-                ) (V.toList sdArray)
+      let digests = extractDigestStringsFromSDArray obj
+      if null digests
+        then return []  -- No _sd array, no disclosures
+        else do
           -- Find disclosures matching these digests
           let matchingDisclos = mapMaybe (\encDisclosure ->
-                let digest = computeDigest hashAlg encDisclosure
-                    digestText = unDigest digest
+                let digestText = computeDigestText hashAlg encDisclosure
                 in if digestText `elem` digests
                   then Just encDisclosure
                   else Nothing
                 ) allDisclosures
           return matchingDisclos
-        _ -> return []  -- No _sd array, no disclosures
     _ -> return []  -- Not an object, no disclosures
 
 -- | Collect disclosures for an array element.
@@ -338,8 +323,7 @@ collectDisclosuresForArrayElement hashAlg value allDisclosures = do
         Just (Aeson.String digestText) -> do
           -- Find disclosure matching this digest
           let matchingDisclos = mapMaybe (\encDisclosure ->
-                let digest = computeDigest hashAlg encDisclosure
-                    digestText2 = unDigest digest
+                let digestText2 = computeDigestText hashAlg encDisclosure
                 in if digestText2 == digestText
                   then Just encDisclosure
                   else Nothing
@@ -450,7 +434,7 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
   issuerDigests <- extractDigestsFromJWTPayload issuerJWT
   
   -- Compute digests for all selected disclosures (as Text for comparison)
-  let selectedDigests = Set.fromList $ map (unDigest . computeDigest hashAlg) selectedDisclos
+  let selectedDigests = Set.fromList $ map (computeDigestText hashAlg) selectedDisclos
   
   -- Build set of all valid digests (from JWT payload + recursive disclosures)
   -- This is used to verify condition (a): disclosure digest is in issuer-signed JWT
@@ -462,7 +446,7 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
   
   -- First, verify condition (a): each selected disclosure's digest must be in issuer JWT or another disclosure
   mapM_ (\encDisclosure -> do
-    let disclosureDigestText = unDigest $ computeDigest hashAlg encDisclosure
+    let disclosureDigestText = computeDigestText hashAlg encDisclosure
     if disclosureDigestText `Set.member` allValidDigests
       then return ()  -- Condition (a) or (b) satisfied ✓
       else Left $ MissingDisclosure $ "Disclosure digest not found in issuer-signed JWT or other selected disclosures: " <> disclosureDigestText
@@ -476,15 +460,12 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
   -- Check each selected disclosure for recursive structure (condition b)
   mapM_ (\disclosure -> do
     case getDisclosureValue disclosure of
-      Aeson.Object obj ->
-        case KeyMap.lookup (Key.fromText "_sd") obj of
-          Just (Aeson.Array sdArray) -> do
-            -- This is a recursive disclosure - extract child digests
-            let childDigests = mapMaybe (\v -> case v of
-                  Aeson.String s -> Just s  -- Keep as Text for comparison
-                  _ -> Nothing
-                  ) (V.toList sdArray)
-            
+      Aeson.Object obj -> do
+        -- This is a recursive disclosure - extract child digests
+        let childDigests = extractDigestStringsFromSDArray obj
+        if null childDigests
+          then return ()  -- Not a recursive disclosure
+          else do
             -- RFC 9901 Section 7.2, step 2b: For each child digest that IS selected,
             -- verify it's valid (in issuer JWT or another selected disclosure).
             -- Child digests that are NOT selected are simply not disclosed, which is fine.
@@ -495,7 +476,6 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
                   then return ()  -- Child digest is in issuer JWT (valid but not selected) ✓
                   else return ()  -- Child digest is not selected (holder chose not to disclose it) ✓
               ) childDigests
-          _ -> return ()  -- Not a recursive disclosure
       _ -> return ()  -- Not an object disclosure
     ) decodedSelected
 
@@ -505,7 +485,7 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
 extractDigestsFromJWTPayload :: T.Text -> Either SDJWTError (Set.Set T.Text)
 extractDigestsFromJWTPayload jwt =
   parsePayloadFromJWT jwt >>= \sdPayload ->
-    fmap (Set.fromList . map unDigest) (extractDigestsFromValue (payloadValue sdPayload))
+    fmap (Set.fromList . map unDigest) (extractDigestsFromPayload sdPayload)
 
 -- | Collect array element disclosures for selected array claims.
 --
@@ -543,16 +523,13 @@ collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decod
                 return digests
               _ -> return []
             -- Also check if this claim is selectively disclosable (in root _sd array)
-            disclosureDigests <- case KeyMap.lookup (Key.fromText "_sd") obj of
-              Just (Aeson.Array sdArray) -> do
-                let rootDigests = mapMaybe (\v -> case v of
-                      Aeson.String s -> Just s
-                      _ -> Nothing
-                      ) (V.toList sdArray)
+            let rootDigests = extractDigestStringsFromSDArray obj
+            disclosureDigests <- if null rootDigests
+              then return []
+              else do
                 -- Find disclosure for this claim name
                 case find (\(encDisclosure, decoded) ->
-                      let digest = computeDigest hashAlg encDisclosure
-                          digestText = unDigest digest
+                      let digestText = computeDigestText hashAlg encDisclosure
                           claimNameFromDisclosure = getDisclosureClaimName decoded
                       in digestText `elem` rootDigests && claimNameFromDisclosure == Just claimName
                       ) $ zip allDisclosures decodedDisclosures of
@@ -563,7 +540,6 @@ collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decod
                       Aeson.Array arr -> extractDigestsFromValue (Aeson.Array arr)
                       _ -> return []
                   Nothing -> return []
-              _ -> return []
             return (claimName, payloadDigests ++ disclosureDigests)
             ) claimNames
           
@@ -572,8 +548,7 @@ collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decod
           -- They will be processed as empty arrays instead
           let selectedArrayElementDisclos = if shouldRecurse
                 then mapMaybe (\encDisclosure ->
-                      let digest = computeDigest hashAlg encDisclosure
-                          digestText = unDigest digest
+                      let digestText = computeDigestText hashAlg encDisclosure
                       in if any (\(_, digests) -> any ((== digestText) . unDigest) digests) arrayDigests
                         then Just encDisclosure
                         else Nothing
@@ -595,8 +570,7 @@ collectArrayElementDisclosures hashAlg claimNames issuerJWT allDisclosures decod
                         nestedDigests <- extractDigestsFromValue (Aeson.Array nestedArr)
                         -- Find disclosures matching these digests that we haven't already collected
                         let matchingDisclos = mapMaybe (\encDisclosure2 ->
-                              let digest2 = computeDigest hashAlg encDisclosure2
-                                  digestText2 = unDigest digest2
+                              let digestText2 = computeDigestText hashAlg encDisclosure2
                               in if any ((== digestText2) . unDigest) nestedDigests &&
                                     not (encDisclosure2 `elem` alreadyCollected) &&
                                     not (encDisclosure2 `elem` currentDisclos)

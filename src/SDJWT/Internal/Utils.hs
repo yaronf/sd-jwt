@@ -21,13 +21,13 @@
 module SDJWT.Internal.Utils
   ( base64urlEncode
   , base64urlDecode
-  , generateSalt
   , textToByteString
   , byteStringToText
   , hashToBytes
   , splitJSONPointer
   , unescapeJSONPointer
   , constantTimeEq
+  , generateSalt  -- Internal use only, not part of public API
   ) where
 
 import qualified Data.ByteString.Base64.URL as Base64

@@ -18,10 +18,11 @@ module SDJWT.Internal.Verification
   , extractHashAlgorithm
   , parsePayloadFromJWT
   , extractRegularClaims
+  , extractDigestsFromPayload
   ) where
 
 import SDJWT.Internal.Types (HashAlgorithm(..), Digest(..), EncodedDisclosure(..), SDJWTPayload(..), SDJWTPresentation(..), ProcessedSDJWTPayload(..), SDJWTError(..), KeyBindingInfo(..))
-import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, parseHashAlgorithm, defaultHashAlgorithm)
+import SDJWT.Internal.Digest (extractDigestsFromValue, computeDigest, computeDigestText, parseHashAlgorithm, defaultHashAlgorithm)
 import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDisclosureClaimName)
 import SDJWT.Internal.Utils (base64urlDecode)
 import SDJWT.Internal.KeyBinding (verifyKeyBindingJWT)
@@ -188,20 +189,18 @@ verifyDisclosures hashAlg presentation = do
   let allValidDigests = Set.fromList (map unDigest (payloadDigests ++ recursiveDisclosureDigests))
   
   -- Compute digests for all disclosures
-  let disclosureDigests = map (computeDigest hashAlg) (selectedDisclosures presentation)
-  
   -- Check for duplicates (compare by text representation)
-  let disclosureTexts = map unDigest disclosureDigests
+  let disclosureTexts = map (computeDigestText hashAlg) (selectedDisclosures presentation)
   let disclosureSet = Set.fromList disclosureTexts
   when (Set.size disclosureSet /= length disclosureTexts) $
     Left $ DuplicateDisclosure "Duplicate disclosures found"
   
   -- Verify each disclosure digest exists in payload or recursive disclosures
-  let missingDigests = filter (\d -> unDigest d `Set.notMember` allValidDigests) disclosureDigests
+  let missingDigests = filter (`Set.notMember` allValidDigests) disclosureTexts
   
   case missingDigests of
     [] -> return ()
-    (missing:_) -> Left $ MissingDisclosure $ "Disclosure digest not found in payload: " <> unDigest missing
+    (missing:_) -> Left $ MissingDisclosure $ "Disclosure digest not found in payload: " <> missing
 
 -- | Process SD-JWT payload by replacing digests with disclosure values.
 --
@@ -242,9 +241,7 @@ extractHashAlgorithmFromPresentation
   :: SDJWTPresentation
   -> Either SDJWTError HashAlgorithm
 extractHashAlgorithmFromPresentation presentation =
-  case parsePayloadFromJWT (presentationJWT presentation) of
-    Left err -> Left err
-    Right sdPayload -> Right $ maybe defaultHashAlgorithm id (sdAlg sdPayload)
+  fmap (maybe defaultHashAlgorithm id . sdAlg) (parsePayloadFromJWT (presentationJWT presentation))
 
 -- | Extract holder public key from cnf claim in SD-JWT payload.
 --
@@ -376,12 +373,12 @@ buildDisclosureMap hashAlg sdDisclosures =
     in (Map.fromList objectResults, Map.fromList arrayResults)
   ) $ mapM (\encDisclosure ->
     decodeDisclosure encDisclosure >>= \decodedDisclosure ->
-      let digest = computeDigest hashAlg encDisclosure
+      let digestText = computeDigestText hashAlg encDisclosure
           claimName = getDisclosureClaimName decodedDisclosure
           claimValue = getDisclosureValue decodedDisclosure
       in return $ case claimName of
-           Just name -> Left (unDigest digest, (name, claimValue))  -- Object disclosure
-           Nothing -> Right (unDigest digest, claimValue)  -- Array disclosure
+           Just name -> Left (digestText, (name, claimValue))  -- Object disclosure
+           Nothing -> Right (digestText, claimValue)  -- Array disclosure
     ) sdDisclosures
 
 -- | Replace digests in payload with actual claim values.
