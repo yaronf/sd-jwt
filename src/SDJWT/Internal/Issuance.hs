@@ -197,14 +197,15 @@ markSelectivelyDisclosable
   -> T.Text  -- ^ Claim name
   -> Aeson.Value  -- ^ Claim value
   -> IO (Either SDJWTError (Digest, EncodedDisclosure))
-markSelectivelyDisclosable hashAlg claimName claimValue = do
-  saltBytes <- generateSalt
-  let salt = Salt saltBytes
-  case createObjectDisclosure salt claimName claimValue of
-    Left err -> return (Left err)
-    Right encodedDisclosure -> do
-      let digest = computeDigest hashAlg encodedDisclosure
-      return (Right (digest, encodedDisclosure))
+markSelectivelyDisclosable hashAlg claimName claimValue =
+  fmap (\saltBytes ->
+    let salt = Salt saltBytes
+    in case createObjectDisclosure salt claimName claimValue of
+         Left err -> Left err
+         Right encodedDisclosure ->
+           let digest = computeDigest hashAlg encodedDisclosure
+           in Right (digest, encodedDisclosure)
+  ) generateSalt
 
 -- | Mark an array element as selectively disclosable (internal use only).
 --
@@ -215,14 +216,15 @@ markArrayElementDisclosable
   :: HashAlgorithm
   -> Aeson.Value  -- ^ Array element value
   -> IO (Either SDJWTError (Digest, EncodedDisclosure))
-markArrayElementDisclosable hashAlg elementValue = do
-  saltBytes <- generateSalt
-  let salt = Salt saltBytes
-  case createArrayDisclosure salt elementValue of
-    Left err -> return (Left err)
-    Right encodedDisclosure -> do
-      let digest = computeDigest hashAlg encodedDisclosure
-      return (Right (digest, encodedDisclosure))
+markArrayElementDisclosable hashAlg elementValue =
+  fmap (\saltBytes ->
+    let salt = Salt saltBytes
+    in case createArrayDisclosure salt elementValue of
+         Left err -> Left err
+         Right encodedDisclosure ->
+           let digest = computeDigest hashAlg encodedDisclosure
+           in Right (digest, encodedDisclosure)
+  ) generateSalt
 
 -- | Build SD-JWT payload from claims, marking specified claims as selectively disclosable.
 --
@@ -503,17 +505,17 @@ addHolderKeyToClaims holderPublicKeyJWK claims =
 addDecoyDigest
   :: HashAlgorithm
   -> IO Digest
-addDecoyDigest hashAlg = do
+addDecoyDigest hashAlg =
   -- Generate random bytes for the decoy digest
   -- According to RFC 9901, we hash over a cryptographically secure random number
   -- The size doesn't matter much since we're hashing it anyway
-  randomBytes <- generateSalt
-  
-  -- Hash the random bytes using the specified algorithm
-  let hashBytes = hashToBytes hashAlg randomBytes
-  -- Base64url encode to create the digest
-  let digestText = base64urlEncode hashBytes
-  return $ Digest digestText
+  fmap (\randomBytes ->
+    -- Hash the random bytes using the specified algorithm
+    let hashBytes = hashToBytes hashAlg randomBytes
+        -- Base64url encode to create the digest
+        digestText = base64urlEncode hashBytes
+    in Digest digestText
+  ) generateSalt
 
 -- | Sort digests for deterministic ordering in _sd array.
 sortDigests :: [Digest] -> [Digest]

@@ -241,11 +241,10 @@ extractHashAlgorithm = extractHashAlgorithmFromPresentation
 extractHashAlgorithmFromPresentation
   :: SDJWTPresentation
   -> Either SDJWTError HashAlgorithm
-extractHashAlgorithmFromPresentation presentation = do
-  sdPayload <- parsePayloadFromJWT (presentationJWT presentation)
-  case sdAlg sdPayload of
-    Just alg -> return alg
-    Nothing -> return defaultHashAlgorithm
+extractHashAlgorithmFromPresentation presentation =
+  case parsePayloadFromJWT (presentationJWT presentation) of
+    Left err -> Left err
+    Right sdPayload -> Right $ maybe defaultHashAlgorithm id (sdAlg sdPayload)
 
 -- | Extract holder public key from cnf claim in SD-JWT payload.
 --
@@ -255,12 +254,8 @@ extractHashAlgorithmFromPresentation presentation = do
 extractHolderKeyFromPayload
   :: SDJWTPresentation
   -> IO (Either SDJWTError KeyBindingInfo)
-extractHolderKeyFromPayload presentation = do
-  sdPayload <- case parsePayloadFromJWT (presentationJWT presentation) of
-    Left err -> return (Left err)
-    Right payload -> return (Right payload)
-  
-  case sdPayload of
+extractHolderKeyFromPayload presentation =
+  case parsePayloadFromJWT (presentationJWT presentation) of
     Left err -> return (Left err)
     Right payload -> do
       -- Extract cnf claim from payload
@@ -303,28 +298,25 @@ extractHolderKeyFromPayload presentation = do
 -- Only use this function directly if you need fine-grained control over JWT parsing.
 --
 parsePayloadFromJWT :: T.Text -> Either SDJWTError SDJWTPayload
-parsePayloadFromJWT jwt = do
+parsePayloadFromJWT jwt =
   -- Split JWT into parts (header.payload.signature)
   let parts = T.splitOn "." jwt
-  case parts of
-    (_header : payloadPart : _signature) -> do
+  in case parts of
+    (_header : payloadPart : _signature) ->
       -- Decode base64url payload
-      payloadBytes <- case base64urlDecode payloadPart of
+      case base64urlDecode payloadPart of
         Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
-        Right bs -> Right bs
-      
-      -- Parse JSON payload
-      payloadJson <- case Aeson.eitherDecodeStrict payloadBytes of
-        Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
-        Right val -> Right val
-      
-      -- Extract hash algorithm from payload
-      let hashAlg = extractHashAlgorithmFromPayload payloadJson
-      
-      return $ SDJWTPayload
-        { sdAlg = hashAlg
-        , payloadValue = payloadJson
-        }
+        Right payloadBytes ->
+          -- Parse JSON payload
+          case Aeson.eitherDecodeStrict payloadBytes of
+            Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
+            Right payloadJson ->
+              -- Extract hash algorithm from payload
+              let hashAlg = extractHashAlgorithmFromPayload payloadJson
+              in Right $ SDJWTPayload
+                   { sdAlg = hashAlg
+                   , payloadValue = payloadJson
+                   }
     _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
   
   where
@@ -345,16 +337,15 @@ extractDigestsFromPayload sdPayload = extractDigestsFromValue (payloadValue sdPa
 extractDigestsFromRecursiveDisclosures
   :: [EncodedDisclosure]
   -> Either SDJWTError [Digest]
-extractDigestsFromRecursiveDisclosures disclosures = do
-  results <- mapM (\encDisclosure ->
+extractDigestsFromRecursiveDisclosures disclosures =
+  fmap concat $ mapM (\encDisclosure ->
     case decodeDisclosure encDisclosure of
       Left _ -> Right []  -- Skip invalid disclosures
-      Right decoded -> do
+      Right decoded ->
         let claimValue = getDisclosureValue decoded
         -- Extract digests from _sd arrays in disclosure values
-        extractDigestsFromValue claimValue
+        in extractDigestsFromValue claimValue
     ) disclosures
-  return $ concat results
 
 -- | Extract regular (non-selectively disclosable) claims from payload.
 --
@@ -377,22 +368,21 @@ buildDisclosureMap
   :: HashAlgorithm
   -> [EncodedDisclosure]
   -> Either SDJWTError (Map.Map T.Text (T.Text, Aeson.Value), Map.Map T.Text Aeson.Value)
-buildDisclosureMap hashAlg sdDisclosures = do
+buildDisclosureMap hashAlg sdDisclosures =
   -- Process each disclosure and separate into object and array disclosures
-  disclosureResults <- mapM (\encDisclosure -> do
-    decodedDisclosure <- decodeDisclosure encDisclosure
-    let digest = computeDigest hashAlg encDisclosure
-    let claimName = getDisclosureClaimName decodedDisclosure
-    let claimValue = getDisclosureValue decodedDisclosure
-    return $ case claimName of
-      Just name -> Left (unDigest digest, (name, claimValue))  -- Object disclosure
-      Nothing -> Right (unDigest digest, claimValue)  -- Array disclosure
+  fmap (\disclosureResults ->
+    -- Partition into object and array results
+    let (objectResults, arrayResults) = partitionEithers disclosureResults
+    in (Map.fromList objectResults, Map.fromList arrayResults)
+  ) $ mapM (\encDisclosure ->
+    decodeDisclosure encDisclosure >>= \decodedDisclosure ->
+      let digest = computeDigest hashAlg encDisclosure
+          claimName = getDisclosureClaimName decodedDisclosure
+          claimValue = getDisclosureValue decodedDisclosure
+      in return $ case claimName of
+           Just name -> Left (unDigest digest, (name, claimValue))  -- Object disclosure
+           Nothing -> Right (unDigest digest, claimValue)  -- Array disclosure
     ) sdDisclosures
-  
-  -- Partition into object and array results
-  let (objectResults, arrayResults) = partitionEithers disclosureResults
-  
-  return (Map.fromList objectResults, Map.fromList arrayResults)
 
 -- | Replace digests in payload with actual claim values.
 -- This function:

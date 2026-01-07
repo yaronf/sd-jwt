@@ -430,9 +430,8 @@ partitionNestedPaths claimNames =
 --
 -- Helper function to extract _sd_alg from JWT payload, defaulting to SHA-256.
 extractHashAlgorithmFromJWT :: T.Text -> Either SDJWTError HashAlgorithm
-extractHashAlgorithmFromJWT jwt = do
-  sdPayload <- parsePayloadFromJWT jwt
-  return $ fromMaybe defaultHashAlgorithm (sdAlg sdPayload)
+extractHashAlgorithmFromJWT jwt =
+  fmap (fromMaybe defaultHashAlgorithm . sdAlg) (parsePayloadFromJWT jwt)
 
 -- | Validate disclosure dependencies per RFC 9901 Section 7.2, step 2.
 --
@@ -504,10 +503,9 @@ validateDisclosureDependencies hashAlg selectedDisclos issuerJWT = do
 --
 -- Helper function to extract all digests from the issuer-signed JWT payload.
 extractDigestsFromJWTPayload :: T.Text -> Either SDJWTError (Set.Set T.Text)
-extractDigestsFromJWTPayload jwt = do
-  sdPayload <- parsePayloadFromJWT jwt
-  digests <- extractDigestsFromValue (payloadValue sdPayload)
-  return $ Set.fromList $ map unDigest digests
+extractDigestsFromJWTPayload jwt =
+  parsePayloadFromJWT jwt >>= \sdPayload ->
+    fmap (Set.fromList . map unDigest) (extractDigestsFromValue (payloadValue sdPayload))
 
 -- | Collect array element disclosures for selected array claims.
 --

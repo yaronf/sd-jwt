@@ -45,25 +45,25 @@ createKeyBindingJWT
   -> SDJWTPresentation  -- ^ The SD-JWT presentation to bind
   -> Aeson.Object  -- ^ Optional additional claims (e.g., exp, nbf). These will be validated during verification if present. Pass @KeyMap.empty@ for no additional claims.
   -> IO (Either SDJWTError T.Text)
-createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentation optionalClaims = do
+createKeyBindingJWT hashAlg holderPrivateKey audience nonce issuedAt presentation optionalClaims =
   -- Compute sd_hash of the presentation
   let sdHash = computeSDHash hashAlg presentation
-  
-  -- Build base KB-JWT payload with required claims
-  let basePayloadObj = KeyMap.fromList
+      
+      -- Build base KB-JWT payload with required claims
+      basePayloadObj = KeyMap.fromList
         [ (Key.fromText "aud", Aeson.String audience)
         , (Key.fromText "nonce", Aeson.String nonce)
         , (Key.fromText "iat", Aeson.Number (fromIntegral issuedAt))
         , (Key.fromText "sd_hash", Aeson.String (unDigest sdHash))
         ]
-  
-  -- Merge optional claims into payload (optional claims override base claims if keys conflict)
-  let kbPayloadObj = KeyMap.union optionalClaims basePayloadObj  -- optionalClaims takes precedence
+      
+      -- Merge optional claims into payload (optional claims override base claims if keys conflict)
+      kbPayloadObj = KeyMap.union optionalClaims basePayloadObj  -- optionalClaims takes precedence
       kbPayload = Aeson.Object kbPayloadObj
-  
-  -- Sign the KB-JWT with typ: "kb+jwt" header (RFC 9901 Section 4.3 requirement)
-  -- Supports all key types: RSA (PS256 default, RS256 also supported), EC P-256 (ES256), and Ed25519 (EdDSA).
-  signJWTWithTyp "kb+jwt" holderPrivateKey kbPayload
+  in
+    -- Sign the KB-JWT with typ: "kb+jwt" header (RFC 9901 Section 4.3 requirement)
+    -- Supports all key types: RSA (PS256 default, RS256 also supported), EC P-256 (ES256), and Ed25519 (EdDSA).
+    signJWTWithTyp "kb+jwt" holderPrivateKey kbPayload
 
 -- | Compute sd_hash for key binding.
 --
@@ -184,11 +184,9 @@ addKeyBindingToPresentation
   -> SDJWTPresentation  -- ^ The SD-JWT presentation to bind
   -> Aeson.Object  -- ^ Optional additional claims (e.g., exp, nbf). Standard JWT claims will be validated during verification if present. Pass @KeyMap.empty@ for no additional claims.
   -> IO (Either SDJWTError SDJWTPresentation)
-addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentation optionalClaims = do
-  kbJWT <- createKeyBindingJWT hashAlg holderKey audience nonce issuedAt presentation optionalClaims
-  case kbJWT of
-    Left err -> return (Left err)
-    Right kb -> return $ Right presentation { keyBindingJWT = Just kb }
+addKeyBindingToPresentation hashAlg holderKey audience nonce issuedAt presentation optionalClaims =
+  fmap (\kb -> presentation { keyBindingJWT = Just kb })
+    <$> createKeyBindingJWT hashAlg holderKey audience nonce issuedAt presentation optionalClaims
 
 -- Helper functions
 
