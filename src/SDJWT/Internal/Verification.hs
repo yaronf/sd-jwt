@@ -27,6 +27,9 @@ import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDiscl
 import SDJWT.Internal.Utils (base64urlDecode)
 import SDJWT.Internal.KeyBinding (verifyKeyBindingJWT)
 import SDJWT.Internal.JWT (verifyJWT, JWKLike)
+import SDJWT.Internal.Monad (SDJWTIO, runSDJWTIO)
+import Control.Monad.Except (throwError)
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -175,7 +178,7 @@ verifyDisclosures
   -> SDJWTPresentation
   -> Either SDJWTError ()
 verifyDisclosures hashAlg presentation = do
-  -- Parse payload from JWT (simplified for now)
+  -- Parse payload from JWT
   sdPayload <- parsePayloadFromJWT (presentationJWT presentation)
   
   -- Get all digests from payload
@@ -189,11 +192,13 @@ verifyDisclosures hashAlg presentation = do
   let allValidDigests = Set.fromList (map unDigest (payloadDigests ++ recursiveDisclosureDigests))
   
   -- Compute digests for all disclosures
-  -- Check for duplicates (compare by text representation)
   let disclosureTexts = map (computeDigestText hashAlg) (selectedDisclosures presentation)
   let disclosureSet = Set.fromList disclosureTexts
-  when (Set.size disclosureSet /= length disclosureTexts) $
-    Left $ DuplicateDisclosure "Duplicate disclosures found"
+  
+  -- Check for duplicates (compare by text representation)
+  if Set.size disclosureSet /= length disclosureTexts
+    then Left $ DuplicateDisclosure "Duplicate disclosures found"
+    else return ()
   
   -- Verify each disclosure digest exists in payload or recursive disclosures
   let missingDigests = filter (`Set.notMember` allValidDigests) disclosureTexts
@@ -299,21 +304,17 @@ parsePayloadFromJWT jwt =
   -- Split JWT into parts (header.payload.signature)
   let parts = T.splitOn "." jwt
   in case parts of
-    (_header : payloadPart : _signature) ->
+    (_header : payloadPart : _signature) -> do
       -- Decode base64url payload
-      case base64urlDecode payloadPart of
-        Left err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err
-        Right payloadBytes ->
-          -- Parse JSON payload
-          case Aeson.eitherDecodeStrict payloadBytes of
-            Left err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err
-            Right payloadJson ->
-              -- Extract hash algorithm from payload
-              let hashAlg = extractHashAlgorithmFromPayload payloadJson
-              in Right $ SDJWTPayload
-                   { sdAlg = hashAlg
-                   , payloadValue = payloadJson
-                   }
+      payloadBytes <- either (\err -> Left $ JSONParseError $ "Failed to decode JWT payload: " <> err) Right (base64urlDecode payloadPart)
+      -- Parse JSON payload
+      payloadJson <- either (\err -> Left $ JSONParseError $ "Failed to parse JWT payload: " <> T.pack err) Right (Aeson.eitherDecodeStrict payloadBytes)
+      -- Extract hash algorithm from payload
+      let hashAlg = extractHashAlgorithmFromPayload payloadJson
+      return $ SDJWTPayload
+        { sdAlg = hashAlg
+        , payloadValue = payloadJson
+        }
     _ -> Left $ InvalidSignature "Invalid JWT format: expected header.payload.signature"
   
   where
@@ -432,18 +433,11 @@ processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
           objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
                 KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
       -- Recursively process nested objects (including the newly added claims)
-          -- Note: We process the entire object recursively, which will process nested objects
-          -- but won't affect primitive claim values (strings, numbers, etc.)
           processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
       in Aeson.Object processedObj
-    Just _ ->
-      -- _sd exists but is not an array, skip processing
-      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj
-      in Aeson.Object processedObj
-    Nothing ->
-      -- No _sd array, just recursively process nested objects
-      let processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj
-      in Aeson.Object processedObj
+    _ ->
+      -- _sd doesn't exist or is not an array, just recursively process nested objects
+      Aeson.Object (KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj)
 processSDArraysInValue (Aeson.Array arr) objectDisclosureMap =
   -- Recursively process array elements
   Aeson.Array $ V.map (\el -> processSDArraysInValue el objectDisclosureMap) arr
@@ -460,6 +454,53 @@ processArraysInClaimsWithSD
 processArraysInClaimsWithSD claims arrayDisclosureMap objectDisclosureMap =
   KeyMap.map (\value -> processValueForArraysWithSD value arrayDisclosureMap objectDisclosureMap) claims
 
+-- | Remove _sd_alg metadata field while preserving the JSON type structure.
+removeSDAlgPreservingType :: Aeson.Value -> Aeson.Value
+removeSDAlgPreservingType (Aeson.Object obj') =
+  let objWithoutSDAlg = KeyMap.delete "_sd_alg" obj'
+  -- Preserve the object type: if empty, return empty object {}, not []
+  in if KeyMap.null objWithoutSDAlg
+    then Aeson.Object KeyMap.empty
+    else Aeson.Object objWithoutSDAlg
+removeSDAlgPreservingType (Aeson.Array arr') =
+  -- Preserve the array type: if empty, return empty array []
+  if V.null arr'
+    then Aeson.Array V.empty
+    else Aeson.Array arr'
+removeSDAlgPreservingType value = value
+
+-- | Process an ellipsis object {"...": "<digest>"} by replacing it with the disclosure value.
+processEllipsisObject
+  :: Aeson.Object
+  -> Map.Map T.Text Aeson.Value  -- Array disclosures: digest -> value
+  -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
+  -> Maybe Aeson.Value
+processEllipsisObject obj arrayDisclosureMap objectDisclosureMap =
+  -- Check if this is a {"...": "<digest>"} object
+  case KeyMap.lookup (Key.fromText "...") obj of
+    Just (Aeson.String digest) ->
+      -- Validate that ellipsis object only contains the "..." key
+      -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
+      if KeyMap.size obj == 1
+        then
+          -- Look up the value for this digest
+          case Map.lookup digest arrayDisclosureMap of
+            Just value ->
+              -- Process _sd arrays in the array disclosure value (for nested selective disclosure)
+              let processedSD = processSDArraysInValue value objectDisclosureMap
+                  -- Remove _sd_alg (metadata field) from array disclosure values
+                  processedWithoutSDAlg = removeSDAlgPreservingType processedSD
+                  -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
+                  -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
+              in Just $ processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
+            Nothing ->
+              -- No disclosure found - per RFC 9901 Section 7.3, remove the array element
+              -- "Verifiers ignore all selectively disclosable array elements for which
+              -- they did not receive a Disclosure."
+              Nothing
+        else Just (Aeson.Object obj)  -- Invalid ellipsis object (has extra keys), keep as is
+    _ -> Just (Aeson.Object obj)  -- Not an ellipsis object, keep as is
+
 -- | Recursively process a JSON value to replace {"...": "<digest>"} objects in arrays,
 -- and also process _sd arrays in array disclosure values (for nested selective disclosure).
 processValueForArraysWithSD
@@ -471,54 +512,10 @@ processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosur
   -- Process each element in the array
   let processedElements = V.map (\el -> processValueForArraysWithSD el arrayDisclosureMap objectDisclosureMap) arr
       -- Replace {"...": "<digest>"} objects with actual values
-      -- Per RFC 9901 Section 4.2.4.2: "There MUST NOT be any other keys in the object."
       -- Per RFC 9901 Section 7.3: "Verifiers ignore all selectively disclosable array elements
       -- for which they did not receive a Disclosure."
       replacedElements = V.mapMaybe (\el -> case el of
-        Aeson.Object obj ->
-          -- Check if this is a {"...": "<digest>"} object
-          case KeyMap.lookup (Key.fromText "...") obj of
-            Just (Aeson.String digest) ->
-              -- Validate that ellipsis object only contains the "..." key
-              if KeyMap.size obj == 1
-                then
-                  -- Look up the value for this digest
-                  case Map.lookup digest arrayDisclosureMap of
-                    Just value ->
-                      -- Process _sd arrays in the array disclosure value (for nested selective disclosure)
-                      -- Also remove _sd_alg (metadata field) from array disclosure values
-                      let processedSD = processSDArraysInValue value objectDisclosureMap
-                          -- Remove _sd_alg if it's an object
-                          processedWithoutSDAlg = case processedSD of
-                            Aeson.Object obj' -> 
-                              let objWithoutSDAlg = KeyMap.delete "_sd_alg" obj'
-                              -- Preserve the object type: if empty, return empty object {}, not []
-                              in if KeyMap.null objWithoutSDAlg
-                                then Aeson.Object KeyMap.empty
-                                else Aeson.Object objWithoutSDAlg
-                            Aeson.Array arr' ->
-                              -- Preserve the array type: if empty, return empty array []
-                              if V.null arr'
-                                then Aeson.Array V.empty
-                                else Aeson.Array arr'
-                            _ -> processedSD
-                          -- Recursively process nested arrays with ellipsis objects (RFC 9901 Section 7.1 Step 2.c.iii.3)
-                          -- This handles cases where array disclosure values are themselves arrays with ellipsis objects
-                          recursivelyProcessed = processValueForArraysWithSD processedWithoutSDAlg arrayDisclosureMap objectDisclosureMap
-                          -- Preserve the original type structure: objects stay objects, arrays stay arrays
-                          -- The structure tells us the type, no need to decode missing disclosures
-                          finalValue = recursivelyProcessed
-                      in Just finalValue
-                    Nothing -> 
-                      -- No disclosure found - per RFC 9901 Section 7.3, remove the array element
-                      -- "Verifiers ignore all selectively disclosable array elements for which
-                      -- they did not receive a Disclosure."
-                      -- However, per Python interop test expectations, object disclosures
-                      -- should become [] when missing, while array disclosures should be removed.
-                      -- Since we cannot determine the type without the disclosure, we remove it.
-                      Nothing
-                else Just el  -- Invalid ellipsis object (has extra keys), keep as is
-            _ -> Just el  -- Not an ellipsis object, keep as is
+        Aeson.Object obj -> processEllipsisObject obj arrayDisclosureMap objectDisclosureMap
         _ -> Just el  -- Not an object, keep as is
         ) processedElements
   in Aeson.Array replacedElements

@@ -320,7 +320,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
           Right kbPresentation -> do
             -- Verify the KB-JWT (should succeed since exp is in the future)
             case keyBindingJWT kbPresentation of
-              Just kbJWT -> do
+              Just _kbJWT -> do
                 verifyResult <- verifyKeyBinding SHA256 (publicKeyJWK keyPair) kbPresentation
                 case verifyResult of
                   Right () -> return ()  -- Success
@@ -346,7 +346,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
           Right kbPresentation -> do
             -- Verify the KB-JWT (should fail since exp is in the past)
             case keyBindingJWT kbPresentation of
-              Just kbJWT -> do
+              Just _kbJWT -> do
                 verifyResult <- verifyKeyBinding SHA256 (publicKeyJWK keyPair) kbPresentation
                 case verifyResult of
                   Left _ -> return ()  -- Expected failure
@@ -369,7 +369,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
         Left (InvalidKeyBinding msg) -> do
           -- Check for either error message format (verifyJWT might catch it first)
           (T.isInfixOf "Invalid KB-JWT format" msg || T.isInfixOf "Failed to decode" msg || T.isInfixOf "Failed to parse" msg) `shouldBe` True
-        Left err -> return ()  -- Any error is acceptable (verifyJWT might return InvalidSignature)
+        Left _err -> return ()  -- Any error is acceptable (verifyJWT might return InvalidSignature)
         Right _ -> expectationFailure "Should reject KB-JWT with invalid format"
     
     it "rejects KB-JWT with invalid base64url header" $ do
@@ -448,7 +448,7 @@ spec = describe "SDJWT.KeyBinding (Error Paths and Edge Cases)" $ do
           case verifyResult of
             Left (InvalidKeyBinding msg) -> do
               T.isInfixOf "sd_hash mismatch" msg `shouldBe` True
-            Left err -> return ()  -- Any error is acceptable
+            Left _err -> return ()  -- Any error is acceptable
             Right _ -> expectationFailure "Should reject KB-JWT with sd_hash mismatch"
         Left err -> expectationFailure $ "Failed to create KB-JWT: " ++ show err
   

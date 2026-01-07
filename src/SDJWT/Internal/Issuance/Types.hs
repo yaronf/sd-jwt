@@ -5,11 +5,12 @@
 -- making the code more maintainable and easier to read.
 module SDJWT.Internal.Issuance.Types where
 
-import SDJWT.Internal.Types (HashAlgorithm)
+import SDJWT.Internal.Types (HashAlgorithm, Digest(..), EncodedDisclosure(..))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KeyMap
 import qualified Data.Vector as V
 import qualified Data.Text as T
+import qualified Data.Set as Set
 
 -- | Configuration for processing nested structures.
 data ProcessConfig = ProcessConfig
@@ -40,6 +41,61 @@ data ArrayPathConfig = ArrayPathConfig
   { arrHashAlg :: HashAlgorithm
   , arrPaths :: [[T.Text]]
   , arrArray :: V.Vector Aeson.Value
+  }
+  deriving (Eq, Show)
+
+-- | Configuration for processing top-level selective claims.
+data TopLevelClaimsConfig = TopLevelClaimsConfig
+  { topLevelHashAlg :: HashAlgorithm
+  , topLevelRecursiveParents :: Set.Set T.Text
+  , topLevelClaimNames :: [T.Text]
+  , topLevelRemainingClaims :: Aeson.Object
+  }
+  deriving (Eq, Show)
+
+-- | Result of processing top-level selective claims.
+data TopLevelClaimsResult = TopLevelClaimsResult
+  { resultDigests :: [Digest]
+  , resultDisclosures :: [EncodedDisclosure]
+  , resultRegularClaims :: Aeson.Object
+  }
+  deriving (Eq, Show)
+
+-- | Configuration for creating an SD-JWT.
+data CreateSDJWTConfig jwk = CreateSDJWTConfig
+  { createTyp :: Maybe T.Text  -- ^ Optional typ header value
+  , createKid :: Maybe T.Text  -- ^ Optional kid header value
+  , createHashAlg :: HashAlgorithm
+  , createIssuerKey :: jwk  -- ^ Issuer private key
+  , createSelectiveClaimNames :: [T.Text]  -- ^ Claim names to mark as selectively disclosable
+  , createClaims :: Aeson.Object  -- ^ Original claims object
+  }
+  deriving (Eq, Show)
+
+-- | Configuration for creating an SD-JWT with decoys.
+data CreateSDJWTWithDecoysConfig jwk = CreateSDJWTWithDecoysConfig
+  { createDecoysTyp :: Maybe T.Text
+  , createDecoysKid :: Maybe T.Text
+  , createDecoysHashAlg :: HashAlgorithm
+  , createDecoysIssuerKey :: jwk
+  , createDecoysSelectiveClaimNames :: [T.Text]
+  , createDecoysClaims :: Aeson.Object
+  , createDecoysCount :: Int  -- ^ Number of decoy digests
+  }
+  deriving (Eq, Show)
+
+-- | Configuration for building SD-JWT payload.
+data BuildSDJWTPayloadConfig = BuildSDJWTPayloadConfig
+  { buildHashAlg :: HashAlgorithm
+  , buildSelectiveClaimNames :: [T.Text]
+  , buildClaims :: Aeson.Object
+  }
+  deriving (Eq, Show)
+
+-- | Result of building SD-JWT payload.
+data BuildSDJWTPayloadResult = BuildSDJWTPayloadResult
+  { buildPayload :: Aeson.Value  -- ^ The payload value (Object)
+  , buildDisclosures :: [EncodedDisclosure]
   }
   deriving (Eq, Show)
 
