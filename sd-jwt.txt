@@ -117,8 +117,10 @@ SDJWTPresentation :: Text -> [EncodedDisclosure] -> Maybe Text -> SDJWTPresentat
 
 -- | Processed SD-JWT payload (after verification)
 data ProcessedSDJWTPayload
-ProcessedSDJWTPayload :: Map Text Value -> Maybe KeyBindingInfo -> ProcessedSDJWTPayload
-[processedClaims] :: ProcessedSDJWTPayload -> Map Text Value
+ProcessedSDJWTPayload :: Object -> Maybe KeyBindingInfo -> ProcessedSDJWTPayload
+
+-- | Processed claims as a JSON object
+[processedClaims] :: ProcessedSDJWTPayload -> Object
 
 -- | Key binding information if KB-JWT was present and verified
 [keyBindingInfo] :: ProcessedSDJWTPayload -> Maybe KeyBindingInfo
@@ -265,16 +267,6 @@ base64urlEncode :: ByteString -> Text
 --   Returns <a>Left</a> with an error message if decoding fails.
 base64urlDecode :: Text -> Either Text ByteString
 
--- | Generate a cryptographically secure random salt.
---   
---   Generates 128 bits (16 bytes) of random data as recommended by RFC
---   9901. This salt is used when creating disclosures to ensure that
---   digests cannot be guessed or brute-forced.
---   
---   The salt is generated using cryptonite's secure random number
---   generator.
-generateSalt :: MonadIO m => m ByteString
-
 -- | Convert Text to ByteString (UTF-8 encoding).
 --   
 --   This is a convenience function that encodes Text as UTF-8 ByteString.
@@ -309,8 +301,8 @@ hashToBytes :: HashAlgorithm -> ByteString -> ByteString
 --   <li>"a/b" → ["a", "b"]</li>
 --   <li>"a~1b" → ["a/b"] (escaped slash)</li>
 --   <li>"a~0b" → ["a~b"] (escaped tilde)</li>
---   <li>"a~1<i>b" → ["a</i>", "b"] (escaped slash becomes "<i>", then
---   "</i>" is separator)</li>
+--   <li>"a~1/b" → ["a/", "b"] (escaped slash becomes "/", then "/" is
+--   separator)</li>
 --   </ul>
 --   
 --   Note: This function is designed for relative JSON Pointer paths
@@ -345,6 +337,25 @@ unescapeJSONPointer :: Text -> Text
 --   constant-time comparison for ByteArray instances. ByteString is a
 --   ByteArray instance.
 constantTimeEq :: ByteString -> ByteString -> Bool
+
+-- | Generate a cryptographically secure random salt.
+--   
+--   Generates 128 bits (16 bytes) of random data as recommended by RFC
+--   9901. This salt is used when creating disclosures to ensure that
+--   digests cannot be guessed or brute-forced.
+--   
+--   The salt is generated using cryptonite's secure random number
+--   generator.
+generateSalt :: MonadIO m => m ByteString
+
+-- | Group paths by their first segment.
+--   
+--   This is a common pattern for processing nested JSON Pointer paths.
+--   Empty paths are grouped under an empty string key.
+--   
+--   Example: groupPathsByFirstSegment [["a", "b"], ["a", "c"], ["x"]] =
+--   Map.fromList [("a", [["b"], ["c"]]), ("x", [[]])]
+groupPathsByFirstSegment :: [[Text]] -> Map Text [[Text]]
 
 
 -- | JWT signing and verification using jose library.
@@ -648,6 +659,12 @@ module SDJWT.Internal.Digest
 --   produces identical bytes to US-ASCII for these strings.
 computeDigest :: HashAlgorithm -> EncodedDisclosure -> Digest
 
+-- | Compute digest text (string) from a disclosure.
+--   
+--   Convenience function that computes the digest and extracts the text.
+--   Equivalent to <tt>unDigest . computeDigest</tt>.
+computeDigestText :: HashAlgorithm -> EncodedDisclosure -> Text
+
 -- | Verify that a digest matches a disclosure.
 --   
 --   Computes the digest of the disclosure using the specified hash
@@ -696,6 +713,14 @@ hashAlgorithmToText :: HashAlgorithm -> Text
 --   arrays.
 extractDigestsFromValue :: Value -> Either SDJWTError [Digest]
 
+-- | Extract digest strings from an _sd array in a JSON object.
+--   
+--   This helper function extracts string digests from the _sd array field
+--   of a JSON object. Returns an empty list if _sd is not present or not
+--   an array. This is a convenience function for cases where you only need
+--   the digest strings, not the full Digest type.
+extractDigestStringsFromSDArray :: Object -> [Text]
+
 
 -- | SD-JWT issuance: Creating SD-JWTs from claims sets.
 --   
@@ -711,14 +736,46 @@ extractDigestsFromValue :: Value -> Either SDJWTError [Digest]
 --   
 --   <h3>JSON Pointer Syntax</h3>
 --   
---   Nested paths use forward slash (<tt>/</tt>) as a separator:
+--   Nested paths use forward slash (<tt>/</tt>) as a separator. Paths can
+--   refer to both object properties and array elements:
 --   
 --   <pre>
+--   -- Object properties
 --   ["address/street_address", "address/locality"]
 --   </pre>
 --   
 --   This marks <tt>street_address</tt> and <tt>locality</tt> within the
 --   <tt>address</tt> object as selectively disclosable.
+--   
+--   <pre>
+--   -- Array elements
+--   ["nationalities/0", "nationalities/2"]
+--   </pre>
+--   
+--   This marks elements at indices 0 and 2 in the <tt>nationalities</tt>
+--   array as selectively disclosable.
+--   
+--   <pre>
+--   -- Mixed object and array paths
+--   ["address/street_address", "nationalities/1"]
+--   </pre>
+--   
+--   <h3>Ambiguity Resolution</h3>
+--   
+--   Paths with numeric segments (e.g., <tt>["x/22"]</tt>) are ambiguous:
+--   they could refer to an array element at index 22, or an object
+--   property with key <tt>"22"</tt>. The library resolves this ambiguity
+--   by checking the actual claim type at runtime:
+--   
+--   <ul>
+--   <li>If <tt>x</tt> is an array → <tt>["x/22"]</tt> refers to array
+--   element at index 22</li>
+--   <li>If <tt>x</tt> is an object → <tt>["x/22"]</tt> refers to object
+--   property <tt>"22"</tt></li>
+--   </ul>
+--   
+--   This follows JSON Pointer semantics (RFC 6901) where the path alone
+--   doesn't determine the type.
 --   
 --   <h3>Escaping Special Characters</h3>
 --   
@@ -777,6 +834,34 @@ extractDigestsFromValue :: Value -> Either SDJWTError [Digest]
 --   <tt>_sd</tt>, and the <tt>address</tt> disclosure contains an
 --   <tt>_sd</tt> array with sub-claim digests.
 --   
+--   Array Elements:
+--   
+--   <pre>
+--   buildSDJWTPayload SHA256 ["nationalities/0", "nationalities/2"] claims
+--   </pre>
+--   
+--   This marks array elements at indices 0 and 2 as selectively
+--   disclosable.
+--   
+--   Nested Arrays:
+--   
+--   <pre>
+--   buildSDJWTPayload SHA256 ["nested_array/0/0", "nested_array/0/1", "nested_array/1/0"] claims
+--   </pre>
+--   
+--   This marks nested array elements. The path
+--   <tt>["nested_array/0/0"]</tt> refers to element at index 0 of the
+--   array at index 0 of <tt>nested_array</tt>.
+--   
+--   Mixed Object and Array Paths:
+--   
+--   <pre>
+--   buildSDJWTPayload SHA256 ["address/street_address", "nationalities/1"] claims
+--   </pre>
+--   
+--   This marks both an object property and an array element as selectively
+--   disclosable.
+--   
 --   <h2>Decoy Digests</h2>
 --   
 --   Decoy digests are optional random digests added to <tt>_sd</tt> arrays
@@ -787,8 +872,8 @@ extractDigestsFromValue :: Value -> Either SDJWTError [Digest]
 --   To use decoy digests:
 --   
 --   <ol>
---   <li>Build the SD-JWT payload using <a>buildSDJWTPayload</a></li>
---   <li>Generate decoy digests using <a>addDecoyDigest</a></li>
+--   <li>Build the SD-JWT payload using buildSDJWTPayload</li>
+--   <li>Generate decoy digests using addDecoyDigest</li>
 --   <li>Manually add them to the <tt>_sd</tt> array in the payload</li>
 --   <li>Sign the modified payload</li>
 --   </ol>
@@ -818,9 +903,6 @@ extractDigestsFromValue :: Value -> Either SDJWTError [Digest]
 --   
 --   During verification, decoy digests that don't match any disclosure are
 --   automatically ignored, so they don't affect verification.
---   
---   See <a>partitionNestedPaths</a> for detailed JSON Pointer parsing
---   implementation.
 module SDJWT.Internal.Issuance
 
 -- | Create a complete SD-JWT (signed).
@@ -851,7 +933,7 @@ module SDJWT.Internal.Issuance
 --   let claimsWithExp = Map.insert "exp" (Aeson.Number (fromIntegral expirationTime)) claims
 --   result &lt;- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithExp
 --   </pre>
-createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Map Text Value -> IO (Either SDJWTError SDJWT)
+createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Object -> IO (Either SDJWTError SDJWT)
 
 -- | Create an SD-JWT with optional typ header and decoy digests.
 --   
@@ -878,7 +960,7 @@ createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -
 --   -- Create SD-JWT with 5 decoy digests and typ header
 --   result &lt;- createSDJWTWithDecoys (Just "sd-jwt") SHA256 issuerKey ["given_name", "email"] claims 5
 --   </pre>
-createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Map Text Value -> Int -> IO (Either SDJWTError SDJWT)
+createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Object -> Int -> IO (Either SDJWTError SDJWT)
 
 -- | Generate a decoy digest.
 --   
@@ -902,31 +984,7 @@ createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorith
 --   privacy-preserving applications where you want to hide how many claims
 --   are selectively disclosable.
 addDecoyDigest :: HashAlgorithm -> IO Digest
-
--- | Build SD-JWT payload from claims, marking specified claims as
---   selectively disclosable.
---   
---   This function:
---   
---   <ol>
---   <li>Separates selectively disclosable claims from regular claims</li>
---   <li>Creates disclosures for selectively disclosable claims</li>
---   <li>Computes digests</li>
---   <li>Builds the JSON payload with _sd array containing digests</li>
---   <li>Returns the payload and all disclosures</li>
---   </ol>
---   
---   Supports nested structures (Section 6.2, 6.3):
---   
---   <ul>
---   <li>Use JSON Pointer syntax for nested paths:
---   ["address<i>street_address", "address</i>locality"]</li>
---   <li>For Section 6.2 (structured): parent object stays, sub-claims get
---   _sd array within parent</li>
---   <li>For Section 6.3 (recursive): parent is selectively disclosable,
---   disclosure contains _sd array</li>
---   </ul>
-buildSDJWTPayload :: HashAlgorithm -> [Text] -> Map Text Value -> IO (Either SDJWTError (SDJWTPayload, [EncodedDisclosure]))
+buildSDJWTPayload :: HashAlgorithm -> [Text] -> Object -> IO (Either SDJWTError (SDJWTPayload, [EncodedDisclosure]))
 
 -- | Add holder's public key to claims as a <tt>cnf</tt> claim (RFC 7800).
 --   
@@ -959,71 +1017,7 @@ buildSDJWTPayload :: HashAlgorithm -> [Text] -> Map Text Value -> IO (Either SDJ
 --   (JWT)</li>
 --   <li>RFC 9901 Section 4.3: Key Binding</li>
 --   </ul>
-addHolderKeyToClaims :: Text -> Map Text Value -> Map Text Value
-
--- | Mark a claim as selectively disclosable.
---   
---   This function:
---   
---   <ol>
---   <li>Generates a salt for the claim</li>
---   <li>Creates a disclosure</li>
---   <li>Computes the digest</li>
---   <li>Returns the digest and encoded disclosure | Mark a single claim as
---   selectively disclosable (advanced/low-level).</li>
---   </ol>
---   
---   This is a low-level function that processes a single claim. Most users
---   should use <a>buildSDJWTPayload</a> or <a>createSDJWT</a> instead,
---   which handle multiple claims and the full SD-JWT creation process.
---   
---   This function:
---   
---   <ol>
---   <li>Generates a salt for the claim</li>
---   <li>Creates an object disclosure</li>
---   <li>Computes the digest</li>
---   <li>Returns the digest and encoded disclosure</li>
---   </ol>
---   
---   <h2>Advanced Use</h2>
---   
---   Only use this function if you need fine-grained control over
---   individual claim processing, such as custom disclosure creation logic
---   or testing.
-markSelectivelyDisclosable :: HashAlgorithm -> Text -> Value -> IO (Either SDJWTError (Digest, EncodedDisclosure))
-
--- | Mark an array element as selectively disclosable.
---   
---   This function:
---   
---   <ol>
---   <li>Generates a salt for the array element</li>
---   <li>Creates an array disclosure (without claim name)</li>
---   <li>Computes the digest</li>
---   <li>Returns the digest and encoded disclosure</li>
---   </ol>
---   
---   The digest should be embedded in the array as {"...": "<a>digest</a>"}
---   at the same position as the original element.
-markArrayElementDisclosable :: HashAlgorithm -> Value -> IO (Either SDJWTError (Digest, EncodedDisclosure))
-
--- | Process an array and mark specific elements as selectively disclosable
---   (advanced/low-level).
---   
---   This is a low-level function for processing arrays. Most users should
---   use <a>buildSDJWTPayload</a> or <a>createSDJWT</a>, which handle
---   arrays automatically.
---   
---   Takes an array and a list of indices to mark as selectively
---   disclosable. Returns the modified array with digests replacing
---   selected elements, along with all disclosures created.
---   
---   <h2>Advanced Use</h2>
---   
---   Only use this function if you need fine-grained control over array
---   processing, such as custom array handling logic or testing.
-processArrayForSelectiveDisclosure :: HashAlgorithm -> Vector Value -> [Int] -> IO (Either SDJWTError (Vector Value, [EncodedDisclosure]))
+addHolderKeyToClaims :: Text -> Object -> Object
 
 
 -- | SD-JWT verification: Verifying SD-JWT presentations.
@@ -1058,10 +1052,14 @@ module SDJWT.Internal.Verification
 --   <h2>Standard JWT Claims Validation</h2>
 --   
 --   Standard JWT claims (RFC 7519) included in the issuer-signed JWT are
---   automatically validated: - <tt>exp</tt> (expiration time): Token is
---   rejected if expired - <tt>nbf</tt> (not before): Token is rejected if
---   not yet valid - Other standard claims are preserved but not validated
---   by this library
+--   automatically validated:
+--   
+--   <ul>
+--   <li><tt>exp</tt> (expiration time): Token is rejected if expired</li>
+--   <li><tt>nbf</tt> (not before): Token is rejected if not yet valid</li>
+--   <li>Other standard claims are preserved but not validated by this
+--   library</li>
+--   </ul>
 --   
 --   For testing or debugging purposes where signature verification should
 --   be skipped, use <a>verifySDJWTWithoutSignature</a> instead.
@@ -1132,10 +1130,15 @@ extractHashAlgorithm :: SDJWTPresentation -> Either SDJWTError HashAlgorithm
 --   <a>verifySDJWTWithoutSignature</a> instead, which handle payload
 --   parsing internally.
 --   
---   This function is used internally by: * <a>Presentation</a> - To parse
---   payloads when selecting disclosures * <a>verifyDisclosures</a> - To
---   extract digests from payloads * <a>extractHashAlgorithm</a> - To
---   extract hash algorithm from payloads
+--   This function is used internally by:
+--   
+--   <ul>
+--   <li><a>Presentation</a> - To parse payloads when selecting
+--   disclosures</li>
+--   <li><a>verifyDisclosures</a> - To extract digests from payloads</li>
+--   <li><a>extractHashAlgorithm</a> - To extract hash algorithm from
+--   payloads</li>
+--   </ul>
 --   
 --   <h2>Advanced/Internal Use</h2>
 --   
@@ -1150,7 +1153,11 @@ parsePayloadFromJWT :: Text -> Either SDJWTError SDJWTPayload
 --   JWT payloads must be JSON objects (RFC 7519), so this function only
 --   accepts Aeson.Object values. Returns an error if given a non-object
 --   value.
-extractRegularClaims :: Value -> Either SDJWTError (Map Text Value)
+extractRegularClaims :: Value -> Either SDJWTError Object
+
+-- | Extract digests from payload's _sd array and arrays with ellipsis
+--   objects.
+extractDigestsFromPayload :: SDJWTPayload -> Either SDJWTError [Digest]
 
 
 -- | SD-JWT presentation: Creating presentations with selected disclosures.
@@ -1191,8 +1198,23 @@ selectDisclosures :: SDJWT -> [EncodedDisclosure] -> Either SDJWTError SDJWTPres
 --   </ol>
 --   
 --   Note: This function validates that the selected disclosures exist in
---   the SD-JWT. Supports JSON Pointer syntax for nested paths (e.g.,
---   "address/street_address").
+--   the SD-JWT. Supports JSON Pointer syntax for nested paths:
+--   
+--   <ul>
+--   <li>Object properties: <tt>["address/street_address",
+--   "address/locality"]</tt></li>
+--   <li>Array elements: <tt>["nationalities/0",
+--   "nationalities/2"]</tt></li>
+--   <li>Mixed paths: <tt>["address/street_address",
+--   "nationalities/1"]</tt></li>
+--   <li>Nested arrays: <tt>["nested_array/0/0",
+--   "nested_array/1/1"]</tt></li>
+--   </ul>
+--   
+--   Paths with numeric segments (e.g., <tt>["x/22"]</tt>) are resolved by
+--   checking the actual claim type: if <tt>x</tt> is an array, it refers
+--   to index 22; if <tt>x</tt> is an object, it refers to property
+--   <tt>"22"</tt>.
 selectDisclosuresByNames :: SDJWT -> [Text] -> Either SDJWTError SDJWTPresentation
 
 -- | Add key binding to a presentation.
@@ -1240,6 +1262,11 @@ addKeyBinding :: JWKLike jwk => HashAlgorithm -> jwk -> Text -> Text -> Int64 ->
 --   case deserializeSDJWT sdjwtText of
 --     Right sdjwt -&gt; do
 --       -- 2. Select which disclosures to include
+--       -- Examples of different selection patterns:
+--       --   Top-level claims: ["given_name", "email"]
+--       --   Nested object claims: ["address/street_address", "address/locality"]
+--       --   Array elements: ["nationalities/0", "nationalities/2"]
+--       --   Mixed paths: ["address/street_address", "nationalities/1"]
 --       case selectDisclosuresByNames sdjwt ["given_name", "email"] of
 --         Right presentation -&gt; do
 --           -- 3. Optionally add key binding for proof of possession
@@ -1309,8 +1336,23 @@ serializePresentation :: SDJWTPresentation -> Text
 --   </ol>
 --   
 --   Note: This function validates that the selected disclosures exist in
---   the SD-JWT. Supports JSON Pointer syntax for nested paths (e.g.,
---   "address/street_address").
+--   the SD-JWT. Supports JSON Pointer syntax for nested paths:
+--   
+--   <ul>
+--   <li>Object properties: <tt>["address/street_address",
+--   "address/locality"]</tt></li>
+--   <li>Array elements: <tt>["nationalities/0",
+--   "nationalities/2"]</tt></li>
+--   <li>Mixed paths: <tt>["address/street_address",
+--   "nationalities/1"]</tt></li>
+--   <li>Nested arrays: <tt>["nested_array/0/0",
+--   "nested_array/1/1"]</tt></li>
+--   </ul>
+--   
+--   Paths with numeric segments (e.g., <tt>["x/22"]</tt>) are resolved by
+--   checking the actual claim type: if <tt>x</tt> is an array, it refers
+--   to index 22; if <tt>x</tt> is an object, it refers to property
+--   <tt>"22"</tt>.
 selectDisclosuresByNames :: SDJWT -> [Text] -> Either SDJWTError SDJWTPresentation
 
 -- | Add key binding to a presentation.
@@ -1382,6 +1424,12 @@ addKeyBindingToPresentation :: JWKLike jwk => HashAlgorithm -> jwk -> Text -> Te
 --   
 --   -- Create SD-JWT with typ and kid headers
 --   result &lt;- createSDJWT (Just "sd-jwt") (Just "key-1") SHA256 issuerKey ["given_name"] claims
+--   
+--   -- Create SD-JWT with array elements (using JSON Pointer syntax)
+--   result &lt;- createSDJWT Nothing Nothing SHA256 issuerKey ["nationalities/0", "nationalities/2"] claims
+--   
+--   -- Create SD-JWT with mixed object and array paths
+--   result &lt;- createSDJWT Nothing Nothing SHA256 issuerKey ["address/street_address", "nationalities/1"] claims
 --   </pre>
 --   
 --   <h2>Standard JWT Claims</h2>
@@ -1428,8 +1476,8 @@ addKeyBindingToPresentation :: JWKLike jwk => HashAlgorithm -> jwk -> Text -> Te
 --   </pre>
 --   
 --   For advanced use cases (e.g., adding decoys to nested <tt>_sd</tt>
---   arrays or custom placement logic), import <a>Issuance</a> to access
---   <tt>buildSDJWTPayload</tt> and other low-level functions.
+--   arrays or custom placement logic), import SDJWT.Internal.Issuance to
+--   access buildSDJWTPayload and other low-level functions.
 --   
 --   <h2>Key Binding Support</h2>
 --   
@@ -1495,7 +1543,7 @@ module SDJWT.Issuer
 --   let claimsWithExp = Map.insert "exp" (Aeson.Number (fromIntegral expirationTime)) claims
 --   result &lt;- createSDJWT (Just "sd-jwt") SHA256 issuerKey ["given_name"] claimsWithExp
 --   </pre>
-createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Map Text Value -> IO (Either SDJWTError SDJWT)
+createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Object -> IO (Either SDJWTError SDJWT)
 
 -- | Create an SD-JWT with optional typ header and decoy digests.
 --   
@@ -1522,7 +1570,7 @@ createSDJWT :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -
 --   -- Create SD-JWT with 5 decoy digests and typ header
 --   result &lt;- createSDJWTWithDecoys (Just "sd-jwt") SHA256 issuerKey ["given_name", "email"] claims 5
 --   </pre>
-createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Map Text Value -> Int -> IO (Either SDJWTError SDJWT)
+createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorithm -> jwk -> [Text] -> Object -> Int -> IO (Either SDJWTError SDJWT)
 
 -- | Add holder's public key to claims as a <tt>cnf</tt> claim (RFC 7800).
 --   
@@ -1555,7 +1603,7 @@ createSDJWTWithDecoys :: JWKLike jwk => Maybe Text -> Maybe Text -> HashAlgorith
 --   (JWT)</li>
 --   <li>RFC 9901 Section 4.3: Key Binding</li>
 --   </ul>
-addHolderKeyToClaims :: Text -> Map Text Value -> Map Text Value
+addHolderKeyToClaims :: Text -> Object -> Object
 
 
 -- | Convenience module for SD-JWT verifiers.
@@ -1661,10 +1709,14 @@ module SDJWT.Verifier
 --   <h2>Standard JWT Claims Validation</h2>
 --   
 --   Standard JWT claims (RFC 7519) included in the issuer-signed JWT are
---   automatically validated: - <tt>exp</tt> (expiration time): Token is
---   rejected if expired - <tt>nbf</tt> (not before): Token is rejected if
---   not yet valid - Other standard claims are preserved but not validated
---   by this library
+--   automatically validated:
+--   
+--   <ul>
+--   <li><tt>exp</tt> (expiration time): Token is rejected if expired</li>
+--   <li><tt>nbf</tt> (not before): Token is rejected if not yet valid</li>
+--   <li>Other standard claims are preserved but not validated by this
+--   library</li>
+--   </ul>
 --   
 --   For testing or debugging purposes where signature verification should
 --   be skipped, use <a>verifySDJWTWithoutSignature</a> instead.
