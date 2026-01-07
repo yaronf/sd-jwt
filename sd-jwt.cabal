@@ -133,48 +133,6 @@ executable sd-jwt-interop-test
   else
     buildable: False
 
-executable sd-jwt-print-presentations
-  main-is: PrintPresentations.hs
-  other-modules:
-      TestCaseParser
-      TestCaseRunner
-      TestKeys
-  hs-source-dirs:
-      test/interop
-      test
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -Wall -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      aeson >=2.0 && <2.3
-    , base >=4.14 && <5
-    , base64-bytestring ==1.2.*
-    , bytestring ==0.11.*
-    , containers ==0.6.*
-    , cryptonite ==0.30.*
-    , jose >=0.10 && <0.13
-    , lens >=4.16 && <5.4
-    , memory ==0.18.*
-    , scientific ==0.3.*
-    , text ==2.0.*
-    , time >=1.9 && <1.13
-    , vector ==0.13.*
-  default-language: Haskell2010
-  if flag(interop-tests)
-    build-depends:
-        HsYAML ==0.2.*
-      , HsYAML-aeson ==0.2.*
-      , aeson >=2.0 && <2.3
-      , aeson-pretty >=0.8
-      , base >=4.14 && <5
-      , bytestring ==0.11.*
-      , containers ==0.6.*
-      , directory >=1.3
-      , filepath >=1.4
-      , sd-jwt
-      , text ==2.0.*
-    buildable: True
-  else
-    buildable: False
-
 test-suite sd-jwt-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs

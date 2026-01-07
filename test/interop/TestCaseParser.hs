@@ -23,8 +23,7 @@ import qualified Data.Vector as V
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import Data.YAML
-import Data.YAML.Aeson
+import Data.YAML (decodeNode, Node(..), docRoot, Scalar(..), Mapping, Pos)
 import System.FilePath ((</>))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL

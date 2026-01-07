@@ -30,7 +30,7 @@ extractDisclosurePaths holderDisclosed = concatMap (\(name, value) -> extractPat
   where
     extractPathsForClaim :: T.Text -> Aeson.Value -> [T.Text]
     extractPathsForClaim claimName (Aeson.Bool True) = [claimName]
-    extractPathsForClaim claimName (Aeson.Bool False) = []
+    extractPathsForClaim _ (Aeson.Bool False) = []
     extractPathsForClaim claimName (Aeson.Array arr) = 
       concatMap (\(idx, val) -> extractPathsForArrayElement claimName idx val) (zip [0..] (V.toList arr))
     extractPathsForClaim claimName (Aeson.Object obj) =
@@ -42,9 +42,9 @@ extractDisclosurePaths holderDisclosed = concatMap (\(name, value) -> extractPat
     
     extractPathsForArrayElement :: T.Text -> Int -> Aeson.Value -> [T.Text]
     extractPathsForArrayElement claimName idx (Aeson.Bool True) = [claimName <> "/" <> T.pack (show idx)]
-    extractPathsForArrayElement claimName idx (Aeson.Bool False) = []
+    extractPathsForArrayElement _ _ (Aeson.Bool False) = []
     extractPathsForArrayElement claimName idx (Aeson.Array arr) =
-      concatMap (\(innerIdx, val) -> extractPathsForArrayElement (claimName <> "/" <> T.pack (show idx)) innerIdx val) (zip [0..] (V.toList arr))
+      concatMap (\(innerIdx, val) -> extractPathsForArrayElement (claimName <> "/" <> T.pack (show idx)) innerIdx val) (zip [0 :: Int ..] (V.toList arr))
     extractPathsForArrayElement claimName idx (Aeson.Object obj) =
       -- Nested object in array
       concatMap (\(k, v) -> extractPathsForClaim (claimName <> "/" <> T.pack (show idx) <> "/" <> Key.toText k) v) (KeyMap.toList obj)
@@ -161,19 +161,19 @@ identifySelectivelyDisclosableClaims userClaims holderDisclosed expectedVerified
           recursivePaths = concatMap (\(idx, uVal) ->
             if idx `elem` selectiveIndices
               then case (uVal, if idx < expectedLen then Just (expectedList !! idx) else Nothing) of
-                (Aeson.Array uArr, Just (Aeson.Array eArr)) ->
+                (Aeson.Array _, Just (Aeson.Array eArr)) ->
                   -- Recursively check nested array
                   inferPathsForValue (claimName <> "/" <> T.pack (show idx)) uVal (Aeson.Array eArr)
-                (Aeson.Object uObj, Just (Aeson.Object eObj)) ->
+                (Aeson.Object _, Just (Aeson.Object eObj)) ->
                   -- Recursively check nested object
                   inferPathsForValue (claimName <> "/" <> T.pack (show idx)) uVal (Aeson.Object eObj)
-                (Aeson.Object uObj, Just (Aeson.Array eArr)) ->
+                (Aeson.Object _, Just (Aeson.Array _)) ->
                   -- Object element was replaced with empty array, recursively mark all its contents as selectively disclosable
                   extractAllPathsFromValue (claimName <> "/" <> T.pack (show idx)) uVal
-                (Aeson.Array uArr, Nothing) ->
+                (Aeson.Array _, Nothing) ->
                   -- Array element was removed, recursively mark all its contents as selectively disclosable
                   extractAllPathsFromValue (claimName <> "/" <> T.pack (show idx)) uVal
-                (Aeson.Object uObj, Nothing) ->
+                (Aeson.Object _, Nothing) ->
                   -- Object element was removed, recursively mark all its contents as selectively disclosable
                   extractAllPathsFromValue (claimName <> "/" <> T.pack (show idx)) uVal
                 _ -> []
@@ -220,7 +220,7 @@ identifySelectivelyDisclosableClaims userClaims holderDisclosed expectedVerified
     extractAllPathsFromValue basePath (Aeson.Array arr) =
       -- Mark the array itself and all its elements
       basePath : concatMap (\(idx, val) ->
-        extractAllPathsFromValue (basePath <> "/" <> T.pack (show idx)) val
+        extractAllPathsFromValue (basePath <> "/" <> T.pack (show (idx :: Int))) val
         ) (zip [0..] (V.toList arr))
     extractAllPathsFromValue basePath (Aeson.Object obj) =
       -- Mark the object itself and all its properties
