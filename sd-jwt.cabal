@@ -64,7 +64,7 @@ library
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -89,7 +89,7 @@ executable sd-jwt-example
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , sd-jwt
     , text ==2.0.*
@@ -105,7 +105,7 @@ executable sd-jwt-interop-test
       TestKeys
   hs-source-dirs:
       test/interop
-      test
+    , test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson >=2.0 && <2.3
@@ -117,7 +117,7 @@ executable sd-jwt-interop-test
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -179,7 +179,7 @@ test-suite sd-jwt-test
     , lens >=4.16 && <5.4
     , markdown-unlit >=0.5
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , process >=1.6
     , scientific ==0.3.*
     , sd-jwt
