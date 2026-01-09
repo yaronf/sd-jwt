@@ -5,7 +5,7 @@
 [![Hackage deps](https://img.shields.io/hackage-deps/v/sd-jwt)](https://hackage.haskell.org/package/sd-jwt)
 
 [![Haddocks](https://img.shields.io/badge/docs-haddock-blue)](https://hackage.haskell.org/package/sd-jwt/docs)
-[![License](https://img.shields.io/github/license/yaronf/sd-jwt)](LICENSE)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
 Haskell implementation of [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html): Selective Disclosure for JSON Web Tokens (SD-JWT).
 
