@@ -1147,7 +1147,6 @@ spec = describe "SDJWT.Verification" $ do
                     arr V.!? 1 `shouldBe` Just Aeson.Null
                   _ -> expectationFailure "null_values claim not found or not an array"
               Left err -> expectationFailure $ "Verification failed: " ++ show err
-          _ -> expectationFailure "Failed to create null disclosures"
 
       it "recursively processes nested arrays with ellipsis objects in disclosure values (Gap 5)" $ do
         -- Test: Missing recursive processing

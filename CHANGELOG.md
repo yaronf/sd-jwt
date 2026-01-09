@@ -6,9 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the
 [Haskell Package Versioning Policy](https://pvp.haskell.org/).
 
-## Unreleased
-
-## 0.1.0.0 - 2025-12-25
+## 0.1.0.0 - 2025-01-09
 
 ### Added
 - Initial release of SD-JWT library implementing RFC 9901
@@ -24,10 +22,11 @@ and this project adheres to the
   - ES256 (EC P-256) - Elliptic Curve signing
   - EdDSA (Ed25519) - Recommended for high-security applications
 - Persona-specific modules: `SDJWT.Issuer`, `SDJWT.Holder`, `SDJWT.Verifier`
-- Comprehensive test suite (224 tests including property-based tests)
+- Comprehensive test suite (>300 tests including property-based tests)
 - RFC 9901 test vector verification
 - End-to-end integration tests
 - Property-based testing with QuickCheck
+- Interoperability testing against the Python reference implementation
 - Complete Haddock documentation
 
 ### Security

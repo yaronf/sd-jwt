@@ -436,7 +436,7 @@ spec = describe "SDJWT.Presentation" $ do
                     -- The ellipsis object has no matching disclosure, so it should return empty list for that path
                     case selectDisclosuresByNames sdjwtWithFakeEllipsis ["nested_array/0/0"] of
                       -- Should either succeed (with empty disclosures for that path) or fail gracefully
-                      Right presentation -> do
+                      Right _presentation -> do
                         -- If it succeeds, the nested path won't have disclosures because parent disclosure is missing
                         return ()  -- Acceptable behavior
                       Left _ -> return ()  -- Also acceptable - missing disclosure causes error

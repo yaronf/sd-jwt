@@ -1,9 +1,21 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | Types and records for Issuance module.
 --
 -- This module provides record types for functions with many parameters,
 -- making the code more maintainable and easier to read.
-module SDJWT.Internal.Issuance.Types where
+module SDJWT.Internal.Issuance.Types
+  ( ProcessConfig(..)
+  , PathProcessConfig(..)
+  , ObjectPathConfig(..)
+  , ArrayPathConfig(..)
+  , TopLevelClaimsConfig(..)
+  , TopLevelClaimsResult(..)
+  , CreateSDJWTConfig(..)
+  , CreateSDJWTWithDecoysConfig(..)
+  , BuildSDJWTPayloadConfig(..)
+  , BuildSDJWTPayloadResult(..)
+  ) where
 
 import SDJWT.Internal.Types (HashAlgorithm, Digest(..), EncodedDisclosure(..))
 import qualified Data.Aeson as Aeson
@@ -18,7 +30,7 @@ data ProcessConfig = ProcessConfig
   , processPaths :: [[T.Text]]
   , processClaims :: Aeson.Object
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for processing paths recursively.
 data PathProcessConfig = PathProcessConfig
@@ -26,7 +38,7 @@ data PathProcessConfig = PathProcessConfig
   , pathSegments :: [[T.Text]]
   , pathValue :: Aeson.Value
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for processing object paths.
 data ObjectPathConfig = ObjectPathConfig
@@ -34,7 +46,7 @@ data ObjectPathConfig = ObjectPathConfig
   , objPaths :: [[T.Text]]
   , objObject :: KeyMap.KeyMap Aeson.Value
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for processing array paths.
 data ArrayPathConfig = ArrayPathConfig
@@ -42,7 +54,7 @@ data ArrayPathConfig = ArrayPathConfig
   , arrPaths :: [[T.Text]]
   , arrArray :: V.Vector Aeson.Value
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for processing top-level selective claims.
 data TopLevelClaimsConfig = TopLevelClaimsConfig
@@ -51,7 +63,7 @@ data TopLevelClaimsConfig = TopLevelClaimsConfig
   , topLevelClaimNames :: [T.Text]
   , topLevelRemainingClaims :: Aeson.Object
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Result of processing top-level selective claims.
 data TopLevelClaimsResult = TopLevelClaimsResult
@@ -59,7 +71,7 @@ data TopLevelClaimsResult = TopLevelClaimsResult
   , resultDisclosures :: [EncodedDisclosure]
   , resultRegularClaims :: Aeson.Object
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for creating an SD-JWT.
 data CreateSDJWTConfig jwk = CreateSDJWTConfig
@@ -70,7 +82,7 @@ data CreateSDJWTConfig jwk = CreateSDJWTConfig
   , createSelectiveClaimNames :: [T.Text]  -- ^ Claim names to mark as selectively disclosable
   , createClaims :: Aeson.Object  -- ^ Original claims object
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for creating an SD-JWT with decoys.
 data CreateSDJWTWithDecoysConfig jwk = CreateSDJWTWithDecoysConfig
@@ -82,7 +94,7 @@ data CreateSDJWTWithDecoysConfig jwk = CreateSDJWTWithDecoysConfig
   , createDecoysClaims :: Aeson.Object
   , createDecoysCount :: Int  -- ^ Number of decoy digests
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Configuration for building SD-JWT payload.
 data BuildSDJWTPayloadConfig = BuildSDJWTPayloadConfig
@@ -90,12 +102,12 @@ data BuildSDJWTPayloadConfig = BuildSDJWTPayloadConfig
   , buildSelectiveClaimNames :: [T.Text]
   , buildClaims :: Aeson.Object
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | Result of building SD-JWT payload.
 data BuildSDJWTPayloadResult = BuildSDJWTPayloadResult
   { buildPayload :: Aeson.Value  -- ^ The payload value (Object)
   , buildDisclosures :: [EncodedDisclosure]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 

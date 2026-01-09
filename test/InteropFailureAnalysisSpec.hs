@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module InteropFailureAnalysisSpec where
+module InteropFailureAnalysisSpec (spec) where
 
 import Test.Hspec
 import qualified Data.Aeson as Aeson
@@ -167,8 +167,8 @@ spec = describe "Interop Failure Analysis" $ do
             ]
       
       -- Use buildSDJWTPayload with JSON Pointer to mark indices 1 and 2
-      result <- buildSDJWTPayload SHA256 ["null_values/1", "null_values/2"] claims
-      case result of
+      buildResult <- buildSDJWTPayload SHA256 ["null_values/1", "null_values/2"] claims
+      case buildResult of
         Left err -> expectationFailure $ "Failed to build SD-JWT payload: " ++ show err
         Right (payload, _disclosures) -> do
           -- Create JWT from payload
@@ -180,11 +180,11 @@ spec = describe "Interop Failure Analysis" $ do
           let presentation = SDJWTPresentation mockJWT [] Nothing
           
           -- Step 4: Verify
-          result <- verifySDJWTWithoutSignature presentation
-          case result of
+          verifyResult <- verifySDJWTWithoutSignature presentation
+          case verifyResult of
             Right processed -> do
-              let claims = processedClaims processed
-              case KeyMap.lookup (Key.fromText "null_values") claims of
+              let processedClaimsMap = processedClaims processed
+              case KeyMap.lookup (Key.fromText "null_values") processedClaimsMap of
                 Just (Aeson.Array arr) -> do
                   -- Expected: [null, null] (only non-selectively-disclosable nulls)
                   -- Current bug: [null, null, null, null] (all nulls)
@@ -193,7 +193,6 @@ spec = describe "Interop Failure Analysis" $ do
                   arr V.!? 1 `shouldBe` Just Aeson.Null
                 _ -> expectationFailure "null_values claim not found or not an array"
             Left err -> expectationFailure $ "Verification failed: " ++ show err
-        _ -> expectationFailure "Failed to create null disclosures"
 
   describe "array_full_sd" $ do
     it "should only include selected sub-claims in object" $ do
@@ -231,11 +230,11 @@ spec = describe "Interop Failure Analysis" $ do
             Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
             Right presentation -> do
               -- Verify
-              result <- verifySDJWTWithoutSignature presentation
-              case result of
+              verifyResult <- verifySDJWTWithoutSignature presentation
+              case verifyResult of
                 Right processed -> do
-                  let claims = processedClaims processed
-                  case KeyMap.lookup (Key.fromText "is_over") claims of
+                  let processedClaimsMap = processedClaims processed
+                  case KeyMap.lookup (Key.fromText "is_over") processedClaimsMap of
                     Just (Aeson.Object obj) -> do
                       -- Expected: {"18": False} (only "18" is selected)
                       -- Current bug: {"13": True, "18": False, "21": False} (all included)
@@ -308,14 +307,14 @@ spec = describe "Interop Failure Analysis" $ do
             Left err -> expectationFailure $ "Failed to select disclosures: " ++ show err
             Right presentation -> do
               -- Verify
-              result <- verifySDJWTWithoutSignature presentation
-              case result of
+              verifyResult <- verifySDJWTWithoutSignature presentation
+              case verifyResult of
                 Left err -> expectationFailure $ "Verification failed: " ++ show err
                 Right processed -> do
-                  let claims = processedClaims processed
+                  let processedClaimsMap = processedClaims processed
                   
                   -- Verify foo: should have both elements
-                  case KeyMap.lookup (Key.fromText "foo") claims of
+                  case KeyMap.lookup (Key.fromText "foo") processedClaimsMap of
                     Just (Aeson.Array fooArr) -> do
                       V.length fooArr `shouldBe` 2
                       fooArr V.!? 0 `shouldBe` Just (Aeson.String "one")
@@ -323,7 +322,7 @@ spec = describe "Interop Failure Analysis" $ do
                     _ -> expectationFailure "foo should be an array with 2 elements"
                   
                   -- Verify bar: should have both sub-claims
-                  case KeyMap.lookup (Key.fromText "bar") claims of
+                  case KeyMap.lookup (Key.fromText "bar") processedClaimsMap of
                     Just (Aeson.Object barObj) -> do
                       KeyMap.size barObj `shouldBe` 2
                       KeyMap.lookup (Key.fromText "red") barObj `shouldBe` Just (Aeson.Number 1)
@@ -331,7 +330,7 @@ spec = describe "Interop Failure Analysis" $ do
                     _ -> expectationFailure "bar should be an object with 2 sub-claims"
                   
                   -- Verify qux: should have nested array with both elements
-                  case KeyMap.lookup (Key.fromText "qux") claims of
+                  case KeyMap.lookup (Key.fromText "qux") processedClaimsMap of
                     Just (Aeson.Array quxArr) -> do
                       V.length quxArr `shouldBe` 1
                       case quxArr V.!? 0 of

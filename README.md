@@ -1,8 +1,13 @@
 # SD-JWT: Selective Disclosure for JSON Web Tokens
 
-Haskell implementation of [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html): Selective Disclosure for JSON Web Tokens (SD-JWT).
+[![CI](https://github.com/yaronf/sd-jwt/actions/workflows/ci.yml/badge.svg)](https://github.com/yaronf/sd-jwt/actions/workflows/ci.yml)
+[![Hackage](https://img.shields.io/hackage/v/sd-jwt)](https://hackage.haskell.org/package/sd-jwt)
+[![Hackage deps](https://img.shields.io/hackage-deps/v/sd-jwt)](https://hackage.haskell.org/package/sd-jwt)
 
-📚 **Documentation**: [https://www.sheffer.org/sd-jwt/](https://www.sheffer.org/sd-jwt/)
+[![Haddocks](https://img.shields.io/badge/docs-haddock-blue)](https://hackage.haskell.org/package/sd-jwt/docs)
+[![License](https://img.shields.io/github/license/yaronf/sd-jwt)](LICENSE)
+
+Haskell implementation of [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html): Selective Disclosure for JSON Web Tokens (SD-JWT).
 
 ## Overview
 
@@ -263,7 +268,6 @@ For public keys, omit the `d` field. See [RFC 7517](https://www.rfc-editor.org/r
 
 ## Documentation
 
-- [API Documentation](https://www.sheffer.org/sd-jwt/) - Full Haddock documentation (built automatically)
 - [RFC 9901](https://www.rfc-editor.org/rfc/rfc9901.html) - The SD-JWT specification
 - [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html) - JSON Web Key (JWK) format
 - [RFC 7519](https://www.rfc-editor.org/rfc/rfc7519.html) - JSON Web Token (JWT)
