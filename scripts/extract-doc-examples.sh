@@ -82,7 +82,7 @@ let jwk = privateKeyJWK keyPair|g
       # Add setup for sdjwtText in holder example (replace the case statement)
       s|^case deserializeSDJWT sdjwtText of|issuerKeyPair <- generateTestRSAKeyPair\
 let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]\
-sdjwtResult <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims\
+sdjwtResult <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims\
 case sdjwtResult of\
   Right sdjwt -> let sdjwtText = serializeSDJWT sdjwt\
   Left _ -> error "Failed to create SD-JWT"\
@@ -90,7 +90,7 @@ case deserializeSDJWT sdjwtText of|g
       # Add setup for presentationText in verifier example (replace the case statement)
       s|^case deserializePresentation presentationText of|issuerKeyPair <- generateTestRSAKeyPair\
 let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]\
-sdjwtResult <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims\
+sdjwtResult <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims\
 case sdjwtResult of\
   Right sdjwt -> case selectDisclosuresByNames sdjwt ["given_name"] of\
     Right pres -> let presentationText = serializePresentation pres\

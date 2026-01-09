@@ -32,7 +32,8 @@ import TestKeys (generateTestRSAKeyPair, generateTestEd25519KeyPair, TestKeyPair
 -- >>> let issuerPrivateKeyJWK = privateKeyJWK keyPair  -- Your function to load the key (returns Text or JWK.JWK)
 -- >>> -- Create SD-JWT with selective disclosure
 -- >>> -- PS256 (RSA-PSS) is used by default for RSA keys
--- >>> result <- createSDJWT SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
+-- >>> -- createSDJWT signature: mbTyp mbKid hashAlg key claimNames claims
+-- >>> result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
 -- >>> case result of
 -- >>>   Right sdjwt -> do
 -- >>>     let serialized = serializeSDJWT sdjwt
@@ -43,7 +44,7 @@ import TestKeys (generateTestRSAKeyPair, generateTestEd25519KeyPair, TestKeyPair
 -- >>> -- Deserialize SD-JWT received from issuer
 -- >>> issuerKeyPair <- generateTestRSAKeyPair
 -- >>> let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
--- >>> sdjwtResult <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
+-- >>> sdjwtResult <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
 -- >>> case sdjwtResult of
 -- >>>   Right sdjwt -> let sdjwtText = serializeSDJWT sdjwt
 -- >>>   Left _ -> error "Failed to create SD-JWT"
@@ -78,7 +79,7 @@ import TestKeys (generateTestRSAKeyPair, generateTestEd25519KeyPair, TestKeyPair
 -- >>> -- Deserialize presentation received from holder
 -- >>> issuerKeyPair <- generateTestRSAKeyPair
 -- >>> let claims = Map.fromList [("sub", Aeson.String "user_123"), ("given_name", Aeson.String "John")]
--- >>> sdjwtResult <- createSDJWT SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
+-- >>> sdjwtResult <- createSDJWT (Just "sd-jwt") Nothing SHA256 (privateKeyJWK issuerKeyPair) ["given_name"] claims
 -- >>> case sdjwtResult of
 -- >>>   Right sdjwt -> case selectDisclosuresByNames sdjwt ["given_name"] of
 -- >>>     Right pres -> let presentationText = serializePresentation pres
@@ -128,11 +129,17 @@ import TestKeys (generateTestRSAKeyPair, generateTestEd25519KeyPair, TestKeyPair
 -- >>> :set -XOverloadedStrings
 -- >>> let claims = Map.fromList [("claim", Aeson.String "value")]
 -- >>> let issuerKey :: T.Text = "{\"kty\":\"RSA\",\"n\":\"...\",\"e\":\"AQAB\",\"d\":\"...\"}"
--- >>> result <- createSDJWT SHA256 issuerKey ["claim"] claims
+-- >>> -- createSDJWT takes: mbTyp mbKid hashAlg key claimNames claims
+-- >>> result <- createSDJWT Nothing Nothing SHA256 issuerKey ["claim"] claims
+-- >>> -- Or with typ header (recommended):
+-- >>> result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerKey ["claim"] claims
 
 -- Example from README.md (block 7)
 -- >>> :set -XOverloadedStrings
 -- >>> let claims = Map.fromList [("claim", Aeson.String "value")]
 -- >>> keyPair <- generateTestRSAKeyPair
 -- >>> let jwk = privateKeyJWK keyPair  -- Your function that returns JWK.JWK
--- >>> result <- createSDJWT SHA256 jwk ["claim"] claims
+-- >>> -- createSDJWT takes: mbTyp mbKid hashAlg key claimNames claims
+-- >>> result <- createSDJWT Nothing Nothing SHA256 jwk ["claim"] claims
+-- >>> -- Or with typ header (recommended):
+-- >>> result <- createSDJWT (Just "sd-jwt") Nothing SHA256 jwk ["claim"] claims

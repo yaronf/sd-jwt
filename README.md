@@ -83,7 +83,8 @@ issuerPrivateKeyJWK <- loadPrivateKeyJWK  -- Your function to load the key (retu
 
 -- Create SD-JWT with selective disclosure
 -- PS256 (RSA-PSS) is used by default for RSA keys
-result <- createSDJWT SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
+-- createSDJWT signature: mbTyp mbKid hashAlg key claimNames claims
+result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerPrivateKeyJWK ["given_name", "family_name"] claims
 case result of
   Right sdjwt -> do
     let serialized = serializeSDJWT sdjwt
@@ -241,7 +242,10 @@ Keys can be provided in two formats:
    ```haskell
    let claims = Map.fromList [("claim", Aeson.String "value")]
    let issuerKey :: T.Text = "{\"kty\":\"RSA\",\"n\":\"...\",\"e\":\"AQAB\",\"d\":\"...\"}"
-   result <- createSDJWT SHA256 issuerKey ["claim"] claims
+   -- createSDJWT takes: mbTyp mbKid hashAlg key claimNames claims
+   result <- createSDJWT Nothing Nothing SHA256 issuerKey ["claim"] claims
+   -- Or with typ header (recommended):
+   result <- createSDJWT (Just "sd-jwt") Nothing SHA256 issuerKey ["claim"] claims
    ```
 
 2. **jose JWK object** - If you're already working with the `jose` library:
@@ -249,7 +253,10 @@ Keys can be provided in two formats:
    import Crypto.JOSE.JWK as JWK
    let claims = Map.fromList [("claim", Aeson.String "value")]
    jwk <- loadJWK  -- Your function that returns JWK.JWK
-   result <- createSDJWT SHA256 jwk ["claim"] claims
+   -- createSDJWT takes: mbTyp mbKid hashAlg key claimNames claims
+   result <- createSDJWT Nothing Nothing SHA256 jwk ["claim"] claims
+   -- Or with typ header (recommended):
+   result <- createSDJWT (Just "sd-jwt") Nothing SHA256 jwk ["claim"] claims
    ```
 
 The library automatically handles both formats through the `JWKLike` type class. Users who don't import `jose` can use Text strings directly, while users already working with `jose` can pass JWK objects without serialization overhead.
