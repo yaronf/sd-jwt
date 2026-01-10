@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/yaronf/sd-jwt/actions/workflows/ci.yml/badge.svg)](https://github.com/yaronf/sd-jwt/actions/workflows/ci.yml)
 [![Hackage](https://img.shields.io/hackage/v/sd-jwt)](https://hackage.haskell.org/package/sd-jwt)
-[![Hackage deps](https://img.shields.io/hackage-deps/v/sd-jwt)](https://hackage.haskell.org/package/sd-jwt)
 
 [![Haddocks](https://img.shields.io/badge/docs-haddock-blue)](https://hackage.haskell.org/package/sd-jwt/docs)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
