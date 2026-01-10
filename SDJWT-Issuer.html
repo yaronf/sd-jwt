@@ -3,9 +3,9 @@
  that issuers don't need (like Presentation and Verification).</p><h2>Security Warning: EC Signing Timing Attack</h2><p>&#9888;&#65039; When using Elliptic Curve (EC) keys (ES256 algorithm), be aware that the
  underlying <code>jose</code> library's EC signing implementation may be vulnerable to
  timing attacks. This affects <em>signing only</em>, not verification.</p><p>For applications where timing attacks are a concern, consider using RSA-PSS (PS256)
- or Ed25519 (EdDSA) keys instead, which do not have this limitation.</p><p>Note: RS256 (RSA-PKCS#1 v1.5) is deprecated per draft-ietf-jose-deprecate-none-rsa15
- due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is the recommended
- RSA algorithm and is used by default for RSA keys.</p><h2>Usage</h2><p>For issuers, import this module:</p><pre>import SDJWT.Issuer
+ or Ed25519 (EdDSA) keys instead, which do not have this limitation.</p><p>Note: RS256 (RSA-PKCS#1 v1.5) is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15,
+ but remains valid for signatures. PS256 (RSA-PSS) is the recommended RSA algorithm
+ and is used by default for RSA keys.</p><h2>Usage</h2><p>For issuers, import this module:</p><pre>import SDJWT.Issuer
 </pre><p>This gives you access to:</p><ul><li>Core data types (HashAlgorithm, SDJWT, SDJWTPayload, etc.)</li><li>Serialization functions (<code><a href="SDJWT-Internal-Serialization.html#v:serializeSDJWT" title="SDJWT.Internal.Serialization">serializeSDJWT</a></code>, <code><a href="SDJWT-Internal-Serialization.html#v:deserializeSDJWT" title="SDJWT.Internal.Serialization">deserializeSDJWT</a></code>)</li><li>Issuance functions (<code><a href="SDJWT-Issuer.html#v:createSDJWT" title="SDJWT.Issuer">createSDJWT</a></code>, <code><a href="SDJWT-Issuer.html#v:createSDJWTWithDecoys" title="SDJWT.Issuer">createSDJWTWithDecoys</a></code>)</li><li>Helper functions (<code><a href="SDJWT-Issuer.html#v:addHolderKeyToClaims" title="SDJWT.Issuer">addHolderKeyToClaims</a></code>)</li></ul><h2>Creating SD-JWTs</h2><p>The main function for creating SD-JWTs is <code><a href="SDJWT-Issuer.html#v:createSDJWT" title="SDJWT.Issuer">createSDJWT</a></code>:</p><pre>-- Create SD-JWT without typ or kid headers
 result &lt;- createSDJWT Nothing Nothing SHA256 issuerKey [&quot;given_name&quot;, &quot;family_name&quot;] claims
 
