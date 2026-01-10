@@ -1,5 +1,5 @@
 name:                sd-jwt
-version:             0.1.0.0
+version:             0.1.0.1
 github:              "yaronf/sd-jwt"
 license:             BSD3
 author:              "Yaron Sheffer"
