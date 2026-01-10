@@ -41,7 +41,7 @@ dependencies:
 - vector >= 0.13 && < 0.14
 - time >= 1.9 && < 1.13
 - scientific >= 0.3 && < 0.4
-- mtl >= 2.2 && < 3.0
+- mtl >= 2.2 && < 3
 
 ghc-options:
 - -Wall                    # Enable all standard warnings

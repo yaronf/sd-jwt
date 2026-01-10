@@ -64,7 +64,7 @@ library
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -89,7 +89,7 @@ executable sd-jwt-example
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , sd-jwt
     , text ==2.0.*
@@ -117,7 +117,7 @@ executable sd-jwt-interop-test
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -179,7 +179,7 @@ test-suite sd-jwt-test
     , lens >=4.16 && <5.4
     , markdown-unlit >=0.5
     , memory ==0.18.*
-    , mtl >=2.2 && <3.0
+    , mtl >=2.2 && <3
     , process >=1.6
     , scientific ==0.3.*
     , sd-jwt
