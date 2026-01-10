@@ -7,7 +7,7 @@
 --   Implementation of RFC 9901: Selective Disclosure for JSON Web Tokens
 --   (SD-JWT)
 @package sd-jwt
-@version 0.1.0.0
+@version 0.1.0.1
 
 
 -- | Core data types for SD-JWT (Selective Disclosure for JSON Web Tokens).
