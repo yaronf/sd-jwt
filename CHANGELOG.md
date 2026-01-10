@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the
 [Haskell Package Versioning Policy](https://pvp.haskell.org/).
 
+## 0.1.0.1 - 2025-01-10
+
+### Fixed
+- Corrected documentation regarding RS256 deprecation status: RS256 (RSA-PKCS#1 v1.5) is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15, but remains valid for signatures. Previous documentation incorrectly stated RS256 was deprecated for signatures.
+
+### Documentation
+- Updated README.md, source code comments, and module documentation to clarify RS256 deprecation status
+- PS256 (RSA-PSS) remains the recommended default for RSA keys
+
 ## 0.1.0.0 - 2025-01-09
 
 ### Added
@@ -18,7 +27,7 @@ and this project adheres to the
 - Multiple hash algorithms: SHA-256 (default), SHA-384, SHA-512
 - Multiple signing algorithms:
   - PS256 (RSA-PSS) - Default for RSA keys, recommended for security
-  - RS256 (RSA-PKCS#1 v1.5) - Deprecated but supported for backward compatibility
+  - RS256 (RSA-PKCS#1 v1.5) - Supported for signatures (deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15)
   - ES256 (EC P-256) - Elliptic Curve signing
   - EdDSA (Ed25519) - Recommended for high-security applications
 - Persona-specific modules: `SDJWT.Issuer`, `SDJWT.Holder`, `SDJWT.Verifier`
@@ -31,7 +40,7 @@ and this project adheres to the
 
 ### Security
 - PS256 (RSA-PSS) is the default algorithm for RSA keys (security best practice)
-- RS256 (RSA-PKCS#1 v1.5) is deprecated per draft-ietf-jose-deprecate-none-rsa15 due to padding oracle attack vulnerabilities
+- RS256 (RSA-PKCS#1 v1.5) is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15, but remains valid for signatures
 - EC signing timing attack warning documented (affects signing only, not verification)
 - RFC 8725bis compliance: algorithm validation, typ header support, "none" algorithm rejection
 

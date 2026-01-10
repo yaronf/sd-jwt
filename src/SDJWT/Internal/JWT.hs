@@ -71,11 +71,11 @@ detectKeyAlgorithmFromJWK jwk = do
       if kty == "RSA"
         then do
           -- Check if JWK specifies algorithm (RFC 7517 allows optional "alg" field)
-          -- RS256 is deprecated per draft-ietf-jose-deprecate-none-rsa15 (padding oracle attacks)
-          -- Default to PS256 (RSA-PSS) for security; RS256 can be explicitly requested but is deprecated
+          -- RS256 is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15, but remains valid for signatures
+          -- Default to PS256 (RSA-PSS) as recommended; RS256 can be explicitly requested
           case KeyMap.lookup (Key.fromText "alg") obj of
-            Just (Aeson.String "RS256") -> Right "RS256"  -- Deprecated but still supported for compatibility
-            _ -> Right "PS256"  -- Default to PS256 (RSA-PSS) for security
+            Just (Aeson.String "RS256") -> Right "RS256"  -- Supported for signatures
+            _ -> Right "PS256"  -- Default to PS256 (RSA-PSS) as recommended
         else if kty == "EC"
           then do
             -- Check curve for EC keys (only P-256 is supported)
@@ -98,14 +98,15 @@ detectKeyAlgorithmFromJWK jwk = do
     _ -> Left $ InvalidSignature "Invalid JWK format: expected object"
 
 -- | Convert algorithm string to JWA.Alg
--- Supports RSA-PSS (PS256, default) and RSA-PKCS#1 v1.5 (RS256, deprecated per draft-ietf-jose-deprecate-none-rsa15).
--- RS256 is deprecated due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is recommended.
+-- Supports RSA-PSS (PS256, default) and RSA-PKCS#1 v1.5 (RS256).
+-- RS256 is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15, but remains valid for signatures.
+-- PS256 (RSA-PSS) is recommended and used as the default.
 toJwsAlg :: T.Text -> Either SDJWTError JWA.Alg
-toJwsAlg "RS256" = Right JWA.RS256  -- Deprecated: Use PS256 instead (draft-ietf-jose-deprecate-none-rsa15)
+toJwsAlg "RS256" = Right JWA.RS256  -- Supported for signatures
 toJwsAlg "PS256" = Right JWA.PS256
 toJwsAlg "EdDSA" = Right JWA.EdDSA
 toJwsAlg "ES256" = Right JWA.ES256
-toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (supported: PS256 default, RS256 deprecated, EdDSA, ES256)"
+toJwsAlg alg = Left $ InvalidSignature $ "Unsupported algorithm: " <> alg <> " (supported: PS256 default, RS256, EdDSA, ES256)"
 
 -- | Sign a JWT payload using a private key.
 --

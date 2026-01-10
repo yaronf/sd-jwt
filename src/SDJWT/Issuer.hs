@@ -14,9 +14,9 @@
 -- For applications where timing attacks are a concern, consider using RSA-PSS (PS256)
 -- or Ed25519 (EdDSA) keys instead, which do not have this limitation.
 --
--- Note: RS256 (RSA-PKCS#1 v1.5) is deprecated per draft-ietf-jose-deprecate-none-rsa15
--- due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is the recommended
--- RSA algorithm and is used by default for RSA keys.
+-- Note: RS256 (RSA-PKCS#1 v1.5) is deprecated for encryption per draft-ietf-jose-deprecate-none-rsa15,
+-- but remains valid for signatures. PS256 (RSA-PSS) is the recommended RSA algorithm
+-- and is used by default for RSA keys.
 --
 -- == Usage
 --

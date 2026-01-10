@@ -21,7 +21,7 @@ SD-JWT enables selective disclosure of individual elements of a JSON data struct
 - ✅ Key Binding support (SD-JWT+KB)
 - ✅ Nested and recursive disclosures
 - ✅ Multiple hash algorithms (SHA-256, SHA-384, SHA-512)
-- ✅ Multiple signing algorithms: PS256 (RSA-PSS, default), RS256 (deprecated), ES256 (EC P-256), EdDSA (Ed25519)
+- ✅ Multiple signing algorithms: PS256 (RSA-PSS, default), RS256 (RSA-PKCS#1 v1.5), ES256 (EC P-256), EdDSA (Ed25519)
 
 ## Status
 
@@ -62,7 +62,7 @@ The library provides three persona-specific modules for different use cases:
 
 ⚠️ **Security Warning**: When using Elliptic Curve (EC) keys (ES256 algorithm), be aware that the underlying `jose` library's EC signing implementation may be vulnerable to timing attacks. This affects signing only, not verification. For applications where timing attacks are a concern, consider using RSA-PSS (PS256, default for RSA keys) or Ed25519 (EdDSA) keys instead.
 
-**Note**: RS256 (RSA-PKCS#1 v1.5) is deprecated per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/) due to padding oracle attack vulnerabilities. PS256 (RSA-PSS) is the recommended RSA algorithm and is used by default for RSA keys.
+**Note**: RS256 (RSA-PKCS#1 v1.5) is deprecated for encryption per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/), but remains valid for signatures. PS256 (RSA-PSS) is the recommended RSA algorithm and is used by default for RSA keys.
 
 ```haskell
 import SDJWT.Issuer
@@ -222,7 +222,7 @@ JSON Pointer escaping resolves this ambiguity. See [RFC 6901](https://www.rfc-ed
 ### Signing Algorithms
 
 - **PS256 (RSA-PSS)** - Default for RSA keys, recommended for security
-- **RS256 (RSA-PKCS#1 v1.5)** - Deprecated per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/), but still supported for backward compatibility
+- **RS256 (RSA-PKCS#1 v1.5)** - Supported for signatures (deprecated for encryption per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/), but not for signatures)
 - **ES256 (EC P-256)** - Elliptic Curve, may be vulnerable to timing attacks during signing
 - **EdDSA (Ed25519)** - Recommended for high-security applications
 

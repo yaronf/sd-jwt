@@ -8,7 +8,7 @@ name:           sd-jwt
 version:        0.1.0.0
 synopsis:       Selective Disclosure for JSON Web Tokens (RFC 9901)
 description:    Implementation of RFC 9901: Selective Disclosure for JSON Web Tokens (SD-JWT)
-category:       Security
+category:       Web
 homepage:       https://github.com/yaronf/sd-jwt#readme
 bug-reports:    https://github.com/yaronf/sd-jwt/issues
 author:         Yaron Sheffer
@@ -64,7 +64,7 @@ library
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3
+    , mtl >=2.2 && <3.0
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -81,20 +81,20 @@ executable sd-jwt-example
   build-depends:
       aeson >=2.0 && <2.3
     , base >=4.14 && <5
-    , base64-bytestring >=1.2 && <1.3
-    , bytestring >=0.11 && <0.13
-    , containers >=0.6 && <0.7
-    , cryptonite >=0.30 && <0.31
+    , base64-bytestring ==1.2.*
+    , bytestring ==0.11.*
+    , containers ==0.6.*
+    , cryptonite ==0.30.*
     , directory ==1.3.*
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
-    , memory >=0.18 && <0.19
-    , mtl >=2.2 && <3
-    , scientific >=0.3 && <0.4
+    , memory ==0.18.*
+    , mtl >=2.2 && <3.0
+    , scientific ==0.3.*
     , sd-jwt
-    , text >=2.0 && <2.1
+    , text ==2.0.*
     , time >=1.9 && <1.13
-    , vector >=0.13 && <0.14
+    , vector ==0.13.*
   default-language: Haskell2010
 
 executable sd-jwt-interop-test
@@ -105,7 +105,7 @@ executable sd-jwt-interop-test
       TestKeys
   hs-source-dirs:
       test/interop
-    , test
+      test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -Wunused-packages -Wmissing-deriving-strategies -Wno-missing-import-lists -Wno-unused-imports -Wunused-type-patterns -Wunused-record-wildcards -Wredundant-record-wildcards -Wtype-defaults -Wunused-do-bind -Wunused-foralls -Wdeprecations -Wnoncanonical-monad-instances -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson >=2.0 && <2.3
@@ -117,7 +117,7 @@ executable sd-jwt-interop-test
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , memory ==0.18.*
-    , mtl >=2.2 && <3
+    , mtl >=2.2 && <3.0
     , scientific ==0.3.*
     , text ==2.0.*
     , time >=1.9 && <1.13
@@ -167,10 +167,10 @@ test-suite sd-jwt-test
       QuickCheck >=2.14
     , aeson >=2.0 && <2.3
     , base >=4.14 && <5
-    , base64-bytestring >=1.2 && <1.3
-    , bytestring >=0.11 && <0.13
-    , containers >=0.6 && <0.7
-    , cryptonite >=0.30 && <0.31
+    , base64-bytestring ==1.2.*
+    , bytestring ==0.11.*
+    , containers ==0.6.*
+    , cryptonite ==0.30.*
     , directory >=1.3
     , doctest >=0.22
     , filepath >=1.4
@@ -178,11 +178,12 @@ test-suite sd-jwt-test
     , jose >=0.10 && <0.13
     , lens >=4.16 && <5.4
     , markdown-unlit >=0.5
-    , mtl >=2.2 && <3
+    , memory ==0.18.*
+    , mtl >=2.2 && <3.0
     , process >=1.6
-    , scientific >=0.3 && <0.4
+    , scientific ==0.3.*
     , sd-jwt
-    , text >=2.0 && <2.1
+    , text ==2.0.*
     , time >=1.9
-    , vector >=0.13 && <0.14
+    , vector ==0.13.*
   default-language: Haskell2010

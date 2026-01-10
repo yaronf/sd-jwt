@@ -504,7 +504,7 @@ dependencies:
   
 **Supported JWT Algorithms**:
 - ✅ **RSA-PSS (PS256)**: Default for RSA keys, fully supported for signing and verification (RFC 7518, well-defined in JOSE standards, preferred for security)
-- ⚠️ **RSA (RS256)**: Deprecated per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/) due to padding oracle attack vulnerabilities. Still supported for compatibility but PS256 is strongly recommended. Can be explicitly requested via JWK "alg" field.
+- ✅ **RSA (RS256)**: Supported for signatures. RS256 is deprecated for encryption per [draft-ietf-jose-deprecate-none-rsa15](https://datatracker.ietf.org/doc/draft-ietf-jose-deprecate-none-rsa15/), but remains valid for signatures. PS256 is recommended and used as the default. RS256 can be explicitly requested via JWK "alg" field.
 - ✅ **Ed25519 (EdDSA)**: Fully supported for signing and verification
 - ✅ **EC P-256 (ES256)**: Fully supported for signing and verification (native support via jose library)
   - memory >= 0.18      # For secure random generation
@@ -610,7 +610,7 @@ dependencies:
 4. **Input Validation**: Validate all inputs (disclosures, digests, etc.)
 5. **Constant-Time Operations**: Use constant-time comparisons where applicable
 6. **Memory Safety**: Avoid exposing sensitive data unnecessarily
-7. **EC Signing Timing Attack**: Documented warning in Issuer-facing API about potential timing attack vulnerability in EC (ES256) signing (affects signing only, not verification). Users concerned about timing attacks should use RSA (RS256) or Ed25519 (EdDSA) keys instead.
+7. **EC Signing Timing Attack**: Documented warning in Issuer-facing API about potential timing attack vulnerability in EC (ES256) signing (affects signing only, not verification). Users concerned about timing attacks should use RSA (PS256 or RS256) or Ed25519 (EdDSA) keys instead.
 
 ## Phase 9: Code Cleanup and Refactoring
 
