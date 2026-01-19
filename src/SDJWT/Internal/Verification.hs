@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE LambdaCase #-}
 -- | SD-JWT verification: Verifying SD-JWT presentations.
 --
 -- This module provides functions for verifying SD-JWT presentations on the verifier side.
@@ -27,7 +26,7 @@ import SDJWT.Internal.Disclosure (decodeDisclosure, getDisclosureValue, getDiscl
 import SDJWT.Internal.Utils (base64urlDecode)
 import SDJWT.Internal.KeyBinding (verifyKeyBindingJWT)
 import SDJWT.Internal.JWT (verifyJWT, JWKLike)
-import SDJWT.Internal.Monad (SDJWTIO, runSDJWTIO)
+import SDJWT.Internal.Monad (SDJWTIO, runSDJWTIO, eitherToExceptT)
 import Control.Monad.Except (throwError)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Aeson as Aeson
@@ -38,9 +37,8 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BSL
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, catMaybes)
 import Data.Either (partitionEithers)
-import Control.Monad (when)
 import Data.Text.Encoding (decodeUtf8)
 
 -- | Complete SD-JWT verification.
@@ -75,12 +73,11 @@ verifySDJWT
   -> SDJWTPresentation
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any/none, Just "sd-jwt" = require exactly "sd-jwt")
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
-verifySDJWT issuerKey presentation requiredTyp = do
-  -- Verify issuer signature (required)
-  verifyResult <- verifySDJWTSignature issuerKey presentation requiredTyp
-  case verifyResult of
-    Left err -> return (Left err)
-    Right () -> verifySDJWTAfterSignature presentation
+verifySDJWT issuerKey presentation requiredTyp =
+  runSDJWTIO $ do
+    -- Verify issuer signature (required)
+    verifySDJWTSignatureExceptT issuerKey presentation requiredTyp
+    verifySDJWTAfterSignatureExceptT presentation
 
 -- | SD-JWT verification without signature verification.
 --
@@ -94,48 +91,32 @@ verifySDJWT issuerKey presentation requiredTyp = do
 verifySDJWTWithoutSignature
   :: SDJWTPresentation
   -> IO (Either SDJWTError ProcessedSDJWTPayload)
-verifySDJWTWithoutSignature = verifySDJWTAfterSignature
+verifySDJWTWithoutSignature = runSDJWTIO . verifySDJWTAfterSignatureExceptT
 
--- | Continue SD-JWT verification after signature verification (if performed).
-verifySDJWTAfterSignature
+-- | Internal ExceptT version of verifySDJWTAfterSignature.
+verifySDJWTAfterSignatureExceptT
   :: SDJWTPresentation
-  -> IO (Either SDJWTError ProcessedSDJWTPayload)
-verifySDJWTAfterSignature presentation = do
+  -> SDJWTIO ProcessedSDJWTPayload
+verifySDJWTAfterSignatureExceptT presentation = do
   -- Extract hash algorithm from payload
-  hashAlg <- case extractHashAlgorithmFromPresentation presentation of
-    Left err -> return (Left err)
-    Right alg -> return (Right alg)
+  alg <- eitherToExceptT $ extractHashAlgorithmFromPresentation presentation
   
-  case hashAlg of
-    Left err -> return (Left err)
-    Right alg -> do
-      -- Verify disclosures match digests
-      case verifyDisclosures alg presentation of
-        Left err -> return (Left err)
-        Right () -> do
-          -- Verify key binding if present
-          case keyBindingJWT presentation of
-            Just kbJWT -> do
-              -- Extract holder public key from cnf claim in SD-JWT payload
-              holderKeyResult <- extractHolderKeyFromPayload presentation
-              case holderKeyResult of
-                Left err -> return (Left err)
-                Right kbInfo -> do
-                  -- Verify KB-JWT using holder's public key from cnf claim
-                  -- kbPublicKey is compatible with JWKLike (Text implements JWKLike)
-                  kbVerifyResult <- verifyKeyBindingJWT alg (kbPublicKey kbInfo) kbJWT presentation
-                  case kbVerifyResult of
-                    Left err -> return (Left err)
-                    Right () -> do
-                      -- Process payload to reconstruct claims, including key binding info
-                      case processPayloadFromPresentation alg presentation (Just kbInfo) of
-                        Left err -> return (Left err)
-                        Right processed -> return (Right processed)
-            Nothing -> do
-              -- Process payload to reconstruct claims (no key binding)
-              case processPayloadFromPresentation alg presentation Nothing of
-                Left err -> return (Left err)
-                Right processed -> return (Right processed)
+  -- Verify disclosures match digests
+  eitherToExceptT $ verifyDisclosures alg presentation
+  
+  -- Verify key binding if present
+  case keyBindingJWT presentation of
+    Just kbJWT -> do
+      -- Extract holder public key from cnf claim in SD-JWT payload
+      kbInfo <- liftIO (extractHolderKeyFromPayload presentation) >>= eitherToExceptT
+      -- Verify KB-JWT using holder's public key from cnf claim
+      -- kbPublicKey is compatible with JWKLike (Text implements JWKLike)
+      liftIO (verifyKeyBindingJWT alg (kbPublicKey kbInfo) kbJWT presentation) >>= eitherToExceptT
+      -- Process payload to reconstruct claims, including key binding info
+      eitherToExceptT $ processPayloadFromPresentation alg presentation (Just kbInfo)
+    Nothing -> do
+      -- Process payload to reconstruct claims (no key binding)
+      eitherToExceptT $ processPayloadFromPresentation alg presentation Nothing
 
 -- | Verify SD-JWT issuer signature.
 --
@@ -145,12 +126,18 @@ verifySDJWTSignature
   -> SDJWTPresentation  -- ^ SD-JWT presentation to verify
   -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any typ or none, Just typValue = require typ to be exactly that value)
   -> IO (Either SDJWTError ())
-verifySDJWTSignature issuerKey presentation requiredTyp = do
-  -- Verify JWT signature using verifyJWT
-  verifiedPayloadResult <- verifyJWT issuerKey (presentationJWT presentation) requiredTyp
-  case verifiedPayloadResult of
-    Left err -> return (Left err)
-    Right _ -> return (Right ())
+verifySDJWTSignature issuerKey presentation requiredTyp =
+  runSDJWTIO $ verifySDJWTSignatureExceptT issuerKey presentation requiredTyp
+
+-- | Internal ExceptT version of verifySDJWTSignature.
+verifySDJWTSignatureExceptT
+  :: JWKLike jwk => jwk  -- ^ Issuer public key (Text or jose JWK object)
+  -> SDJWTPresentation  -- ^ SD-JWT presentation to verify
+  -> Maybe T.Text  -- ^ Required typ header value (Nothing = allow any typ or none, Just typValue = require typ to be exactly that value)
+  -> SDJWTIO ()
+verifySDJWTSignatureExceptT issuerKey presentation requiredTyp = do
+  -- Verify JWT signature using verifyJWT (ignore the returned payload value)
+  liftIO (verifyJWT issuerKey (presentationJWT presentation) requiredTyp) >>= eitherToExceptT . fmap (const ())
 
 -- | Verify key binding in a presentation.
 --
@@ -257,24 +244,30 @@ extractHolderKeyFromPayload
   :: SDJWTPresentation
   -> IO (Either SDJWTError KeyBindingInfo)
 extractHolderKeyFromPayload presentation =
-  case parsePayloadFromJWT (presentationJWT presentation) of
-    Left err -> return (Left err)
-    Right payload -> do
-      -- Extract cnf claim from payload
-      case payloadValue payload of
-        Aeson.Object obj ->
-          case KeyMap.lookup "cnf" obj of
-            Just (Aeson.Object cnfObj) ->
-              -- Extract jwk from cnf object (RFC 7800 jwk confirmation method)
-              case KeyMap.lookup "jwk" cnfObj of
-                Just jwkValue -> do
-                  -- Encode JWK as JSON string
-                  let jwkJson = Aeson.encode jwkValue
-                  return $ Right $ KeyBindingInfo $ decodeUtf8 $ BSL.toStrict jwkJson
-                Nothing -> return $ Left $ InvalidKeyBinding "Missing jwk in cnf claim"
-            Just _ -> return $ Left $ InvalidKeyBinding "cnf claim is not an object"
-            Nothing -> return $ Left $ InvalidKeyBinding "Missing cnf claim in SD-JWT payload"
-        _ -> return $ Left $ InvalidKeyBinding "SD-JWT payload is not an object"
+  runSDJWTIO $ extractHolderKeyFromPayloadExceptT presentation
+
+-- | Internal ExceptT version of extractHolderKeyFromPayload.
+extractHolderKeyFromPayloadExceptT
+  :: SDJWTPresentation
+  -> SDJWTIO KeyBindingInfo
+extractHolderKeyFromPayloadExceptT presentation = do
+  payload <- eitherToExceptT $ parsePayloadFromJWT (presentationJWT presentation)
+  
+  -- Extract cnf claim from payload
+  case payloadValue payload of
+    Aeson.Object obj ->
+      case KeyMap.lookup "cnf" obj of
+        Just (Aeson.Object cnfObj) ->
+          -- Extract jwk from cnf object (RFC 7800 jwk confirmation method)
+          case KeyMap.lookup "jwk" cnfObj of
+            Just jwkValue -> do
+              -- Encode JWK as JSON string
+              let jwkJson = Aeson.encode jwkValue
+              return $ KeyBindingInfo $ decodeUtf8 $ BSL.toStrict jwkJson
+            Nothing -> throwError $ InvalidKeyBinding "Missing jwk in cnf claim"
+        Just _ -> throwError $ InvalidKeyBinding "cnf claim is not an object"
+        Nothing -> throwError $ InvalidKeyBinding "Missing cnf claim in SD-JWT payload"
+    _ -> throwError $ InvalidKeyBinding "SD-JWT payload is not an object"
 
 -- | Parse payload from JWT.
 --
@@ -336,7 +329,7 @@ extractDigestsFromRecursiveDisclosures
   :: [EncodedDisclosure]
   -> Either SDJWTError [Digest]
 extractDigestsFromRecursiveDisclosures disclosures =
-  fmap concat $ mapM (\encDisclosure ->
+  concat <$> mapM (\encDisclosure ->
     case decodeDisclosure encDisclosure of
       Left _ -> Right []  -- Skip invalid disclosures
       Right decoded ->
@@ -368,11 +361,11 @@ buildDisclosureMap
   -> Either SDJWTError (Map.Map T.Text (T.Text, Aeson.Value), Map.Map T.Text Aeson.Value)
 buildDisclosureMap hashAlg sdDisclosures =
   -- Process each disclosure and separate into object and array disclosures
-  fmap (\disclosureResults ->
+  (\disclosureResults ->
     -- Partition into object and array results
     let (objectResults, arrayResults) = partitionEithers disclosureResults
     in (Map.fromList objectResults, Map.fromList arrayResults)
-  ) $ mapM (\encDisclosure ->
+  ) <$> mapM (\encDisclosure ->
     decodeDisclosure encDisclosure >>= \decodedDisclosure ->
       let digestText = computeDigestText hashAlg encDisclosure
           claimName = getDisclosureClaimName decodedDisclosure
@@ -408,7 +401,7 @@ processSDArraysInClaims
   -> Map.Map T.Text (T.Text, Aeson.Value)  -- Object disclosures: digest -> (claimName, claimValue)
   -> Aeson.Object
 processSDArraysInClaims claims objectDisclosureMap =
-  KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) claims
+  KeyMap.map (`processSDArraysInValue` objectDisclosureMap) claims
 
 -- | Recursively process a JSON value to replace digests in _sd arrays with values.
 processSDArraysInValue
@@ -432,14 +425,14 @@ processSDArraysInValue (Aeson.Object obj) objectDisclosureMap =
           objWithDisclosedClaims = foldl (\acc (claimName, claimValue) ->
                 KeyMap.insert (Key.fromText claimName) claimValue acc) objWithoutSD disclosedClaims
       -- Recursively process nested objects (including the newly added claims)
-          processedObj = KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) objWithDisclosedClaims
+          processedObj = KeyMap.map (`processSDArraysInValue` objectDisclosureMap) objWithDisclosedClaims
       in Aeson.Object processedObj
     _ ->
       -- _sd doesn't exist or is not an array, just recursively process nested objects
-      Aeson.Object (KeyMap.map (\value -> processSDArraysInValue value objectDisclosureMap) obj)
+      Aeson.Object (KeyMap.map (`processSDArraysInValue` objectDisclosureMap) obj)
 processSDArraysInValue (Aeson.Array arr) objectDisclosureMap =
   -- Recursively process array elements
-  Aeson.Array $ V.map (\el -> processSDArraysInValue el objectDisclosureMap) arr
+  Aeson.Array $ V.map (`processSDArraysInValue` objectDisclosureMap) arr
 processSDArraysInValue value _objectDisclosureMap = value  -- Primitive values, keep as is
 
 -- | Recursively process arrays in claims to replace {"...": "<digest>"} objects with values.
@@ -522,7 +515,7 @@ processValueForArraysWithSD (Aeson.Array arr) arrayDisclosureMap objectDisclosur
         Aeson.Object obj -> processEllipsisObject obj arrayDisclosureMap objectDisclosureMap
         _ -> return (Just el)  -- Not an object, keep as is
         ) processedElements
-  return $ Aeson.Array $ V.fromList $ mapMaybe id replacedElements
+  return $ Aeson.Array $ V.fromList $ catMaybes replacedElements
 processValueForArraysWithSD (Aeson.Object obj) arrayDisclosureMap objectDisclosureMap = do
   -- Recursively process nested objects and _sd arrays
   processedPairs <- mapM (\(key, value) -> do
